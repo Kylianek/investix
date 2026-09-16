@@ -15,15 +15,41 @@
 <title>Investiční kalkulačka nemovitostí</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<link rel="stylesheet" href="css/style.css?v=1789507738" />
+<link rel="stylesheet" href="css/style.css?v=1789557055" />
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
 
   <div id="app-screen">
     <header class="bg-white border-b border-slate-200">
-      <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
         <h1 class="font-bold text-lg">🏠 Investiční kalkulačka</h1>
-        <span class="text-xs text-slate-400 hidden sm:inline">Data se ukládají jen v tomto prohlížeči</span>
+        <div class="flex items-center gap-3">
+          <span class="text-xs text-slate-400 hidden lg:inline">Data se ukládají jen v tomto prohlížeči</span>
+          <div class="relative" id="header-auth-widget">
+            <div id="header-auth-logged-out">
+              <button type="button" id="header-auth-toggle" class="btn-secondary text-xs">Přihlásit se</button>
+              <div id="header-auth-dropdown" class="hidden absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-lg p-4 z-50 text-left">
+                <form id="header-auth-form" class="space-y-2 text-sm">
+                  <label class="flex flex-col gap-1">E-mail
+                    <input id="header-auth-email" type="email" class="input" autocomplete="email" />
+                  </label>
+                  <label class="flex flex-col gap-1">Heslo
+                    <input id="header-auth-password" type="password" class="input" autocomplete="current-password" minlength="6" />
+                  </label>
+                  <p id="header-auth-message" class="hidden text-xs text-red-600"></p>
+                  <div class="flex gap-2">
+                    <button type="submit" class="btn-primary text-xs">Přihlásit se</button>
+                    <button type="button" id="header-btn-auth-signup" class="btn-secondary text-xs">Vytvořit účet</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+            <div id="header-auth-logged-in" class="hidden flex items-center gap-2 text-xs">
+              <span class="text-slate-600 truncate max-w-[9rem] sm:max-w-none" id="header-auth-user-email"></span>
+              <button type="button" id="header-btn-auth-signout" class="text-blue-600 hover:underline whitespace-nowrap">Odhlásit se</button>
+            </div>
+          </div>
+        </div>
       </div>
       <nav class="max-w-6xl mx-auto px-4 flex flex-wrap gap-1 -mb-px">
         <button class="tab-btn tab-active" data-tab="tab-overview">Přehled</button>
@@ -52,6 +78,7 @@
             </div>
           </div>
           <button type="button" id="overview-year-reset" class="btn-secondary">Dnešek</button>
+          <button type="button" class="btn-secondary btn-pdf-export ml-auto" data-pdf-title="Přehled">Stáhnout PDF</button>
         </div>
 
         <div class="kpi-card kpi-clickable mb-4" data-formula-for="assets">
@@ -289,6 +316,9 @@
         </div>
 
         <div class="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
+          <div class="flex justify-end mb-3">
+            <button type="button" class="btn-secondary btn-pdf-export" data-pdf-title="Moje nemovitosti">Stáhnout PDF</button>
+          </div>
           <table class="w-full text-sm">
             <thead>
               <tr class="text-left text-slate-500 border-b border-slate-200">
@@ -354,6 +384,9 @@
         </div>
 
         <div class="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
+          <div class="flex justify-end mb-3">
+            <button type="button" class="btn-secondary btn-pdf-export" data-pdf-title="Moje úvěry">Stáhnout PDF</button>
+          </div>
           <table class="w-full text-sm">
             <thead>
               <tr class="text-left text-slate-500 border-b border-slate-200">
@@ -381,6 +414,7 @@
           <label class="flex flex-col gap-1 text-sm">Horizont predikce (let)
             <input id="scenario-horizon" type="number" step="1" min="1" max="50" value="20" class="input w-32" />
           </label>
+          <button type="button" class="btn-secondary btn-pdf-export ml-auto" data-pdf-title="Scénáře">Stáhnout PDF</button>
           <p class="text-xs text-slate-500 max-w-md">
             Predikce skládaně počítá růst hodnoty/nájmu (nájem roste podle vlastní sazby, nebo podle
             inflace, pokud ji nezadáš) a reálně umořuje úvěry (úrok/jistina). Pokud portfolio má dluh a
@@ -718,9 +752,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/config.js?v=1789507738"></script>
-  <script src="js/supabaseClient.js?v=1789507738"></script>
-  <script src="js/calc.js?v=1789507738"></script>
-  <script src="js/app.js?v=1789507738"></script>
+  <script src="js/config.js?v=1789557055"></script>
+  <script src="js/supabaseClient.js?v=1789557055"></script>
+  <script src="js/calc.js?v=1789557055"></script>
+  <script src="js/app.js?v=1789557055"></script>
 </body>
 </html>

@@ -77,6 +77,13 @@ body {
   outline: none;
   box-shadow: 0 0 0 2px #3b82f6;
 }
+.input-error {
+  border-color: #dc2626;
+  background: #fef2f2;
+}
+.input-error:focus {
+  box-shadow: 0 0 0 2px #dc2626;
+}
 
 .btn-primary {
   background: #2563eb;
@@ -283,4 +290,43 @@ body {
 .number-stepper-btn:hover {
   background: #e2e8f0;
   color: #1e293b;
+}
+
+/* "Stáhnout PDF" = nativní tisk prohlížeče (viz wirePdfExportButtons v app.js) -
+   schová vše, co v uloženém PDF nedává smysl (navigace, formuláře, tlačítka
+   Upravit/Smazat, přihlašovací widget...), a nechá jen obsah AKTUÁLNĚ otevřené
+   záložky (ostatní záložky mají díky .hidden display:none i v tisku). */
+@media print {
+  @page {
+    margin: 1.5cm;
+  }
+  body {
+    background: white;
+  }
+  header nav,
+  #header-auth-widget,
+  #success-toast,
+  #confirm-modal,
+  .number-stepper-buttons,
+  .btn-pdf-export,
+  .kpi-formula-hint,
+  form,
+  [data-edit-property],
+  [data-delete-property],
+  [data-edit-loan],
+  [data-delete-loan],
+  [data-edit-event],
+  [data-delete-event] {
+    display: none !important;
+  }
+  .overflow-x-auto table thead th {
+    position: static;
+    box-shadow: none;
+  }
+  tr {
+    page-break-inside: avoid;
+  }
+  .kpi-card {
+    break-inside: avoid;
+  }
 }

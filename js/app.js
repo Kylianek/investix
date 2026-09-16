@@ -40,9 +40,12 @@ let currentUserId = null;
 let syncDebounceTimer = null;
 const SYNC_TABLE = 'app_data';
 
+// Nedělitelná mezera ( ) mezi skupinami číslic i před jednotkou - číslo se
+// svojí příponou (Kč/%) se tak nikdy nezalomí na dva řádky uprostřed buňky.
 const fmtMoney = (n) =>
-  (Number(n) || 0).toLocaleString('cs-CZ', { maximumFractionDigits: 0 }) + ' Kč';
-const fmtPercent = (n) => ((Number(n) || 0) * 100).toLocaleString('cs-CZ', { maximumFractionDigits: 2 }) + ' %';
+  (Number(n) || 0).toLocaleString('cs-CZ', { maximumFractionDigits: 0 }).replace(/\s/g, ' ') + ' Kč';
+const fmtPercent = (n) =>
+  ((Number(n) || 0) * 100).toLocaleString('cs-CZ', { maximumFractionDigits: 2 }).replace(/\s/g, ' ') + ' %';
 
 function uid() {
   return (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
@@ -289,10 +292,6 @@ function saveState() {
 
 /* ---------- Volitelné přihlášení a záloha do cloudu (Supabase) ---------- */
 
-function hasAnyPortfolioData() {
-  return state.properties.length > 0 || state.loans.length > 0;
-}
-
 function scheduleCloudSync() {
   if (!currentUserId || !supabaseClient) return;
   clearTimeout(syncDebounceTimer);
@@ -308,6 +307,13 @@ async function pushToCloud(userId) {
   if (statusEl) statusEl.textContent = error ? 'Zálohu do cloudu se nepodařilo uložit.' : 'Data jsou zálohovaná v cloudu.';
 }
 
+/**
+ * Po přihlášení VŽDY vyhraje cloud, pokud v něm něco je - žádné dotazování.
+ * Nemá smysl nutit uživatele volit "lokální vs. cloud" pokaždé, když se
+ * přihlásí ze zařízení, které už s cloudem jednou synchronizovalo - cloud je
+ * "zdroj pravdy". Jen když cloud ještě nemá vůbec nic (úplně první přihlášení
+ * z libovolného zařízení), nahraje se tam to, co má uživatel rozdělané lokálně.
+ */
 async function handlePostLogin(userId) {
   currentUserId = userId;
   const { data, error } = await supabaseClient.from(SYNC_TABLE).select('data').eq('user_id', userId).maybeSingle();
@@ -317,22 +323,8 @@ async function handlePostLogin(userId) {
   }
   const cloud = data && data.data;
   const cloudHasData = cloud && ((Array.isArray(cloud.properties) && cloud.properties.length) || (Array.isArray(cloud.loans) && cloud.loans.length));
-  const localHasData = hasAnyPortfolioData();
 
-  if (cloudHasData && localHasData) {
-    const useCloud = await customConfirm(
-      'Máš data uložená lokálně v tomhle prohlížeči i dřív zálohovaná v cloudu. Použít cloudová data? (přepíše tenhle prohlížeč) Zrušit = necháš lokální data a ty se nahrají do cloudu.',
-      'Použít cloudová data',
-      'Nechat lokální'
-    );
-    if (useCloud) {
-      applyStateFromObject(cloud);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(stateSnapshot()));
-      renderAll();
-    } else {
-      await pushToCloud(userId);
-    }
-  } else if (cloudHasData) {
+  if (cloudHasData) {
     applyStateFromObject(cloud);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stateSnapshot()));
     renderAll();
@@ -341,24 +333,46 @@ async function handlePostLogin(userId) {
   }
 }
 
+/**
+ * Přihlašovací UI existuje na dvou místech (kompaktní widget v hlavičce a
+ * plná karta v Nastavení), obě řízená stejnou logikou - prefix '' je karta
+ * v Nastavení (auth-email, auth-form...), prefix 'header-' je widget v
+ * hlavičce (header-auth-email, header-auth-form...). Aktualizují/reagují
+ * se vždy OBĚ najednou, ať uživatel vidí konzistentní stav, ať přihlášení
+ * použije odkudkoliv.
+ */
+const AUTH_UI_PREFIXES = ['', 'header-'];
+
 function updateAuthUI(session) {
-  const loggedOut = document.getElementById('auth-logged-out');
-  const loggedIn = document.getElementById('auth-logged-in');
-  if (session) {
-    loggedOut.classList.add('hidden');
-    loggedIn.classList.remove('hidden');
-    document.getElementById('auth-user-email').textContent = session.user.email;
-  } else {
-    loggedOut.classList.remove('hidden');
-    loggedIn.classList.add('hidden');
-    currentUserId = null;
+  for (const prefix of AUTH_UI_PREFIXES) {
+    const loggedOut = document.getElementById(prefix + 'auth-logged-out');
+    const loggedIn = document.getElementById(prefix + 'auth-logged-in');
+    if (!loggedOut || !loggedIn) continue;
+    if (session) {
+      loggedOut.classList.add('hidden');
+      loggedIn.classList.remove('hidden');
+      document.getElementById(prefix + 'auth-user-email').textContent = session.user.email;
+    } else {
+      loggedOut.classList.remove('hidden');
+      loggedIn.classList.add('hidden');
+    }
   }
+  if (!session) currentUserId = null;
+  document.getElementById('header-auth-dropdown').classList.add('hidden');
 }
 
-function showAuthMessage(text) {
-  const el = document.getElementById('auth-message');
+function showAuthMessage(prefix, text) {
+  const el = document.getElementById(prefix + 'auth-message');
+  if (!el) return;
   el.textContent = text;
   el.classList.toggle('hidden', !text);
+}
+
+function setAuthFieldsInvalid(prefix, invalid) {
+  const emailEl = document.getElementById(prefix + 'auth-email');
+  const passwordEl = document.getElementById(prefix + 'auth-password');
+  emailEl.classList.toggle('input-error', invalid);
+  passwordEl.classList.toggle('input-error', invalid);
 }
 
 function translateAuthError(message) {
@@ -371,26 +385,29 @@ function translateAuthError(message) {
   return known[message] || message;
 }
 
-async function handleAuthLogin(e) {
+async function handleAuthLogin(prefix, e) {
   e.preventDefault();
   if (!supabaseClient) return;
-  const email = document.getElementById('auth-email').value.trim();
-  const password = document.getElementById('auth-password').value;
+  const email = document.getElementById(prefix + 'auth-email').value.trim();
+  const password = document.getElementById(prefix + 'auth-password').value;
   const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-  showAuthMessage(error ? translateAuthError(error.message) : '');
+  setAuthFieldsInvalid(prefix, !!error);
+  showAuthMessage(prefix, error ? translateAuthError(error.message) : '');
 }
 
-async function handleAuthSignup() {
+async function handleAuthSignup(prefix) {
   if (!supabaseClient) return;
-  const email = document.getElementById('auth-email').value.trim();
-  const password = document.getElementById('auth-password').value;
+  const email = document.getElementById(prefix + 'auth-email').value.trim();
+  const password = document.getElementById(prefix + 'auth-password').value;
   const { data, error } = await supabaseClient.auth.signUp({ email, password });
   if (error) {
-    showAuthMessage(translateAuthError(error.message));
+    setAuthFieldsInvalid(prefix, true);
+    showAuthMessage(prefix, translateAuthError(error.message));
     return;
   }
+  setAuthFieldsInvalid(prefix, false);
   if (data.user && !data.session) {
-    showAuthMessage('Registrace proběhla - zkontroluj e-mail a potvrď účet, pak se přihlas.');
+    showAuthMessage(prefix, 'Registrace proběhla - zkontroluj e-mail a potvrď účet, pak se přihlas.');
   }
 }
 
@@ -400,14 +417,37 @@ async function handleAuthSignout() {
   currentUserId = null;
 }
 
+function wireAuthPrefix(prefix) {
+  const form = document.getElementById(prefix + 'auth-form');
+  if (!form) return;
+  form.addEventListener('submit', (e) => handleAuthLogin(prefix, e));
+  document.getElementById(prefix + 'btn-auth-signup').addEventListener('click', () => handleAuthSignup(prefix));
+  document.getElementById(prefix + 'btn-auth-signout').addEventListener('click', handleAuthSignout);
+  // Jakmile uživatel začne znovu psát, zmizí červené zvýraznění po chybě.
+  document.getElementById(prefix + 'auth-email').addEventListener('input', () => setAuthFieldsInvalid(prefix, false));
+  document.getElementById(prefix + 'auth-password').addEventListener('input', () => setAuthFieldsInvalid(prefix, false));
+}
+
+/** Kompaktní přihlašovací dropdown v hlavičce - klik na tlačítko ho otevře/zavře, klik mimo něj ho zavře. */
+function wireHeaderAuthDropdown() {
+  const toggle = document.getElementById('header-auth-toggle');
+  const dropdown = document.getElementById('header-auth-dropdown');
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dropdown.classList.toggle('hidden');
+  });
+  dropdown.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', () => dropdown.classList.add('hidden'));
+}
+
 function initAuth() {
   if (!supabaseClient) {
     document.getElementById('auth-config-warning').classList.remove('hidden');
+    document.getElementById('header-auth-widget').classList.add('hidden');
     return;
   }
-  document.getElementById('auth-form').addEventListener('submit', handleAuthLogin);
-  document.getElementById('btn-auth-signup').addEventListener('click', handleAuthSignup);
-  document.getElementById('btn-auth-signout').addEventListener('click', handleAuthSignout);
+  for (const prefix of AUTH_UI_PREFIXES) wireAuthPrefix(prefix);
+  wireHeaderAuthDropdown();
 
   supabaseClient.auth.onAuthStateChange((_event, session) => {
     updateAuthUI(session);
@@ -439,6 +479,7 @@ function init() {
   wireScenarioDetailToggle();
   wireFreedomControls();
   wireKpiFormulaToggles();
+  wirePdfExportButtons();
   initAuth();
   document.getElementById('event-type').addEventListener('change', updateEventValueLabel);
   document.getElementById('scenario-horizon').addEventListener('input', (e) => {
@@ -1344,6 +1385,28 @@ function wireKpiFormulaToggles() {
     card.addEventListener('click', () => {
       const formulaEl = card.querySelector('.kpi-formula');
       if (formulaEl) formulaEl.classList.toggle('hidden');
+    });
+  });
+}
+
+/**
+ * "Stáhnout PDF" = nativní tisk prohlížeče (Uložit jako PDF v tiskovém
+ * dialogu) - žádná externí knihovna, žádné generování na serveru. CSS
+ * @media print (viz style.css) schová vše kromě obsahu aktuálně otevřené
+ * záložky. Název dokumentu na chvíli změníme, ať prohlížeč nabídne
+ * rozumný výchozí název souboru.
+ */
+function wirePdfExportButtons() {
+  document.querySelectorAll('.btn-pdf-export').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const originalTitle = document.title;
+      document.title = `Investiční kalkulačka - ${btn.dataset.pdfTitle || 'export'}`;
+      const restoreTitle = () => {
+        document.title = originalTitle;
+        window.removeEventListener('afterprint', restoreTitle);
+      };
+      window.addEventListener('afterprint', restoreTitle);
+      window.print();
     });
   });
 }
