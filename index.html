@@ -19,7 +19,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<link rel="stylesheet" href="css/style.css?v=1789581622" />
+<link rel="stylesheet" href="css/style.css?v=1789582459" />
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
 
@@ -738,6 +738,16 @@
               Smazat všechna data v tomto prohlížeči
             </button>
           </div>
+          <div id="cloud-delete-section" class="hidden mt-4 pt-4 border-t border-slate-200">
+            <p class="text-xs text-slate-500 mb-2">
+              Smaže zálohu dat uloženou v cloudu pod tvým přihlašovacím účtem - lokální
+              data v tomto prohlížeči zůstanou beze změny. Po smazání tě appka odhlásí,
+              ať se autosync omylem znovu nenahraje nahoru.
+            </p>
+            <button id="btn-delete-cloud" type="button" class="text-red-600 hover:underline text-left">
+              Smazat zálohu v cloudu
+            </button>
+          </div>
         </div>
       </section>
 
@@ -763,9 +773,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/config.js?v=1789581622"></script>
-  <script src="js/supabaseClient.js?v=1789581622"></script>
-  <script src="js/calc.js?v=1789581622"></script>
-  <script src="js/app.js?v=1789581622"></script>
+  <script src="js/config.js?v=1789582459"></script>
+  <script src="js/supabaseClient.js?v=1789582459"></script>
+  <script src="js/calc.js?v=1789582459"></script>
+  <script src="js/app.js?v=1789582459"></script>
 </body>
 </html>

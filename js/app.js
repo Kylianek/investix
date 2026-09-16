@@ -217,6 +217,17 @@ function customConfirm(message, okLabel, cancelLabel) {
 }
 
 /**
+ * Pro nevratné mazání dat (lokálně i v cloudu) se ptá DVAKRÁT po sobě - první
+ * potvrzení je běžný dotaz, druhé je záměrně formulované jinak (ne jen
+ * zopakované), ať jde vidět, že to není omylem odklikané dvojklikem.
+ * Vrací true jen pokud uživatel potvrdí OBĚ dotazy.
+ */
+async function confirmTwice(firstMessage, secondMessage, okLabel) {
+  if (!(await customConfirm(firstMessage, okLabel, 'Zrušit'))) return false;
+  return customConfirm(secondMessage, 'Ano, opravdu smazat', 'Ne, nechat data');
+}
+
+/**
  * Nastaví hodnotu pole, JEN pokud na něm zrovna není focus. Používá se u polí
  * jako "horizont"/"rok", kde render běží i z vlastního 'input' posluchače
  * pole - bez tyhle podmínky by se hodnota psaná uživatelem přepisovala po
@@ -311,6 +322,28 @@ async function pushToCloud(userId) {
 }
 
 /**
+ * Smaže záznam z tabulky app_data patřící přihlášenému uživateli - ne jen
+ * přepíše prázdnými daty, ale skutečně smaže ten řádek (RLS "owner only"
+ * politika DELETE u vlastního řádku už povoluje, žádná změna v Supabase
+ * není potřeba). Lokální data v tomto prohlížeči tím nejsou nijak dotčená -
+ * jakmile se ale příště něco lokálně změní, autosync by zálohu zase nahrál
+ * nahoru, proto se po smazání ODHLÁSÍ, ať si uživatel vědomě řekne, jestli
+ * chce zálohování znovu zapnout přihlášením.
+ */
+async function deleteCloudData() {
+  if (!supabaseClient || !currentUserId) return;
+  const userId = currentUserId;
+  const { error } = await supabaseClient.from(SYNC_TABLE).delete().eq('user_id', userId);
+  if (error) {
+    alert('Smazání cloudové zálohy se nepodařilo: ' + error.message);
+    return;
+  }
+  await supabaseClient.auth.signOut();
+  currentUserId = null;
+  alert('Cloudová záloha byla smazána. Byl(a) jsi odhlášen(a).');
+}
+
+/**
  * Po přihlášení VŽDY vyhraje cloud, pokud v něm něco je - žádné dotazování.
  * Nemá smysl nutit uživatele volit "lokální vs. cloud" pokaždé, když se
  * přihlásí ze zařízení, které už s cloudem jednou synchronizovalo - cloud je
@@ -362,6 +395,7 @@ function updateAuthUI(session) {
   }
   if (!session) currentUserId = null;
   document.getElementById('header-auth-dropdown').classList.add('hidden');
+  document.getElementById('cloud-delete-section').classList.toggle('hidden', !session);
 }
 
 function showAuthMessage(prefix, text) {
@@ -1308,6 +1342,7 @@ function wireBackup() {
   document.getElementById('btn-export').addEventListener('click', exportBackup);
   document.getElementById('import-file').addEventListener('change', importBackup);
   document.getElementById('btn-clear').addEventListener('click', clearAllData);
+  document.getElementById('btn-delete-cloud').addEventListener('click', confirmAndDeleteCloudData);
 }
 
 function exportBackup() {
@@ -1363,7 +1398,12 @@ function importBackup(e) {
 }
 
 async function clearAllData() {
-  if (!(await customConfirm('Opravdu smazat všechna data v tomto prohlížeči? Tuto akci nelze vrátit zpět.', 'Smazat'))) return;
+  const confirmed = await confirmTwice(
+    'Opravdu smazat všechna data v tomto prohlížeči? Tuto akci nelze vrátit zpět.',
+    'Fakt si tím jistý/á? Všechny nemovitosti, úvěry i nastavení v tomto prohlížeči zmizí a nedají se obnovit (pokud si je předtím nezálohuješ).',
+    'Smazat'
+  );
+  if (!confirmed) return;
   state.properties = [];
   state.loans = [];
   state.events = [];
@@ -1374,6 +1414,16 @@ async function clearAllData() {
   state.freedom = { horizonYears: 10 };
   saveState();
   renderAll();
+}
+
+async function confirmAndDeleteCloudData() {
+  const confirmed = await confirmTwice(
+    'Opravdu smazat zálohu dat uloženou v cloudu? Lokální data v tomto prohlížeči zůstanou beze změny. Tuto akci nelze vrátit zpět.',
+    'Fakt si tím jistý/á? Cloudová záloha se nedá obnovit a budeš odhlášen(a).',
+    'Smazat zálohu'
+  );
+  if (!confirmed) return;
+  await deleteCloudData();
 }
 
 /* ---------- Vzorce na kartách (klikni pro rozkliknutí) ---------- */
