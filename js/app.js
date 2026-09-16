@@ -1398,18 +1398,35 @@ function wireKpiFormulaToggles() {
  * @media print (viz style.css) schová vše kromě obsahu aktuálně otevřené
  * záložky. Název dokumentu na chvíli změníme, ať prohlížeč nabídne
  * rozumný výchozí název souboru.
+ *
+ * Na mobilu samotné @media print přepisy nestačily (appka pak měla poloviny
+ * stránky prázdné) - mobilní prohlížeče totiž tisk/PDF často vykreslují v
+ * šířce z <meta name="viewport"> (tj. v šířce TELEFONU), ne v šířce papíru,
+ * a tahle šířka je nadřazená všem CSS přepisům (definuje "initial containing
+ * block", ve kterém se i "100% šířky"/"max-width:none" počítá). Proto se
+ * viewport meta tag na chvíli natvrdo rozšíří na desktopovou šířku, ať se
+ * report vytiskne přes celou stránku i z mobilu, a po vytištění se vrátí zpět.
  */
 function wirePdfExportButtons() {
+  const viewportMeta = document.querySelector('meta[name="viewport"]');
+  const originalViewportContent = viewportMeta ? viewportMeta.getAttribute('content') : null;
+
   document.querySelectorAll('.btn-pdf-export').forEach((btn) => {
     btn.addEventListener('click', () => {
       const originalTitle = document.title;
       document.title = `Investix - ${btn.dataset.pdfTitle || 'export'}`;
-      const restoreTitle = () => {
+      if (viewportMeta) viewportMeta.setAttribute('content', 'width=1200, initial-scale=1');
+
+      const restore = () => {
         document.title = originalTitle;
-        window.removeEventListener('afterprint', restoreTitle);
+        if (viewportMeta && originalViewportContent) viewportMeta.setAttribute('content', originalViewportContent);
+        window.removeEventListener('afterprint', restore);
       };
-      window.addEventListener('afterprint', restoreTitle);
-      window.print();
+      window.addEventListener('afterprint', restore);
+      // Prohlížeč potřebuje chvíli na přepočet layoutu podle nové šířky
+      // viewportu, než se otevře tiskový dialog - jinak by ještě zachytil
+      // starý (úzký) layout.
+      setTimeout(() => window.print(), 50);
     });
   });
 }
