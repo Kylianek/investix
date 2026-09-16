@@ -19,7 +19,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<link rel="stylesheet" href="css/style.css?v=1789563038" />
+<link rel="stylesheet" href="css/style.css?v=1789581622" />
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
 
@@ -85,7 +85,8 @@
             </div>
           </div>
           <button type="button" id="overview-year-reset" class="btn-secondary">Dnešek</button>
-          <button type="button" class="btn-secondary btn-pdf-export ml-auto" data-pdf-title="Přehled">Stáhnout PDF</button>
+          <button type="button" class="btn-secondary btn-pdf-export ml-auto hidden md:inline-flex" data-pdf-title="Přehled">Stáhnout PDF</button>
+          <span class="text-xs text-slate-400 ml-auto md:hidden">Stažení PDF je jen na počítači</span>
         </div>
 
         <div class="kpi-card kpi-clickable mb-4" data-formula-for="assets">
@@ -324,7 +325,8 @@
 
         <div class="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
           <div class="flex justify-end mb-3">
-            <button type="button" class="btn-secondary btn-pdf-export" data-pdf-title="Moje nemovitosti">Stáhnout PDF</button>
+            <button type="button" class="btn-secondary btn-pdf-export hidden md:inline-flex" data-pdf-title="Moje nemovitosti">Stáhnout PDF</button>
+            <span class="text-xs text-slate-400 md:hidden">Stažení PDF je jen na počítači</span>
           </div>
           <table class="w-full text-sm">
             <thead>
@@ -392,7 +394,8 @@
 
         <div class="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
           <div class="flex justify-end mb-3">
-            <button type="button" class="btn-secondary btn-pdf-export" data-pdf-title="Moje úvěry">Stáhnout PDF</button>
+            <button type="button" class="btn-secondary btn-pdf-export hidden md:inline-flex" data-pdf-title="Moje úvěry">Stáhnout PDF</button>
+            <span class="text-xs text-slate-400 md:hidden">Stažení PDF je jen na počítači</span>
           </div>
           <table class="w-full text-sm">
             <thead>
@@ -421,7 +424,8 @@
           <label class="flex flex-col gap-1 text-sm">Horizont predikce (let)
             <input id="scenario-horizon" type="number" step="1" min="1" max="50" value="20" class="input w-32" />
           </label>
-          <button type="button" class="btn-secondary btn-pdf-export ml-auto" data-pdf-title="Scénáře">Stáhnout PDF</button>
+          <button type="button" class="btn-secondary btn-pdf-export ml-auto hidden md:inline-flex" data-pdf-title="Scénáře">Stáhnout PDF</button>
+          <span class="text-xs text-slate-400 ml-auto md:hidden">Stažení PDF je jen na počítači</span>
           <p class="text-xs text-slate-500 max-w-md">
             Predikce skládaně počítá růst hodnoty/nájmu (nájem roste podle vlastní sazby, nebo podle
             inflace, pokud ji nezadáš) a reálně umořuje úvěry (úrok/jistina). Pokud portfolio má dluh a
@@ -759,9 +763,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/config.js?v=1789563038"></script>
-  <script src="js/supabaseClient.js?v=1789563038"></script>
-  <script src="js/calc.js?v=1789563038"></script>
-  <script src="js/app.js?v=1789563038"></script>
+  <script src="js/config.js?v=1789581622"></script>
+  <script src="js/supabaseClient.js?v=1789581622"></script>
+  <script src="js/calc.js?v=1789581622"></script>
+  <script src="js/app.js?v=1789581622"></script>
 </body>
 </html>

@@ -1399,34 +1399,25 @@ function wireKpiFormulaToggles() {
  * záložky. Název dokumentu na chvíli změníme, ať prohlížeč nabídne
  * rozumný výchozí název souboru.
  *
- * Na mobilu samotné @media print přepisy nestačily (appka pak měla poloviny
- * stránky prázdné) - mobilní prohlížeče totiž tisk/PDF často vykreslují v
- * šířce z <meta name="viewport"> (tj. v šířce TELEFONU), ne v šířce papíru,
- * a tahle šířka je nadřazená všem CSS přepisům (definuje "initial containing
- * block", ve kterém se i "100% šířky"/"max-width:none" počítá). Proto se
- * viewport meta tag na chvíli natvrdo rozšíří na desktopovou šířku, ať se
- * report vytiskne přes celou stránku i z mobilu, a po vytištění se vrátí zpět.
+ * ZÁMĚRNĚ JEN NA POČÍTAČI. Mobilní tisk/PDF se ukázal být přes CSS i přes
+ * dočasnou změnu viewportu nespolehlivý napříč prohlížeči (různě rozbité
+ * zarovnání, na Chromu na Androidu se stránka dokonce zaseknout) - tlačítka
+ * jsou proto v HTML schovaná pod `md:` (viz index.html, `hidden md:inline-flex`)
+ * a tahle kontrola je jen druhá pojistka pro případ, že by je zprostředkovaně
+ * spustilo něco jiného.
  */
 function wirePdfExportButtons() {
-  const viewportMeta = document.querySelector('meta[name="viewport"]');
-  const originalViewportContent = viewportMeta ? viewportMeta.getAttribute('content') : null;
-
   document.querySelectorAll('.btn-pdf-export').forEach((btn) => {
     btn.addEventListener('click', () => {
+      if (!window.matchMedia('(min-width: 768px)').matches) return;
       const originalTitle = document.title;
       document.title = `Investix - ${btn.dataset.pdfTitle || 'export'}`;
-      if (viewportMeta) viewportMeta.setAttribute('content', 'width=1200, initial-scale=1');
-
-      const restore = () => {
+      const restoreTitle = () => {
         document.title = originalTitle;
-        if (viewportMeta && originalViewportContent) viewportMeta.setAttribute('content', originalViewportContent);
-        window.removeEventListener('afterprint', restore);
+        window.removeEventListener('afterprint', restoreTitle);
       };
-      window.addEventListener('afterprint', restore);
-      // Prohlížeč potřebuje chvíli na přepočet layoutu podle nové šířky
-      // viewportu, než se otevře tiskový dialog - jinak by ještě zachytil
-      // starý (úzký) layout.
-      setTimeout(() => window.print(), 50);
+      window.addEventListener('afterprint', restoreTitle);
+      window.print();
     });
   });
 }
