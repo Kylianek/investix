@@ -295,13 +295,26 @@ body {
 /* "Stáhnout PDF" = nativní tisk prohlížeče (viz wirePdfExportButtons v app.js) -
    schová vše, co v uloženém PDF nedává smysl (navigace, formuláře, tlačítka
    Upravit/Smazat, přihlašovací widget...), a nechá jen obsah AKTUÁLNĚ otevřené
-   záložky (ostatní záložky mají díky .hidden display:none i v tisku). */
+   záložky (ostatní záložky mají díky .hidden display:none i v tisku).
+   Dvě věci, co se běžně na tisku/PDF kazí, a proč jim tenhle blok předchází:
+   1) "Osamocený řádek na celou stránku" - vzniká, když se karty (kpi-card,
+      bg-white.rounded-xl...) zbytečně brání zalomení (break-inside: avoid) a/nebo
+      mají na obrazovku laděné odsazení/padding, které v tisku jen mrhá místem -
+      pak i malý přetok stačí na to, aby se jeden řádek/karta odsunula na
+      samostatnou stránku. Řešení: v tisku odsazení zmenšit a break-inside:avoid
+      nechat JEN na jednotlivých řádcích tabulky (tr), ne na celých kartách.
+   2) "Na mobilu je to úzké" - appka používá Tailwindí md:/lg: třídy vázané na
+      šířku VIEWPORTU; některé mobilní prohlížeče ale tisk/PDF renderují v šířce
+      telefonu, takže se md:/lg: varianty vůbec nespustí. Řešení: v tisku
+      explicitně vynutit plnou šířku a desktopové mřížky bez ohledu na to, na
+      jak širokém zařízení se tisklo. */
 @media print {
   @page {
-    margin: 1.5cm;
+    margin: 1.2cm;
   }
   body {
     background: white;
+    font-size: 11px;
   }
   header nav,
   #header-auth-widget,
@@ -319,14 +332,53 @@ body {
   [data-delete-event] {
     display: none !important;
   }
+
+  /* Vynutit plnou šířku stránky bez ohledu na to, jak široký byl zdrojový
+     viewport (řeší "na mobilu je to úzké") */
+  header .max-w-6xl,
+  main.max-w-6xl {
+    max-width: none !important;
+  }
+  main.max-w-6xl {
+    padding: 0 !important;
+  }
+  .grid.md\:grid-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  /* Menší odsazení karet = méně "mrtvého" místa = méně příležitostí, aby
+     zalomení stránky odseklo jen kousek obsahu na novou stránku. */
+  .bg-white.rounded-xl {
+    padding: 0.5rem !important;
+    margin-bottom: 0.5rem !important;
+    border-color: #e2e8f0 !important;
+    box-shadow: none !important;
+  }
+  .kpi-card {
+    padding: 0.5rem !important;
+  }
+  .kpi-value {
+    font-size: 1.05rem !important;
+  }
+
+  .overflow-x-auto {
+    overflow: visible !important;
+  }
   .overflow-x-auto table thead th {
     position: static;
     box-shadow: none;
   }
+  table {
+    font-size: 10px;
+  }
+  thead {
+    display: table-header-group;
+  }
   tr {
     page-break-inside: avoid;
   }
-  .kpi-card {
-    break-inside: avoid;
+  p {
+    orphans: 3;
+    widows: 3;
   }
 }
