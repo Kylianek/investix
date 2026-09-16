@@ -419,7 +419,14 @@ function translateAuthError(message) {
     'Password should be at least 6 characters': 'Heslo musí mít alespoň 6 znaků.',
     'Email not confirmed': 'E-mail zatím nebyl potvrzen - zkontroluj schránku.',
   };
-  return known[message] || message;
+  if (known[message]) return known[message];
+  // Supabase vrací číslo vteřin přímo v textu (mění se každý pokus), takže
+  // přesnou shodu v `known` nejde použít - hlídá to proti spamování mailů.
+  const rateLimitMatch = message.match(/^For security purposes, you can only request this after (\d+) seconds?\.$/);
+  if (rateLimitMatch) {
+    return `Z bezpečnostních důvodů to zkus znovu až za ${rateLimitMatch[1]} sekund.`;
+  }
+  return message;
 }
 
 async function handleAuthLogin(prefix, e) {
