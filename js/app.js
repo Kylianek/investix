@@ -434,6 +434,14 @@ async function handleAuthLogin(prefix, e) {
   if (!supabaseClient) return;
   const email = document.getElementById(prefix + 'auth-email').value.trim();
   const password = document.getElementById(prefix + 'auth-password').value;
+  // Bez emailu/hesla by Supabase volání vzalo jako pokus o anonymní
+  // přihlášení (které appka nepoužívá) a vrátilo matoucí anglickou hlášku
+  // "Anonymous sign-ins are disabled" - radši zachytit prázdná pole rovnou tady.
+  if (!email || !password) {
+    setAuthFieldsInvalid(prefix, true);
+    showAuthMessage(prefix, 'Vyplň e-mail i heslo.');
+    return;
+  }
   const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
   setAuthFieldsInvalid(prefix, !!error);
   showAuthMessage(prefix, error ? translateAuthError(error.message) : '');
@@ -443,6 +451,11 @@ async function handleAuthSignup(prefix) {
   if (!supabaseClient) return;
   const email = document.getElementById(prefix + 'auth-email').value.trim();
   const password = document.getElementById(prefix + 'auth-password').value;
+  if (!email || !password) {
+    setAuthFieldsInvalid(prefix, true);
+    showAuthMessage(prefix, 'Vyplň e-mail i heslo.');
+    return;
+  }
   const { data, error } = await supabaseClient.auth.signUp({ email, password });
   if (error) {
     setAuthFieldsInvalid(prefix, true);
