@@ -1,6 +1,9 @@
 /* Hlavní logika aplikace: data se ukládají jen lokálně v prohlížeči (localStorage),
    žádný účet ani server. Výpočty jsou v js/calc.js. */
 
+// Záměrně NEpřejmenováno na "investix" i po rebrandingu - je to jen interní
+// localStorage klíč, uživatel ho nikde nevidí, ale kdyby se změnil, appka by
+// si "nenašla" data, která si lidi už dřív uložili pod starým klíčem.
 const STORAGE_KEY = 'investicni-kalkulacka-v1';
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -1313,7 +1316,7 @@ function exportBackup() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `investicni-kalkulacka-zaloha-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `investix-zaloha-${new Date().toISOString().slice(0, 10)}.json`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -1400,7 +1403,7 @@ function wirePdfExportButtons() {
   document.querySelectorAll('.btn-pdf-export').forEach((btn) => {
     btn.addEventListener('click', () => {
       const originalTitle = document.title;
-      document.title = `Investiční kalkulačka - ${btn.dataset.pdfTitle || 'export'}`;
+      document.title = `Investix - ${btn.dataset.pdfTitle || 'export'}`;
       const restoreTitle = () => {
         document.title = originalTitle;
         window.removeEventListener('afterprint', restoreTitle);

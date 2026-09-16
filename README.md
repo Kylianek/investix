@@ -1,4 +1,4 @@
-# Investiční kalkulačka nemovitostí
+# Investix
 
 Webová verze osobní kalkulačky z `INVESTIČNÍ KALKULAČKA 1.xlsx` — přehled nemovitostí,
 úvěrů (fixací), časového testu / zástav a zhodnocení portfolia.
@@ -86,7 +86,7 @@ lokální server, např. `npx serve .`
 ## Nasazení (GitHub Pages)
 
 Repozitář je nasazený na GitHub Pages ze složky `/ (root)` větve `main`:
-**https://kylianek.github.io/investicni-kalkulacka/**
+**https://kylianek.github.io/investix/**
 
 ## Soukromí dat
 
