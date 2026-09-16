@@ -317,15 +317,18 @@ body {
       explicitně vynutit plnou šířku a desktopové mřížky bez ohledu na to, na
       jak širokém zařízení se tisklo. */
 @media print {
+  /* Na šířku (landscape) - tabulky s hodně sloupci (nemovitosti, úvěry) se
+     jinak do portrétní stránky nevejdou a text přeteče/uřízne se. */
   @page {
-    margin: 1.2cm;
+    size: landscape;
+    margin: 1cm;
   }
   body {
     background: white;
     font-size: 11px;
   }
   header nav,
-  #header-auth-widget,
+  #header-controls,
   #success-toast,
   #confirm-modal,
   .number-stepper-buttons,
@@ -339,6 +342,14 @@ body {
   [data-edit-event],
   [data-delete-event] {
     display: none !important;
+  }
+
+  /* Hlavička reportu: po schování #header-controls zůstane v hlavičce jen
+     logo + název - jemné oddělení od obsahu místo "osiřelého" prázdného
+     místa, kde dřív bylo přihlášení. */
+  header {
+    border-bottom: 2px solid #2563eb !important;
+    margin-bottom: 0.5cm;
   }
 
   /* Vynutit plnou šířku stránky bez ohledu na to, jak široký byl zdrojový
@@ -357,18 +368,21 @@ body {
   /* Menší odsazení karet = méně "mrtvého" místa = méně příležitostí, aby
      zalomení stránky odseklo jen kousek obsahu na novou stránku. */
   .bg-white.rounded-xl {
-    padding: 0.5rem !important;
-    margin-bottom: 0.5rem !important;
+    padding: 0.4rem !important;
+    margin-bottom: 0.4rem !important;
     border-color: #e2e8f0 !important;
     box-shadow: none !important;
   }
   .kpi-card {
-    padding: 0.5rem !important;
+    padding: 0.4rem !important;
   }
   .kpi-value {
-    font-size: 1.05rem !important;
+    font-size: 1rem !important;
   }
 
+  /* Tabulky s hodně sloupci (nemovitosti, úvěry): menší a stejnoměrné
+     odsazení buněk + menší písmo, aby se i s landscape šířkou spolehlivě
+     vešly na stránku bez uříznutí. */
   .overflow-x-auto {
     overflow: visible !important;
   }
@@ -377,7 +391,13 @@ body {
     box-shadow: none;
   }
   table {
-    font-size: 10px;
+    font-size: 9px;
+    width: 100%;
+    table-layout: auto;
+  }
+  th,
+  td {
+    padding: 2px 4px !important;
   }
   thead {
     display: table-header-group;
