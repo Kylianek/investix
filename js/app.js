@@ -392,6 +392,7 @@ function updateAuthUI(session) {
     } else {
       loggedOut.classList.remove('hidden');
       loggedIn.classList.add('hidden');
+      setAuthMode(prefix, 'login');
     }
   }
   if (!session) currentUserId = null;
@@ -414,8 +415,10 @@ function showAuthMessage(prefix, text) {
 function setAuthFieldsInvalid(prefix, invalid) {
   const emailEl = document.getElementById(prefix + 'auth-email');
   const passwordEl = document.getElementById(prefix + 'auth-password');
+  const nameEl = document.getElementById(prefix + 'auth-name');
   emailEl.classList.toggle('input-error', invalid);
   passwordEl.classList.toggle('input-error', invalid);
+  if (nameEl) nameEl.classList.toggle('input-error', invalid && document.getElementById(prefix + 'auth-form').dataset.mode === 'signup');
 }
 
 function translateAuthError(message) {
@@ -435,8 +438,7 @@ function translateAuthError(message) {
   return message;
 }
 
-async function handleAuthLogin(prefix, e) {
-  e.preventDefault();
+async function handleAuthLogin(prefix) {
   if (!supabaseClient) return;
   const email = document.getElementById(prefix + 'auth-email').value.trim();
   const password = document.getElementById(prefix + 'auth-password').value;
@@ -457,17 +459,16 @@ async function handleAuthSignup(prefix) {
   if (!supabaseClient) return;
   const email = document.getElementById(prefix + 'auth-email').value.trim();
   const password = document.getElementById(prefix + 'auth-password').value;
-  const nameEl = document.getElementById(prefix + 'auth-name');
-  const name = nameEl ? nameEl.value.trim() : '';
-  if (!email || !password) {
+  const name = document.getElementById(prefix + 'auth-name').value.trim();
+  if (!email || !password || !name) {
     setAuthFieldsInvalid(prefix, true);
-    showAuthMessage(prefix, 'Vyplň e-mail i heslo.');
+    showAuthMessage(prefix, 'Vyplň jméno, e-mail i heslo.');
     return;
   }
   const { data, error } = await supabaseClient.auth.signUp({
     email,
     password,
-    options: name ? { data: { full_name: name } } : undefined,
+    options: { data: { full_name: name } },
   });
   if (error) {
     setAuthFieldsInvalid(prefix, true);
@@ -478,6 +479,29 @@ async function handleAuthSignup(prefix) {
   if (data.user && !data.session) {
     showAuthMessage(prefix, 'Registrace proběhla - zkontroluj e-mail a potvrď účet, pak se přihlas.');
   }
+}
+
+function handleAuthSubmit(prefix, e) {
+  e.preventDefault();
+  const form = document.getElementById(prefix + 'auth-form');
+  if (form.dataset.mode === 'signup') {
+    handleAuthSignup(prefix);
+  } else {
+    handleAuthLogin(prefix);
+  }
+}
+
+/** Přepne formulář mezi "Přihlásit se" (jen e-mail/heslo) a "Vytvořit účet" (+ jméno). */
+function setAuthMode(prefix, mode) {
+  const form = document.getElementById(prefix + 'auth-form');
+  form.dataset.mode = mode;
+  document.getElementById(prefix + 'auth-name-wrap').classList.toggle('hidden', mode !== 'signup');
+  document.getElementById(prefix + 'auth-submit').textContent = mode === 'signup' ? 'Vytvořit účet' : 'Přihlásit se';
+  document.querySelectorAll(`#${prefix}auth-mode-toggle .auth-mode-btn`).forEach((btn) => {
+    btn.classList.toggle('period-toggle-active', btn.dataset.mode === mode);
+  });
+  setAuthFieldsInvalid(prefix, false);
+  showAuthMessage(prefix, '');
 }
 
 async function handleAuthSignout() {
@@ -535,12 +559,15 @@ function wireProfileControls() {
 function wireAuthPrefix(prefix) {
   const form = document.getElementById(prefix + 'auth-form');
   if (!form) return;
-  form.addEventListener('submit', (e) => handleAuthLogin(prefix, e));
-  document.getElementById(prefix + 'btn-auth-signup').addEventListener('click', () => handleAuthSignup(prefix));
+  form.addEventListener('submit', (e) => handleAuthSubmit(prefix, e));
   document.getElementById(prefix + 'btn-auth-signout').addEventListener('click', handleAuthSignout);
+  document.querySelectorAll(`#${prefix}auth-mode-toggle .auth-mode-btn`).forEach((btn) => {
+    btn.addEventListener('click', () => setAuthMode(prefix, btn.dataset.mode));
+  });
   // Jakmile uživatel začne znovu psát, zmizí červené zvýraznění po chybě.
   document.getElementById(prefix + 'auth-email').addEventListener('input', () => setAuthFieldsInvalid(prefix, false));
   document.getElementById(prefix + 'auth-password').addEventListener('input', () => setAuthFieldsInvalid(prefix, false));
+  document.getElementById(prefix + 'auth-name').addEventListener('input', () => setAuthFieldsInvalid(prefix, false));
 }
 
 /** Kompaktní přihlašovací dropdown v hlavičce - klik na tlačítko ho otevře/zavře, klik mimo něj ho zavře. */

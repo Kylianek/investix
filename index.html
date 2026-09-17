@@ -13,13 +13,13 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Investix</title>
-<link rel="icon" type="image/png" href="assets/logo.png?v=1789653302" />
+<link rel="icon" type="image/png" href="assets/logo.png?v=1789654881" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<link rel="stylesheet" href="css/style.css?v=1789653302" />
+<link rel="stylesheet" href="css/style.css?v=1789654881" />
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
 
@@ -27,7 +27,7 @@
     <header class="bg-white border-b border-slate-200">
       <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
         <h1 class="flex items-center gap-2">
-          <img src="assets/logo.png?v=1789653302" alt="" width="32" height="32" class="shrink-0" />
+          <img src="assets/logo.png?v=1789654881" alt="" width="32" height="32" class="shrink-0" />
           <span class="brand-name">Investix</span>
         </h1>
         <div class="flex items-center gap-3" id="header-controls">
@@ -36,21 +36,22 @@
             <div id="header-auth-logged-out">
               <button type="button" id="header-auth-toggle" class="btn-secondary text-xs">Přihlásit se</button>
               <div id="header-auth-dropdown" class="hidden absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-lg p-4 z-50 text-left">
-                <form id="header-auth-form" class="space-y-2 text-sm">
+                <div class="flex rounded-lg border border-slate-300 overflow-hidden mb-3" id="header-auth-mode-toggle">
+                  <button type="button" class="auth-mode-btn period-toggle-btn period-toggle-active flex-1" data-mode="login">Přihlásit se</button>
+                  <button type="button" class="auth-mode-btn period-toggle-btn flex-1" data-mode="signup">Vytvořit účet</button>
+                </div>
+                <form id="header-auth-form" class="space-y-2 text-sm" data-mode="login">
                   <label class="flex flex-col gap-1">E-mail
                     <input id="header-auth-email" type="email" class="input" autocomplete="email" />
                   </label>
-                  <label class="flex flex-col gap-1">Jméno
-                    <input id="header-auth-name" type="text" class="input" autocomplete="name" placeholder="jen při vytvoření účtu" />
+                  <label class="hidden flex-col gap-1" id="header-auth-name-wrap">Jméno
+                    <input id="header-auth-name" type="text" class="input" autocomplete="name" />
                   </label>
                   <label class="flex flex-col gap-1">Heslo
                     <input id="header-auth-password" type="password" class="input" autocomplete="current-password" minlength="6" />
                   </label>
                   <p id="header-auth-message" class="hidden text-xs text-red-600"></p>
-                  <div class="flex gap-2">
-                    <button type="submit" class="btn-primary text-xs">Přihlásit se</button>
-                    <button type="button" id="header-btn-auth-signup" class="btn-secondary text-xs">Vytvořit účet</button>
-                  </div>
+                  <button type="submit" id="header-auth-submit" class="btn-primary text-xs w-full">Přihlásit se</button>
                 </form>
               </div>
             </div>
@@ -633,21 +634,22 @@
             Přihlášení zatím není nastavené - viz návod v <code>js/config.js</code>.
           </div>
           <div id="auth-logged-out">
-            <form id="auth-form" class="space-y-2 text-sm max-w-xs">
+            <div class="flex rounded-lg border border-slate-300 overflow-hidden mb-3 max-w-xs" id="auth-mode-toggle">
+              <button type="button" class="auth-mode-btn period-toggle-btn period-toggle-active flex-1" data-mode="login">Přihlásit se</button>
+              <button type="button" class="auth-mode-btn period-toggle-btn flex-1" data-mode="signup">Vytvořit účet</button>
+            </div>
+            <form id="auth-form" class="space-y-2 text-sm max-w-xs" data-mode="login">
               <label class="flex flex-col gap-1">E-mail
                 <input id="auth-email" type="email" class="input" autocomplete="email" />
               </label>
-              <label class="flex flex-col gap-1">Jméno
-                <input id="auth-name" type="text" class="input" autocomplete="name" placeholder="jen při vytvoření účtu" />
+              <label class="hidden flex-col gap-1" id="auth-name-wrap">Jméno
+                <input id="auth-name" type="text" class="input" autocomplete="name" />
               </label>
               <label class="flex flex-col gap-1">Heslo
                 <input id="auth-password" type="password" class="input" autocomplete="current-password" minlength="6" />
               </label>
               <p id="auth-message" class="hidden text-xs"></p>
-              <div class="flex gap-2">
-                <button type="submit" class="btn-primary">Přihlásit se</button>
-                <button type="button" id="btn-auth-signup" class="btn-secondary">Vytvořit účet</button>
-              </div>
+              <button type="submit" id="auth-submit" class="btn-primary">Přihlásit se</button>
             </form>
           </div>
           <div id="auth-logged-in" class="hidden text-sm">
@@ -800,9 +802,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/config.js?v=1789653302"></script>
-  <script src="js/supabaseClient.js?v=1789653302"></script>
-  <script src="js/calc.js?v=1789653302"></script>
-  <script src="js/app.js?v=1789653302"></script>
+  <script src="js/config.js?v=1789654881"></script>
+  <script src="js/supabaseClient.js?v=1789654881"></script>
+  <script src="js/calc.js?v=1789654881"></script>
+  <script src="js/app.js?v=1789654881"></script>
 </body>
 </html>
