@@ -475,6 +475,14 @@ async function handleAuthSignup(prefix) {
     showAuthMessage(prefix, translateAuthError(error.message));
     return;
   }
+  // Supabase u už zaregistrovaného e-mailu NEvrací chybu (aby šlo přes chybovou
+  // hlášku zjistit, jaké e-maily appka zná) - místo toho vrátí "úspěch" s
+  // user.identities: [] (prázdné pole = žádná nová identita nevznikla).
+  if (data.user && data.user.identities && data.user.identities.length === 0) {
+    setAuthFieldsInvalid(prefix, true);
+    showAuthMessage(prefix, 'Uživatel s tímto e-mailem už existuje - zkus se rovnou přihlásit.');
+    return;
+  }
   setAuthFieldsInvalid(prefix, false);
   if (data.user && !data.session) {
     showAuthMessage(prefix, 'Registrace proběhla - zkontroluj e-mail a potvrď účet, pak se přihlas.');
