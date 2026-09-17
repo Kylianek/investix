@@ -13,13 +13,13 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Investix</title>
-<link rel="icon" type="image/png" href="assets/logo.png?v=1789675275" />
+<link rel="icon" type="image/png" href="assets/logo.png?v=1789675930" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<link rel="stylesheet" href="css/style.css?v=1789675275" />
+<link rel="stylesheet" href="css/style.css?v=1789675930" />
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
 
@@ -27,7 +27,7 @@
     <header class="bg-white border-b border-slate-200">
       <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
         <h1 class="flex items-center gap-2">
-          <img src="assets/logo.png?v=1789675275" alt="" width="32" height="32" class="shrink-0" />
+          <img src="assets/logo.png?v=1789675930" alt="" width="32" height="32" class="shrink-0" />
           <span class="brand-name">Investix</span>
         </h1>
         <div class="flex items-center gap-3" id="header-controls">
@@ -162,12 +162,12 @@
 
         <div id="pledge-purchase-card" class="bg-white rounded-xl border border-slate-200 p-4 mt-4 hidden">
           <h2 class="font-semibold mb-1">Nákup bez hotovosti (na zástavu)</h2>
-          <p class="text-xs text-slate-500 mb-3">
+          <p id="pledge-purchase-intro" class="text-xs text-slate-500 mb-3">
             Kolik si můžeš dovolit koupit, aniž bys platil(a) cokoliv z vlastní hotovosti - banka ti jako
             doplňkovou jistotu vezme volnou (nezastavenou) hodnotu tvých stávajících nemovitostí. Nastavení
             LTV limitu je v <strong>Nastavení</strong>.
           </p>
-          <div class="grid grid-cols-2 gap-4">
+          <div class="grid grid-cols-2 gap-4 mb-3">
             <div>
               <div class="kpi-label">Volná hodnota k zastavení</div>
               <div id="pledge-free-collateral" class="kpi-value">—</div>
@@ -177,6 +177,13 @@
               <div id="pledge-max-purchase" class="kpi-value">—</div>
             </div>
           </div>
+          <p id="pledge-purchase-warning" class="text-xs text-slate-400">
+            Pozor: po skutečném provedení takového nákupu tahle volná hodnota klesne na 0 - a to i u
+            nemovitostí, které do teď byly bez zástavy (banka na ně teď taky zapíše zástavní právo, jako
+            doplňkovou jistotu). Nezapomeň proto v Moje nemovitosti ručně nastavit "Zástava" u VŠECH
+            nemovitostí použitých jako jistota, ne jen u té nově koupené - jinak appka jejich hodnotu bude
+            dál počítat jako volnou.
+          </p>
         </div>
       </section>
 
@@ -749,10 +756,20 @@
         <div class="bg-white rounded-xl border border-slate-200 p-4 max-w-lg mb-6">
           <h2 class="font-semibold mb-1">Nákup bez hotovosti (financování zástavou)</h2>
           <p class="text-xs text-slate-500 mb-3">
-            Strategie, kdy další nemovitost nekupuješ za vlastní hotovost, ale jako doplňkovou zástavu bance
-            nabídneš volnou (nezastavenou) hodnotu nemovitosti, kterou už vlastníš. Banka tím nepřichází o
-            jistotu - LTV se počítá z hodnoty OBOU zástav dohromady (kupovaná + volná stávající), takže ti
-            může půjčit klidně 100 % kupní ceny.
+            Strategie: první nemovitost koupíš za hotovost + <strong>nezajištěný</strong> úvěr (např. ze
+            stavebního spoření) - list vlastnictví zůstane čistý, takže máš k dispozici plnohodnotnou volnou
+            zástavu v celé hodnotě nemovitosti. Tu pak bance nabídneš JAKO DOPLNĖK k nově kupované
+            nemovitosti - LTV se počítá z hodnoty OBOU zástav dohromady, takže ti banka může půjčit klidně
+            100 % kupní ceny té nové.
+          </p>
+          <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3">
+            Po takovém nákupu už nemáš volnou zástavu ŽÁDNOU - banka zapíše zástavní právo na VŠECHNY
+            nemovitosti použité jako jistota, ne jen na tu novou (běžný 20% "polštář" musí na zástavách ze
+            zákona zůstat). V appce proto po reálném provedení takového nákupu ručně nastav "Zástava" i u
+            původní (do teď čisté) nemovitosti - jinak appka bude její hodnotu dál počítat jako volnou.
+            Další volná zástava se uvolní až časem - umořením jistiny a/nebo růstem hodnoty nemovitostí.
+            Nezajištěné úvěry mají navíc mnohem vyšší splátku než hypotéka (kratší splatnost, vyšší úrok) -
+            spočítej si dopředu, jestli na ně máš dostatečný doložitelný příjem.
           </p>
           <label class="flex items-center gap-2 text-sm mb-4">
             <input id="pledge-financing-enabled-input" type="checkbox" class="w-4 h-4" />
@@ -819,9 +836,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/config.js?v=1789675275"></script>
-  <script src="js/supabaseClient.js?v=1789675275"></script>
-  <script src="js/calc.js?v=1789675275"></script>
-  <script src="js/app.js?v=1789675275"></script>
+  <script src="js/config.js?v=1789675930"></script>
+  <script src="js/supabaseClient.js?v=1789675930"></script>
+  <script src="js/calc.js?v=1789675930"></script>
+  <script src="js/app.js?v=1789675930"></script>
 </body>
 </html>

@@ -334,6 +334,8 @@ body {
   .number-stepper-buttons,
   .btn-pdf-export,
   .kpi-formula-hint,
+  #pledge-purchase-warning,
+  #pledge-purchase-intro,
   .add-form-card,
   form,
   [data-edit-property],
