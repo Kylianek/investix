@@ -31,6 +31,8 @@ const state = {
     min_portfolio_value: 0,
     auto_sell_enabled: true,
     sale_trigger_amount: 0,
+    pledge_financing_enabled: false,
+    pledge_max_ltv: 80,
   },
   scenario: { horizonYears: 20 },
   overview: { year: CURRENT_YEAR, period: 'year' },
@@ -927,12 +929,20 @@ function renderSettings() {
   document.getElementById('auto-sell-enabled-input').checked = state.settings.auto_sell_enabled !== false;
   setFormattedValue(document.getElementById('sale-trigger-input'), state.settings.sale_trigger_amount || '');
   setFormattedValue(document.getElementById('min-portfolio-input'), state.settings.min_portfolio_value || '');
+  document.getElementById('pledge-financing-enabled-input').checked = !!state.settings.pledge_financing_enabled;
+  setFormattedValue(document.getElementById('pledge-max-ltv-input'), state.settings.pledge_max_ltv);
   syncAutoSellOptionsVisibility();
+  syncPledgeFinancingOptionsVisibility();
 }
 
 function syncAutoSellOptionsVisibility() {
   const enabled = document.getElementById('auto-sell-enabled-input').checked;
   document.getElementById('auto-sell-options').classList.toggle('hidden', !enabled);
+}
+
+function syncPledgeFinancingOptionsVisibility() {
+  const enabled = document.getElementById('pledge-financing-enabled-input').checked;
+  document.getElementById('pledge-financing-options').classList.toggle('hidden', !enabled);
 }
 
 function wireSettingsInputs() {
@@ -942,6 +952,8 @@ function wireSettingsInputs() {
   const autoSellEnabledEl = document.getElementById('auto-sell-enabled-input');
   const saleTriggerEl = document.getElementById('sale-trigger-input');
   const minPortfolioEl = document.getElementById('min-portfolio-input');
+  const pledgeEnabledEl = document.getElementById('pledge-financing-enabled-input');
+  const pledgeMaxLtvEl = document.getElementById('pledge-max-ltv-input');
   const save = () => {
     state.settings.inflation_rate = parseFormNumber(inflationEl.value) / 100;
     state.settings.rental_tax_rate = parseFormNumber(rentalTaxEl.value);
@@ -949,8 +961,11 @@ function wireSettingsInputs() {
     state.settings.auto_sell_enabled = autoSellEnabledEl.checked;
     state.settings.sale_trigger_amount = parseFormNumber(saleTriggerEl.value);
     state.settings.min_portfolio_value = parseFormNumber(minPortfolioEl.value);
+    state.settings.pledge_financing_enabled = pledgeEnabledEl.checked;
+    state.settings.pledge_max_ltv = parseFormNumber(pledgeMaxLtvEl.value);
     saveState();
     syncAutoSellOptionsVisibility();
+    syncPledgeFinancingOptionsVisibility();
     renderScenario();
     renderOverview();
     renderOverviewReal();
@@ -962,6 +977,8 @@ function wireSettingsInputs() {
   autoSellEnabledEl.addEventListener('change', save);
   saleTriggerEl.addEventListener('change', save);
   minPortfolioEl.addEventListener('change', save);
+  pledgeEnabledEl.addEventListener('change', save);
+  pledgeMaxLtvEl.addEventListener('change', save);
 }
 
 /* ---------- SCÉNÁŘOVÉ UDÁLOSTI (celoportfoliové) ---------- */
@@ -1409,7 +1426,10 @@ function renderOverviewGeneric(idPrefix, overviewState, deflate) {
   realAppEl.classList.toggle('text-red-600', (row.realAppreciation || 0) < 0);
   realAppEl.classList.toggle('text-emerald-600', (row.realAppreciation || 0) >= 0);
 
-  if (!deflate) renderRecommendation();
+  if (!deflate) {
+    renderRecommendation();
+    renderPledgeCapacity();
+  }
 }
 
 function renderOverview() {
@@ -1450,6 +1470,17 @@ function renderRecommendation() {
   el.innerHTML = html || '<p>Zatím nemáš dost dat pro doporučení.</p>';
 }
 
+function renderPledgeCapacity() {
+  const card = document.getElementById('pledge-purchase-card');
+  const enabled = !!state.settings.pledge_financing_enabled;
+  card.classList.toggle('hidden', !enabled);
+  if (!enabled) return;
+  const maxLtv = (Number(state.settings.pledge_max_ltv) || 0) / 100;
+  const { freeCollateral, maxPurchasePrice } = calc.pledgePurchaseCapacity(state.properties, maxLtv);
+  document.getElementById('pledge-free-collateral').textContent = fmtMoney(freeCollateral);
+  document.getElementById('pledge-max-purchase').textContent = fmtMoney(maxPurchasePrice);
+}
+
 /* ---------- Záloha (export / import / smazání) ---------- */
 
 function wireBackup() {
@@ -1483,7 +1514,7 @@ function importBackup(e) {
       state.properties = Array.isArray(parsed.properties) ? parsed.properties : [];
       state.loans = Array.isArray(parsed.loans) ? parsed.loans : [];
       state.events = Array.isArray(parsed.events) ? parsed.events : [];
-      const defaultSettings = { inflation_rate: 0.03, rental_tax_rate: 15, capital_gains_tax_rate: 15, min_portfolio_value: 0, auto_sell_enabled: true, sale_trigger_amount: 0 };
+      const defaultSettings = { inflation_rate: 0.03, rental_tax_rate: 15, capital_gains_tax_rate: 15, min_portfolio_value: 0, auto_sell_enabled: true, sale_trigger_amount: 0, pledge_financing_enabled: false, pledge_max_ltv: 80 };
       state.settings = parsed.settings && typeof parsed.settings.inflation_rate === 'number'
         ? { ...defaultSettings, ...parsed.settings }
         : { ...defaultSettings };
@@ -1521,7 +1552,7 @@ async function clearAllData() {
   state.properties = [];
   state.loans = [];
   state.events = [];
-  state.settings = { inflation_rate: 0.03, rental_tax_rate: 15, capital_gains_tax_rate: 15, min_portfolio_value: 0, auto_sell_enabled: true, sale_trigger_amount: 0 };
+  state.settings = { inflation_rate: 0.03, rental_tax_rate: 15, capital_gains_tax_rate: 15, min_portfolio_value: 0, auto_sell_enabled: true, sale_trigger_amount: 0, pledge_financing_enabled: false, pledge_max_ltv: 80 };
   state.scenario = { horizonYears: 20 };
   state.overview = { year: CURRENT_YEAR, period: 'year' };
   state.overviewReal = { year: CURRENT_YEAR, period: 'year' };

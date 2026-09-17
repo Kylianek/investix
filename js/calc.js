@@ -503,6 +503,23 @@ function scoreSaleCandidate(property, marketValue, capGainsTaxRate, today) {
   return { property, marketValue, gain, gainPct, taxExempt: tt.done, timeTestText: tt.text, yieldPct, estimatedSaleTax, netProceeds, score };
 }
 
+/**
+ * Kolik nejdražší nemovitost lze koupit BEZ vlastní hotovosti, když banku
+ * kryješ kombinovanou zástavou - kupovaná nemovitost + volná (nezastavená)
+ * hodnota už vlastněných nemovitostí. Půjčka = 100 % kupní ceny (P), banka
+ * počítá LTV z CELKOVÉ zástavy (kupovaná + volná stávající):
+ *   maxLtv = P / (P + volnáZástava)  =>  P = volnáZástava × maxLtv / (1 − maxLtv)
+ */
+function pledgePurchaseCapacity(properties, maxLtv) {
+  const freeCollateral = properties.reduce((sum, p) => {
+    const marketValue = Number(p.market_value) || 0;
+    const lienValue = p.has_lien ? Number(p.lien_value) || 0 : 0;
+    return sum + Math.max(0, marketValue - lienValue);
+  }, 0);
+  const maxPurchasePrice = maxLtv > 0 && maxLtv < 1 ? (freeCollateral * maxLtv) / (1 - maxLtv) : 0;
+  return { freeCollateral, maxPurchasePrice };
+}
+
 function recommendActions(properties, loans, settings, today = new Date()) {
   const capGainsTaxRate = (Number(settings.capital_gains_tax_rate) || 0) / 100;
 
@@ -611,5 +628,6 @@ window.calc = {
   projectPortfolio,
   cumulativeInflationFactor,
   recommendActions,
+  pledgePurchaseCapacity,
   simulateDebtFreedomPlan,
 };
