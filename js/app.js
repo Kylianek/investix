@@ -1365,17 +1365,35 @@ function renderOverviewGeneric(idPrefix, overviewState, deflate) {
   const selectedYear = overviewState.year || CURRENT_YEAR;
   setValueIfNotFocused(document.getElementById(idPrefix + 'overview-year'), selectedYear);
 
-  const yearsAhead = Math.max(selectedYear - CURRENT_YEAR, 0);
-  const horizon = Math.max(state.scenario.horizonYears, yearsAhead + 1);
+  // Minulost appka neumí predikovat dopředu (na to je Scénáře) - zvolený
+  // minulý rok se místo toho ZREKONSTRUUJE z dnešních hodnot (obrácené
+  // zhodnocení/umoření, viz calc.rebaseToYear) a od NĖJ se pak nasimuluje
+  // jeden rok dopředu, aby šly spočítat i tokové veličiny (cashflow...).
+  const isPast = selectedYear < CURRENT_YEAR;
+  let baseProperties = state.properties;
+  let baseLoans = state.loans;
+  let startYear = CURRENT_YEAR;
+  let idx = Math.max(selectedYear - CURRENT_YEAR, 0);
+  let horizon = Math.max(state.scenario.horizonYears, idx + 1);
+
+  if (isPast) {
+    const rebased = calc.rebaseToYear(state.properties, state.loans, state.settings, state.events, selectedYear, CURRENT_YEAR);
+    baseProperties = rebased.properties;
+    baseLoans = rebased.loans;
+    startYear = selectedYear;
+    idx = 0;
+    horizon = 1;
+  }
+
   const result = calc.projectPortfolio({
-    properties: state.properties,
-    loans: state.loans,
+    properties: baseProperties,
+    loans: baseLoans,
     settings: state.settings,
     events: state.events,
     horizonYears: horizon,
-    startYear: CURRENT_YEAR,
+    startYear,
   });
-  const idx = Math.min(yearsAhead, result.rows.length - 1);
+  idx = Math.min(idx, result.rows.length - 1);
   const row = result.rows[idx];
   const nextRow = result.rows[idx + 1] || row;
 
@@ -1383,8 +1401,16 @@ function renderOverviewGeneric(idPrefix, overviewState, deflate) {
   const div = isMonth ? 12 : 1;
 
   // Deflátor = kolikrát nominální Kč z vybraného roku "stojí míň" než dnešní Kč
-  // kvůli inflaci mezi dneškem a tím rokem - viz cumulativeInflationFactor.
-  const deflator = deflate ? calc.cumulativeInflationFactor(result.rows, idx) : 1;
+  // kvůli inflaci mezi dneškem a tím rokem. Pro budoucí rok se DĖLÍ (budoucí Kč
+  // mají nižší kupní sílu), pro minulý rok se naopak MUSÍ VYNÁSOBIT (tehdejší
+  // Kč měly VYŠŠÍ kupní sílu než dnešní) - proto dvě větve, ne jedno vzorec.
+  const inflationBase = Number(state.settings.inflation_rate) || 0;
+  let deflator = 1;
+  if (deflate) {
+    deflator = isPast
+      ? 1 / calc.inflationFactorBetween(state.events, inflationBase, selectedYear, CURRENT_YEAR)
+      : calc.inflationFactorBetween(state.events, inflationBase, CURRENT_YEAR, selectedYear);
+  }
   const real = (nominal) => (Number(nominal) || 0) / deflator;
 
   document.getElementById(idPrefix + 'kpi-assets').textContent = fmtMoney(real(row.totalValue));
@@ -1402,7 +1428,11 @@ function renderOverviewGeneric(idPrefix, overviewState, deflate) {
   document.getElementById(idPrefix + 'kpi-appreciation-label').textContent = isMonth ? 'Měsíční zhodnocení' : 'Roční zhodnocení';
   document.getElementById(idPrefix + 'kpi-real-appreciation-label').textContent = isMonth ? 'Zbývá po inflaci (měsíc)' : 'Zbývá po inflaci (rok)';
 
-  const realNote = deflate ? ` Přepočteno na dnešní kupní sílu (÷ ${deflator.toFixed(3)}, kumulovaná inflace od dneška do roku ${row.year}).` : '';
+  const realNote = deflate
+    ? isPast
+      ? ` Přepočteno na dnešní kupní sílu (× ${(1 / deflator).toFixed(3)}, kumulovaná inflace od roku ${row.year} do dneška).`
+      : ` Přepočteno na dnešní kupní sílu (÷ ${deflator.toFixed(3)}, kumulovaná inflace od dneška do roku ${row.year}).`
+    : '';
   setFormula(idPrefix + 'kpi-assets-formula', `Hodnota nemovitostí ve vlastnictví (${fmtMoney(real(row.realEstateValue))}) + hotovost z dřívějších prodejů (${fmtMoney(real(row.cashReserve))}) = ${fmtMoney(real(row.totalValue))}.${realNote}`);
   setFormula(idPrefix + 'kpi-debt-formula', `Součet zbývající jistiny všech úvěrů zadaných v Moje úvěry = ${fmtMoney(real(row.totalDebt))}.${realNote}`);
   setFormula(idPrefix + 'kpi-networth-formula', `Majetek (${fmtMoney(real(row.totalValue))}) − Dluh (${fmtMoney(real(row.totalDebt))}) = ${fmtMoney(real(row.equity))}.${realNote}`);

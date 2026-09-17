@@ -95,6 +95,57 @@ function resolvePortfolioRate(events, type, year, fallbackFraction) {
   return v === undefined ? fallbackFraction : v / 100;
 }
 
+/**
+ * Zrekonstruuje, jak by (se stejným růstem/splátkami jako dnes) vypadaly
+ * nemovitosti a úvěry v nějakém MINULÉM roce - obrácením zhodnocení (dělením
+ * místo násobení) a obrácením umoření úvěru měsíc po měsíci (přesná inverze
+ * kroku v amortizeLoanForYear: principal = (principal + splátka) / (1 + sazba/12)).
+ * Používá se v Přehledu, když uživatel zvolí rok před dneškem - jinak appka
+ * umí jen predikci DOPŘEDU od dneška (viz projectPortfolio).
+ * Nemovitosti/úvěry, které v cílovém roce ještě neexistovaly (podle data
+ * pořízení/sjednání), se vynechají.
+ */
+function rebaseToYear(properties, loans, settings, events, targetYear, currentYear) {
+  const inflationBase = Number(settings.inflation_rate) || 0;
+
+  const rebasedProperties = [];
+  for (const p of properties) {
+    if (yearOf(p.acquisition_date, currentYear) > targetYear) continue;
+    let value = Number(p.market_value) || 0;
+    let rent = Number(p.rent) || 0;
+    const rentGrowthBase = p.rent_growth_rate != null ? Number(p.rent_growth_rate) : inflationBase;
+    for (let y = currentYear; y > targetYear; y--) {
+      value /= 1 + resolvePortfolioRate(events, 'growth', y, Number(p.growth_rate) || 0);
+      rent /= 1 + resolvePortfolioRate(events, 'rent_growth', y, rentGrowthBase);
+    }
+    rebasedProperties.push({ ...p, market_value: value, rent });
+  }
+
+  const rebasedLoans = [];
+  for (const l of loans) {
+    const loanStartYear = yearOf(l.start_date, currentYear);
+    if (loanStartYear > targetYear) continue;
+    let principal = Number(l.amount) || 0;
+    const payment = Number(l.monthly_payment) || 0;
+    for (let y = currentYear; y > targetYear; y--) {
+      const monthlyRate = loanRateForYear(l, loanStartYear, y) / 12;
+      for (let m = 0; m < 12; m++) principal = (principal + payment) / (1 + monthlyRate);
+    }
+    rebasedLoans.push({ ...l, amount: Math.max(0, principal) });
+  }
+
+  return { properties: rebasedProperties, loans: rebasedLoans };
+}
+
+/** Kumulovaná inflace mezi dvěma roky (fromYear < toYear), pro převod na "dnešní" kupní sílu. */
+function inflationFactorBetween(events, inflationBase, fromYear, toYear) {
+  let factor = 1;
+  for (let y = fromYear + 1; y <= toYear; y++) {
+    factor *= 1 + resolvePortfolioRate(events, 'inflation', y, inflationBase);
+  }
+  return factor;
+}
+
 /** Efektivní roční úroková sazba úvěru pro daný rok (desetinný zlomek). */
 function loanRateForYear(loan, loanStartYear, year) {
   const fixEnd = loanStartYear + (Number(loan.fixation_years) || 0);
@@ -630,4 +681,6 @@ window.calc = {
   recommendActions,
   pledgePurchaseCapacity,
   simulateDebtFreedomPlan,
+  rebaseToYear,
+  inflationFactorBetween,
 };
