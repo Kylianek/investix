@@ -13,13 +13,13 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Investix</title>
-<link rel="icon" type="image/png" href="assets/logo.png?v=1789675930" />
+<link rel="icon" type="image/png" href="assets/logo.png?v=1789676722" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<link rel="stylesheet" href="css/style.css?v=1789675930" />
+<link rel="stylesheet" href="css/style.css?v=1789676722" />
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
 
@@ -27,7 +27,7 @@
     <header class="bg-white border-b border-slate-200">
       <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
         <h1 class="flex items-center gap-2">
-          <img src="assets/logo.png?v=1789675930" alt="" width="32" height="32" class="shrink-0" />
+          <img src="assets/logo.png?v=1789676722" alt="" width="32" height="32" class="shrink-0" />
           <span class="brand-name">Investix</span>
         </h1>
         <div class="flex items-center gap-3" id="header-controls">
@@ -178,11 +178,8 @@
             </div>
           </div>
           <p id="pledge-purchase-warning" class="text-xs text-slate-400">
-            Pozor: po skutečném provedení takového nákupu tahle volná hodnota klesne na 0 - a to i u
-            nemovitostí, které do teď byly bez zástavy (banka na ně teď taky zapíše zástavní právo, jako
-            doplňkovou jistotu). Nezapomeň proto v Moje nemovitosti ručně nastavit "Zástava" u VŠECH
-            nemovitostí použitých jako jistota, ne jen u té nově koupené - jinak appka jejich hodnotu bude
-            dál počítat jako volnou.
+            Po realizaci nastav u nového úvěru v Moje úvěry "Dodatečná zástava" - jinak appka bude tuhle
+            volnou hodnotu počítat dál, i když už je vyčerpaná.
           </p>
         </div>
       </section>
@@ -415,6 +412,12 @@
               <input name="property_value_at_origination" data-unit="money" placeholder="volitelné - pro poměr LTV" class="input" />
             </label>
 
+            <div class="col-span-full border-t border-slate-200 pt-3 mt-1">
+              <span class="text-sm font-medium text-slate-600">Dodatečná zástava (kombinované financování)</span>
+              <p class="text-xs text-slate-400 mb-2">Nemovitosti zastavené navíc pro tento úvěr (nákup "bez hotovosti").</p>
+              <div id="loan-collateral-checklist" class="flex flex-col gap-1 text-sm"></div>
+            </div>
+
             <div class="col-span-full flex gap-2 mt-1">
               <button type="submit" class="btn-primary">Uložit</button>
               <button type="button" id="loan-form-reset" class="btn-secondary">Zrušit úpravy</button>
@@ -456,17 +459,6 @@
           </label>
           <button type="button" class="btn-secondary btn-pdf-export ml-auto hidden md:inline-flex" data-pdf-title="Scénáře">Stáhnout PDF</button>
           <span class="text-xs text-slate-400 ml-auto md:hidden">Stažení PDF je jen na počítači</span>
-          <p class="text-xs text-slate-500 max-w-md">
-            Predikce skládaně počítá růst hodnoty/nájmu (nájem roste podle vlastní sazby, nebo podle
-            inflace, pokud ji nezadáš) a reálně umořuje úvěry (úrok/jistina). Pokud portfolio má dluh a
-            máš zapnutý <strong>automatický prodej nemovitostí</strong> (viz Nastavení - jde vypnout i
-            nastavit vlastní práh), kalkulačka navíc simuluje prodej nejvhodnější nemovitosti, jakmile
-            nastřádané zhodnocení portfolia dosáhne nastaveného prahu (výchozí: cena nejlevnější z nich) -
-            výtěžek jde na doplacení nejnevýhodnějšího úvěru, vidíš to ve sloupci "Událost" v tabulce níže
-            a v řádku zvýrazněném modře. <strong>Prodává se jen nemovitost, u které už uplynul časový
-            test</strong> - dokud ho nesplní, nikdy se neprodá, ani se zdaněním. Detaily a princip najdeš
-            v záložce <strong>Osvobození od dluhu</strong>.
-          </p>
         </div>
 
         <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
@@ -504,12 +496,6 @@
 
         <div class="bg-white rounded-xl border border-slate-200 p-4 mb-6 add-form-card">
           <h2 id="event-form-title" class="font-semibold mb-3">Přidat scénářovou událost</h2>
-          <p class="text-xs text-slate-500 mb-3">
-            Událost platí pro celé portfolio po zvolené období. <strong>Hodnota u typu "Růst" je ROČNÍ sazba,
-            která platí KAŽDÝ rok v daném rozmezí</strong> (skládaně) - "roky 2027-2037: růst 8 %" znamená
-            8 % zhodnocení každý jednotlivý rok po 10 let, ne jednorázově 8 % celkem. U dlouhého rozmezí
-            i mírně vyšší číslo dá za pár let velký nárůst - to není chyba, je to složené úročení.
-          </p>
           <form id="event-form" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 text-sm">
             <input type="hidden" name="id" />
             <label class="flex flex-col gap-1">Typ
@@ -577,11 +563,6 @@
             </thead>
             <tbody id="scenario-tbody"></tbody>
           </table>
-          <p class="text-xs text-slate-500 mt-3">
-            Řádek modře zvýrazněný = ten rok kalkulačka automaticky prodala nemovitost na umoření dluhu
-            (sloupec "Událost", "Nashrom. zhodnocení" v detailu ukazuje, kolik zhodnocení se do té chvíle
-            nastřádalo).
-          </p>
         </div>
       </section>
 
@@ -593,30 +574,6 @@
               <input id="freedom-horizon" type="number" step="1" min="1" max="50" value="10" class="input w-32" />
             </label>
           </div>
-          <p class="text-xs text-slate-500">
-            Strategie: peníze z portfolia lze získat jen prodejem CELÉ nemovitosti (žádná nestojí pár
-            desítek tisíc), takže o prodeji nerozhoduje výše dluhu, ale to, <strong>kolik už vydělalo
-            samotné zhodnocení</strong>. Appka sčítá, o kolik od posledního prodeje narostla hodnota
-            nemovitostí, a jakmile ten součet dosáhne nastaveného prahu (výchozí: cena aspoň nejlevnější
-            dostupné nemovitosti, např. portfolio 100 mil. Kč při 5 % ročně vydělá 5 mil. Kč/rok
-            zhodnocením - to už je částka, za kterou reálně jde byt prodat), prodá se ta nejvhodnější
-            <strong>z nemovitostí, u kterých už uplynul časový test</strong> (jinou appka nikdy neprodá,
-            ani se zdaněním) - mezi nimi rozhoduje stejné bodování jako v kartě <strong>Doporučení</strong>
-            (vysoké zhodnocení, slabý provozní výnos) a výtěžek splatí nejnevýhodnější úvěr - zbytek se počítá
-            jako hotovost/vlastní kapitál a počítadlo zhodnocení začíná znovu od nuly. Protože se
-            srovnává s aktuální (už zhodnocenou) cenou nemovitostí, roste ta laťka sama každý rok, stejně
-            jako dražší bude i náhradní nemovitost stejné kvality (růst ceny počítáme stejně jako ve
-            Scénářích - podle růstu zadaného u nemovitosti i podle případných scénářových událostí).
-            Nastřádané zhodnocení navíc samo ztrácí hodnotu inflací, dokud čeká na prodej - stejně jako
-            by ji ztrácela hotovost na účtu. Volná hotovost z dřívějších prodejů se navíc každý rok
-            nejdřív použije na doplacení úvěru s nejvyšší sazbou. Přesně princip "portfolio naroste,
-            prodám byt, splatím úvěr, tím uvolním víc majetku". Tahle záložka používá úplně stejný
-            výpočet jako záložka <strong>Scénáře</strong> (jen s vlastním horizontem) - prodeje uvidíš na
-            obou místech shodně. Celé se to dá v Nastavení (karta <strong>Automatický prodej
-            nemovitostí</strong>) vypnout, nastavit vlastní práh místo výchozí ceny nejlevnější
-            nemovitosti, nebo omezit ochrannou <strong>minimální hodnotou portfolia</strong>, pod kterou
-            se nikdy neprodá.
-          </p>
         </div>
 
         <div id="freedom-result-banner" class="rounded-xl border p-4 mb-6"></div>
@@ -703,36 +660,21 @@
         </div>
 
         <div class="bg-white rounded-xl border border-slate-200 p-4 max-w-lg mb-4">
-          <h2 class="font-semibold mb-1">Inflace</h2>
-          <p class="text-xs text-slate-500 mb-3">
-            Používá se na Přehledu i ve Scénářích — snižuje reálnou hodnotu majetku v čase (KPI "Ztráta
-            inflací") a zdražuje provozní náklady nemovitostí rok od roku. Pokud u nemovitosti nezadáš
-            vlastní růst nájmu, nájem s ní automaticky roste taky.
-          </p>
+          <h2 class="font-semibold mb-3">Inflace</h2>
           <label class="flex flex-col gap-1 text-sm max-w-[10rem]">Předpokládaná inflace (% ročně)
             <input id="inflation-input" data-unit="percent" class="input" />
           </label>
         </div>
 
         <div class="bg-white rounded-xl border border-slate-200 p-4 max-w-lg mb-6">
-          <h2 class="font-semibold mb-1">Daň z prodeje (kapitálový zisk)</h2>
-          <p class="text-xs text-slate-500 mb-3">
-            Platí se jen při prodeji, a jen <strong>pokud ještě neuplynul časový test</strong> (5 nebo 10 let
-            podle nastavení u dané nemovitosti) — po jeho splnění je zisk z prodeje od daně osvobozený.
-            Používá se jako odhad v kartě Doporučení na Přehledu.
-          </p>
+          <h2 class="font-semibold mb-3">Daň z prodeje (kapitálový zisk)</h2>
           <label class="flex flex-col gap-1 text-sm max-w-[10rem]">Sazba daně z prodeje (%)
             <input id="capgains-tax-input" data-unit="percent" class="input" />
           </label>
         </div>
 
         <div class="bg-white rounded-xl border border-slate-200 p-4 max-w-lg mb-6">
-          <h2 class="font-semibold mb-1">Automatický prodej nemovitostí</h2>
-          <p class="text-xs text-slate-500 mb-3">
-            Řídí automatické prodeje na umoření dluhu v záložkách <strong>Scénáře</strong> a
-            <strong>Osvobození od dluhu</strong> - kdy simulace prodá nemovitost a co jí v tom smí/nesmí
-            zabránit.
-          </p>
+          <h2 class="font-semibold mb-3">Automatický prodej nemovitostí</h2>
           <label class="flex items-center gap-2 text-sm mb-4">
             <input id="auto-sell-enabled-input" type="checkbox" class="w-4 h-4" />
             Automaticky prodávat nemovitosti na umoření dluhu
@@ -740,37 +682,15 @@
           <div id="auto-sell-options">
             <label class="flex flex-col gap-1 text-sm max-w-[16rem] mb-4">Práh zhodnocení pro prodej (Kč)
               <input id="sale-trigger-input" data-unit="money" placeholder="prázdné = cena nejlevnější nemovitosti" class="input" />
-              <span class="text-xs text-slate-400">Kolik nastřádaného zhodnocení portfolia stačí na prodej. Nech
-                prázdné, pokud chceš výchozí chování - prodává se, až zhodnocení dosáhne ceny nejlevnější
-                dostupné nemovitosti (ta hodnota rok od roku sama roste s cenami nemovitostí).</span>
             </label>
             <label class="flex flex-col gap-1 text-sm max-w-[12rem]">Minimální hodnota portfolia (Kč)
               <input id="min-portfolio-input" data-unit="money" class="input" />
-              <span class="text-xs text-slate-400">Ochrana proti "rozprodání" - nikdy se neprodá nemovitost,
-                pokud by tím hodnota zbývajících klesla pod tuhle částku. Nech prázdné nebo 0, pokud žádnou
-                ochranu nechceš.</span>
             </label>
           </div>
         </div>
 
         <div class="bg-white rounded-xl border border-slate-200 p-4 max-w-lg mb-6">
-          <h2 class="font-semibold mb-1">Nákup bez hotovosti (financování zástavou)</h2>
-          <p class="text-xs text-slate-500 mb-3">
-            Strategie: první nemovitost koupíš za hotovost + <strong>nezajištěný</strong> úvěr (např. ze
-            stavebního spoření) - list vlastnictví zůstane čistý, takže máš k dispozici plnohodnotnou volnou
-            zástavu v celé hodnotě nemovitosti. Tu pak bance nabídneš JAKO DOPLNĖK k nově kupované
-            nemovitosti - LTV se počítá z hodnoty OBOU zástav dohromady, takže ti banka může půjčit klidně
-            100 % kupní ceny té nové.
-          </p>
-          <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3">
-            Po takovém nákupu už nemáš volnou zástavu ŽÁDNOU - banka zapíše zástavní právo na VŠECHNY
-            nemovitosti použité jako jistota, ne jen na tu novou (běžný 20% "polštář" musí na zástavách ze
-            zákona zůstat). V appce proto po reálném provedení takového nákupu ručně nastav "Zástava" i u
-            původní (do teď čisté) nemovitosti - jinak appka bude její hodnotu dál počítat jako volnou.
-            Další volná zástava se uvolní až časem - umořením jistiny a/nebo růstem hodnoty nemovitostí.
-            Nezajištěné úvěry mají navíc mnohem vyšší splátku než hypotéka (kratší splatnost, vyšší úrok) -
-            spočítej si dopředu, jestli na ně máš dostatečný doložitelný příjem.
-          </p>
+          <h2 class="font-semibold mb-3">Nákup bez hotovosti (financování zástavou)</h2>
           <label class="flex items-center gap-2 text-sm mb-4">
             <input id="pledge-financing-enabled-input" type="checkbox" class="w-4 h-4" />
             Počítat s financováním zástavou stávajících nemovitostí
@@ -778,9 +698,6 @@
           <div id="pledge-financing-options">
             <label class="flex flex-col gap-1 text-sm max-w-[10rem]">Maximální LTV banky (%)
               <input id="pledge-max-ltv-input" data-unit="percent" class="input" />
-              <span class="text-xs text-slate-400">Běžně 80 %, u žadatelů do 36 let může banka jít až na 90 %.
-                Na Přehledu se podle tohoto limitu a volné hodnoty (nezastavené části) tvých nemovitostí
-                spočítá, na jak drahou nemovitost dosáhneš bez vlastní hotovosti.</span>
             </label>
           </div>
         </div>
@@ -836,9 +753,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/config.js?v=1789675930"></script>
-  <script src="js/supabaseClient.js?v=1789675930"></script>
-  <script src="js/calc.js?v=1789675930"></script>
-  <script src="js/app.js?v=1789675930"></script>
+  <script src="js/config.js?v=1789676722"></script>
+  <script src="js/supabaseClient.js?v=1789676722"></script>
+  <script src="js/calc.js?v=1789676722"></script>
+  <script src="js/app.js?v=1789676722"></script>
 </body>
 </html>

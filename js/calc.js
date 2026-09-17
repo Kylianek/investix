@@ -537,9 +537,18 @@ function scoreSaleCandidate(property, marketValue, capGainsTaxRate, today) {
  * počítá LTV z CELKOVÉ zástavy (kupovaná + volná stávající):
  *   maxLtv = P / (P + volnáZástava)  =>  P = volnáZástava × maxLtv / (1 − maxLtv)
  */
-function pledgePurchaseCapacity(properties, maxLtv) {
+function pledgePurchaseCapacity(properties, maxLtv, loans) {
+  // Nemovitost je plně zastavená (0 volné hodnoty) i tehdy, když sama nemá
+  // "svoji" zástavu (has_lien), ale je vedená jako DODATEČNÁ zástava u
+  // nějakého úvěru (additional_collateral_ids) - typicky přesně ten úvěr,
+  // který díky ní financoval nákup jiné nemovitosti bez hotovosti.
+  const crossCollateralized = new Set();
+  for (const l of loans || []) {
+    for (const propertyId of l.additional_collateral_ids || []) crossCollateralized.add(propertyId);
+  }
   const freeCollateral = properties.reduce((sum, p) => {
     const marketValue = Number(p.market_value) || 0;
+    if (crossCollateralized.has(p.id)) return sum;
     const lienValue = p.has_lien ? Number(p.lien_value) || 0 : 0;
     return sum + Math.max(0, marketValue - lienValue);
   }, 0);

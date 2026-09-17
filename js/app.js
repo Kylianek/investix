@@ -698,6 +698,16 @@ function syncLienFieldsVisibility() {
 function renderProperties() {
   const tbody = document.getElementById('properties-tbody');
   tbody.innerHTML = '';
+  // Nemovitost může být zastavená i BEZ vlastní zástavy (has_lien) - jako
+  // dodatečná jistota u úvěru na jinou nemovitost (viz "Dodatečná zástava"
+  // v Moje úvěry, typicky nákup bez hotovosti). Sestavíme si předem, které
+  // nemovitosti tohle potkalo a u kterého úvěru.
+  const crossCollateralBanks = {};
+  for (const l of state.loans) {
+    for (const pid of l.additional_collateral_ids || []) {
+      crossCollateralBanks[pid] = crossCollateralBanks[pid] ? `${crossCollateralBanks[pid]}, ${l.bank}` : l.bank;
+    }
+  }
   for (const p of state.properties) {
     const av = calc.appreciatedValue(Number(p.market_value), Number(p.growth_rate));
     const tt = p.acquisition_date
@@ -705,11 +715,16 @@ function renderProperties() {
       : null;
     const marketValue = Number(p.market_value) || 0;
     const lienValue = Number(p.lien_value) || 0;
+    const crossBank = crossCollateralBanks[p.id];
     const lienCell = p.has_lien
       ? `${escapeHtml(p.lien_bank || '?')}<br><span class="text-xs text-slate-500">${fmtMoney(lienValue)}</span>`
+      : crossBank
+      ? `Dodatečná zástava<br><span class="text-xs text-slate-500">pro úvěr: ${escapeHtml(crossBank)}</span>`
       : '<span class="text-slate-400">Bez zástavy</span>';
     const freedCell = p.has_lien
       ? fmtMoney(Math.max(0, marketValue - lienValue))
+      : crossBank
+      ? fmtMoney(0)
       : `${fmtMoney(marketValue)}<br><span class="text-xs text-slate-500">celá hodnota, bez zástavy</span>`;
     const tr = document.createElement('tr');
     tr.className = 'border-b border-slate-200 dark:border-slate-700';
@@ -825,6 +840,29 @@ function ltvInfo(loan) {
   return { text: `${ltvPct}/${100 - ltvPct}`, ownAmount: Math.max(0, propValue - amount) };
 }
 
+/** Zaškrtávátka "která další nemovitost je dodatečně zastavená pro tento úvěr"
+ * - přebuduje se z aktuálního seznamu nemovitostí, zaškrtnuté podle úvěru,
+ * který se právě upravuje (nebo prázdné, pokud se přidává nový). */
+function renderLoanCollateralChecklist() {
+  const container = document.getElementById('loan-collateral-checklist');
+  if (!container) return;
+  const editId = document.getElementById('loan-form').elements['id'].value;
+  const editingLoan = editId ? state.loans.find((l) => l.id === editId) : null;
+  const selected = (editingLoan && editingLoan.additional_collateral_ids) || [];
+  if (!state.properties.length) {
+    container.innerHTML = '<p class="text-xs text-slate-400">Zatím žádné nemovitosti k výběru.</p>';
+    return;
+  }
+  container.innerHTML = state.properties
+    .map(
+      (p) => `<label class="flex items-center gap-2">
+        <input type="checkbox" class="loan-collateral-checkbox w-4 h-4" value="${p.id}" ${selected.includes(p.id) ? 'checked' : ''} />
+        ${escapeHtml(p.name)}
+      </label>`
+    )
+    .join('');
+}
+
 function renderLoans() {
   const tbody = document.getElementById('loans-tbody');
   tbody.innerHTML = '';
@@ -856,6 +894,7 @@ function renderLoans() {
   tbody.querySelectorAll('[data-delete-loan]').forEach((btn) =>
     btn.addEventListener('click', () => deleteLoan(btn.dataset.deleteLoan))
   );
+  renderLoanCollateralChecklist();
 }
 
 function fillLoanForm(id) {
@@ -873,6 +912,7 @@ function fillLoanForm(id) {
   setFormattedValue(f.elements['rate_after_fixation'], l.rate_after_fixation != null ? l.rate_after_fixation : '');
   setFormattedValue(f.elements['property_value_at_origination'], l.property_value_at_origination || '');
   document.getElementById('loan-form-title').textContent = 'Upravit úvěr';
+  renderLoanCollateralChecklist();
 }
 
 function resetLoanForm() {
@@ -880,6 +920,7 @@ function resetLoanForm() {
   f.reset();
   f.elements['id'].value = '';
   document.getElementById('loan-form-title').textContent = 'Přidat úvěr';
+  renderLoanCollateralChecklist();
 }
 
 async function deleteLoan(id) {
@@ -906,6 +947,7 @@ function submitLoanForm(e) {
     note: f.elements['note'].value.trim() || null,
     rate_after_fixation: rateAfterRaw ? parseFormNumber(rateAfterRaw) : null,
     property_value_at_origination: propValueRaw ? parseFormNumber(propValueRaw) : null,
+    additional_collateral_ids: Array.from(f.querySelectorAll('.loan-collateral-checkbox:checked')).map((el) => el.value),
   };
   if (id) {
     const idx = state.loans.findIndex((l) => l.id === id);
@@ -1451,7 +1493,7 @@ function renderOverviewGeneric(idPrefix, overviewState, deflate) {
 
   if (!deflate) {
     renderRecommendation(row, selectedYear);
-    renderPledgeCapacity(row);
+    renderPledgeCapacity(row, selectedYear);
   }
 }
 
@@ -1509,7 +1551,7 @@ function renderRecommendation(row, selectedYear) {
   el.innerHTML = html || '<p>Zatím nemáš dost dat pro doporučení.</p>';
 }
 
-function renderPledgeCapacity(row) {
+function renderPledgeCapacity(row, selectedYear) {
   const card = document.getElementById('pledge-purchase-card');
   const enabled = !!state.settings.pledge_financing_enabled;
   card.classList.toggle('hidden', !enabled);
@@ -1522,9 +1564,12 @@ function renderPledgeCapacity(row) {
   // u nemovitosti dnes.
   const projectedProperties = (row.perProperty || []).map((rp) => {
     const original = state.properties.find((p) => p.id === rp.id) || {};
-    return { market_value: rp.value, has_lien: original.has_lien, lien_value: original.lien_value };
+    return { id: rp.id, market_value: rp.value, has_lien: original.has_lien, lien_value: original.lien_value };
   });
-  const { freeCollateral, maxPurchasePrice } = calc.pledgePurchaseCapacity(projectedProperties, maxLtv);
+  // Úvěr, který ještě v tom roce nebyl sjednaný, ještě nemohl "spotřebovat"
+  // dodatečnou zástavu žádné jiné nemovitosti.
+  const activeLoans = state.loans.filter((l) => calc.yearOf(l.start_date, CURRENT_YEAR) <= selectedYear);
+  const { freeCollateral, maxPurchasePrice } = calc.pledgePurchaseCapacity(projectedProperties, maxLtv, activeLoans);
   document.getElementById('pledge-free-collateral').textContent = fmtMoney(freeCollateral);
   document.getElementById('pledge-max-purchase').textContent = fmtMoney(maxPurchasePrice);
 }
