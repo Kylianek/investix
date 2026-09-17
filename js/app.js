@@ -387,7 +387,8 @@ function updateAuthUI(session) {
     if (session) {
       loggedOut.classList.add('hidden');
       loggedIn.classList.remove('hidden');
-      document.getElementById(prefix + 'auth-user-email').textContent = session.user.email;
+      const name = session.user.user_metadata && session.user.user_metadata.full_name;
+      document.getElementById(prefix + 'auth-user-email').textContent = name || session.user.email;
     } else {
       loggedOut.classList.remove('hidden');
       loggedIn.classList.add('hidden');
@@ -396,6 +397,11 @@ function updateAuthUI(session) {
   if (!session) currentUserId = null;
   document.getElementById('header-auth-dropdown').classList.add('hidden');
   document.getElementById('cloud-delete-section').classList.toggle('hidden', !session);
+  // Profil (jméno/heslo) je jen v Nastavení, ne v hlavičkovém widgetu.
+  const profileNameInput = document.getElementById('profile-name');
+  if (profileNameInput) {
+    profileNameInput.value = (session && session.user.user_metadata && session.user.user_metadata.full_name) || '';
+  }
 }
 
 function showAuthMessage(prefix, text) {
@@ -451,12 +457,18 @@ async function handleAuthSignup(prefix) {
   if (!supabaseClient) return;
   const email = document.getElementById(prefix + 'auth-email').value.trim();
   const password = document.getElementById(prefix + 'auth-password').value;
+  const nameEl = document.getElementById(prefix + 'auth-name');
+  const name = nameEl ? nameEl.value.trim() : '';
   if (!email || !password) {
     setAuthFieldsInvalid(prefix, true);
     showAuthMessage(prefix, 'Vyplň e-mail i heslo.');
     return;
   }
-  const { data, error } = await supabaseClient.auth.signUp({ email, password });
+  const { data, error } = await supabaseClient.auth.signUp({
+    email,
+    password,
+    options: name ? { data: { full_name: name } } : undefined,
+  });
   if (error) {
     setAuthFieldsInvalid(prefix, true);
     showAuthMessage(prefix, translateAuthError(error.message));
@@ -472,6 +484,52 @@ async function handleAuthSignout() {
   if (!supabaseClient) return;
   await supabaseClient.auth.signOut();
   currentUserId = null;
+}
+
+function showProfileMessage(elId, text, isError) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.textContent = text;
+  el.classList.remove('hidden', 'text-red-600', 'text-green-600');
+  el.classList.add(isError ? 'text-red-600' : 'text-green-600');
+}
+
+async function handleProfileNameSave() {
+  if (!supabaseClient) return;
+  const name = document.getElementById('profile-name').value.trim();
+  if (!name) {
+    showProfileMessage('profile-name-message', 'Jméno nesmí být prázdné.', true);
+    return;
+  }
+  const { error } = await supabaseClient.auth.updateUser({ data: { full_name: name } });
+  if (error) {
+    showProfileMessage('profile-name-message', translateAuthError(error.message), true);
+    return;
+  }
+  showProfileMessage('profile-name-message', 'Jméno uloženo.', false);
+  const { data } = await supabaseClient.auth.getSession();
+  updateAuthUI(data.session);
+}
+
+async function handleProfilePasswordSave() {
+  if (!supabaseClient) return;
+  const password = document.getElementById('profile-password').value;
+  if (!password) {
+    showProfileMessage('profile-password-message', 'Zadej nové heslo.', true);
+    return;
+  }
+  const { error } = await supabaseClient.auth.updateUser({ password });
+  if (error) {
+    showProfileMessage('profile-password-message', translateAuthError(error.message), true);
+    return;
+  }
+  document.getElementById('profile-password').value = '';
+  showProfileMessage('profile-password-message', 'Heslo změněno.', false);
+}
+
+function wireProfileControls() {
+  document.getElementById('btn-profile-save-name').addEventListener('click', handleProfileNameSave);
+  document.getElementById('btn-profile-save-password').addEventListener('click', handleProfilePasswordSave);
 }
 
 function wireAuthPrefix(prefix) {
@@ -505,6 +563,7 @@ function initAuth() {
   }
   for (const prefix of AUTH_UI_PREFIXES) wireAuthPrefix(prefix);
   wireHeaderAuthDropdown();
+  wireProfileControls();
 
   supabaseClient.auth.onAuthStateChange((_event, session) => {
     updateAuthUI(session);
