@@ -13,13 +13,13 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Investix</title>
-<link rel="icon" type="image/png" href="assets/logo.png?v=1789662693" />
+<link rel="icon" type="image/png" href="assets/logo.png?v=1789666470" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<link rel="stylesheet" href="css/style.css?v=1789662693" />
+<link rel="stylesheet" href="css/style.css?v=1789666470" />
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
 
@@ -27,7 +27,7 @@
     <header class="bg-white border-b border-slate-200">
       <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
         <h1 class="flex items-center gap-2">
-          <img src="assets/logo.png?v=1789662693" alt="" width="32" height="32" class="shrink-0" />
+          <img src="assets/logo.png?v=1789666470" alt="" width="32" height="32" class="shrink-0" />
           <span class="brand-name">Investix</span>
         </h1>
         <div class="flex items-center gap-3" id="header-controls">
@@ -551,7 +551,7 @@
         <div class="bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
           <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h2 class="font-semibold">Tabulka po letech</h2>
-            <button type="button" id="scenario-detail-toggle" class="btn-secondary text-xs">Zobrazit detail (nájem, náklady, splátka, odpisy...)</button>
+            <button type="button" id="scenario-detail-toggle" class="btn-secondary text-xs">Zobrazit detail (nájem, náklady, splátka...)</button>
           </div>
           <table class="w-full text-sm">
             <thead>
@@ -563,8 +563,6 @@
                 <th class="py-2 pr-3 text-right scenario-detail-col hidden">Nájem</th>
                 <th class="py-2 pr-3 text-right scenario-detail-col hidden">Náklady</th>
                 <th class="py-2 pr-3 text-right scenario-detail-col hidden">Splátka úvěru</th>
-                <th class="py-2 pr-3 text-right scenario-detail-col hidden">Odpis</th>
-                <th class="py-2 pr-3 text-right scenario-detail-col hidden">Daň</th>
                 <th class="py-2 pr-3 text-right scenario-detail-col hidden">Nashrom. zhodnocení</th>
                 <th class="py-2 pr-3 text-right">Roční cashflow</th>
                 <th class="py-2 pr-3">Událost</th>
@@ -573,11 +571,9 @@
             <tbody id="scenario-tbody"></tbody>
           </table>
           <p class="text-xs text-slate-500 mt-3">
-            Řádek oranžově zvýrazněný = odpis stavby je toho roku vyčerpaný (zjednodušeně 50 let od
-            pořízení, viz vysvětlení v Nastavení) - daňová sazba na nájem se od té chvíle uplatňuje na
-            vyšší základ. Řádek modře zvýrazněný = ten rok kalkulačka automaticky prodala nemovitost na
-            umoření dluhu (sloupec "Událost", "Nashrom. zhodnocení" v detailu ukazuje, kolik zhodnocení se
-            do té chvíle nastřádalo).
+            Řádek modře zvýrazněný = ten rok kalkulačka automaticky prodala nemovitost na umoření dluhu
+            (sloupec "Událost", "Nashrom. zhodnocení" v detailu ukazuje, kolik zhodnocení se do té chvíle
+            nastřádalo).
           </p>
         </div>
       </section>
@@ -711,26 +707,6 @@
           </label>
         </div>
 
-        <div class="bg-white rounded-xl border border-slate-200 p-4 max-w-lg mb-4">
-          <h2 class="font-semibold mb-1">Daň z příjmu z pronájmu</h2>
-          <p class="text-xs text-slate-500 mb-3">
-            Platí se každý rok z (nájem − provozní náklady − úrok z úvěru), dokud nemovitost pronajímáš.
-            Na rozdíl od daně z prodeje se jí <strong>časový test netýká</strong> — uplatňuje se v cashflow
-            na Přehledu i ve Scénářích bez ohledu na to, jak dlouho nemovitost vlastníš.
-          </p>
-          <label class="flex flex-col gap-1 text-sm max-w-[10rem]">Sazba daně z příjmu (%)
-            <input id="rental-tax-input" data-unit="percent" class="input" />
-          </label>
-          <p class="text-xs text-slate-500 mt-3">
-            <strong>Daňový odpis stavby</strong> tenhle základ dál snižuje, dokud se nevyčerpá - zjednodušeně
-            počítáme, že 80 % pořizovací ceny je odepisovatelná stavba (20 % pozemek), rovnoměrně po dobu
-            50 let od data pořízení (nejběžnější odpisová skupina 6 pro bytové domy). Po vyčerpání odpisu
-            se daňový základ (a tedy i daň) skokově zvýší - ve Scénářích je ten rok označený oranžově.
-            Je to zjednodušení pro odhad, ne daňové poradenství - skutečný poměr stavba/pozemek a odpisová
-            skupina se dům od domu liší.
-          </p>
-        </div>
-
         <div class="bg-white rounded-xl border border-slate-200 p-4 max-w-lg mb-6">
           <h2 class="font-semibold mb-1">Daň z prodeje (kapitálový zisk)</h2>
           <p class="text-xs text-slate-500 mb-3">
@@ -843,9 +819,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/config.js?v=1789662693"></script>
-  <script src="js/supabaseClient.js?v=1789662693"></script>
-  <script src="js/calc.js?v=1789662693"></script>
-  <script src="js/app.js?v=1789662693"></script>
+  <script src="js/config.js?v=1789666470"></script>
+  <script src="js/supabaseClient.js?v=1789666470"></script>
+  <script src="js/calc.js?v=1789666470"></script>
+  <script src="js/app.js?v=1789666470"></script>
 </body>
 </html>

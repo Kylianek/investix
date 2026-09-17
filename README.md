@@ -74,9 +74,9 @@ portfolia rok po roce, ne jen jeden rok dopředu:
 - Výstup: graf a tabulka vývoje majetku/dluhu/vlastního kapitálu po letech, plus
   souhrnné KPI (vlastní kapitál za zvolený počet let, kumulovaný cashflow, CAGR).
 
-V **Nastavení** lze nastavit i orientační daň z příjmu z pronájmu a daň z prodeje
-nemovitosti (uplatní se jen při prodeji před koncem časového testu) — jde o zjednodušení
-pro účely predikce, ne o daňové poradenství.
+V **Nastavení** lze nastavit i orientační daň z prodeje nemovitosti (uplatní se jen při
+prodeji před koncem časového testu) — jde o zjednodušení pro účely predikce, ne o daňové
+poradenství. Daň z příjmu z pronájmu a daňové odpisy appka nepočítá.
 
 ## Lokální vyzkoušení
 

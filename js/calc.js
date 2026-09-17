@@ -194,22 +194,6 @@ function amortizeLoanForYear(loan, ls, stateYear, startYear) {
 }
 
 /**
- * Zjednodušený daňový odpis stavby (rovnoměrné odpisy, odpisová skupina 6 -
- * nejběžnější pro bytové/činžovní domy, 50 let). PŘEDPOKLAD: 80 % pořizovací
- * ceny je stavba (odepisovatelná), 20 % pozemek (neodepisovatelný) - reálný
- * poměr se liší dům od domu, tohle je orientační zjednodušení pro predikci,
- * ne daňové poradenství. Vrací funkci, která pro daný "rok od pořízení" řekne
- * kolik Kč ještě lze ten rok odepsat.
- */
-const DEPRECIATION_BUILDING_SHARE = 0.8;
-const DEPRECIATION_YEARS = 50;
-
-function depreciationBase(property) {
-  const base = Number(property.acquisition_price) || Number(property.market_value) || 0;
-  return base * DEPRECIATION_BUILDING_SHARE;
-}
-
-/**
  * Hlavní simulace portfolia na `horizonYears` let dopředu.
  * properties/loans/settings: stejná data jako jinde v appce.
  * events: pole { type: 'growth'|'rent_growth'|'vacancy'|'inflation'|'one_time', year_from, year_to, value, note }
@@ -246,7 +230,6 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
   startYear = startYear || new Date().getFullYear();
   events = events || [];
   horizonYears = Math.max(1, Number(horizonYears) || 1);
-  const rentalTaxRate = (Number(settings.rental_tax_rate) || 0) / 100;
   const capGainsTaxRate = (Number(settings.capital_gains_tax_rate) || 0) / 100;
   const inflationBase = Number(settings.inflation_rate) || 0;
   // Automatický prodej nemovitostí na umoření dluhu (volitelný, viz Nastavení):
@@ -267,17 +250,11 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
   const curValue = {};
   const curRent = {};
   const curCost = {};
-  const depRemaining = {};
   const soldProperties = new Set();
   for (const p of properties) {
     curValue[p.id] = Number(p.market_value) || 0;
     curRent[p.id] = Number(p.rent) || 0;
     curCost[p.id] = (Number(p.monthly_costs) || 0) * 12;
-    // Odpis běží od skutečného data pořízení, ne od dneška - roky vlastnictví
-    // před "dneškem" (startYear) se odečtou hned na začátku.
-    const yearsAlreadyOwned = Math.max(0, startYear - yearOf(p.acquisition_date, startYear));
-    const alreadyDepreciated = (depreciationBase(p) / DEPRECIATION_YEARS) * yearsAlreadyOwned;
-    depRemaining[p.id] = Math.max(0, depreciationBase(p) - alreadyDepreciated);
   }
 
   let cashReserve = 0;
@@ -318,9 +295,6 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
         totalCosts: null,
         totalInterest: null,
         totalPrincipal: null,
-        totalDepreciation: null,
-        depreciationExhausted: null,
-        taxes: null,
         cumulativeGain,
         soldThisYear: null,
         perProperty: activeProps.map((p) => ({ id: p.id, name: p.name, value: curValue[p.id] })),
@@ -336,7 +310,6 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
     let totalRentNOI = 0;
     let totalRent = 0;
     let totalCosts = 0;
-    let totalDepreciation = 0;
     const perProperty = [];
 
     for (const p of activeProps) {
@@ -352,10 +325,6 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
       curValue[p.id] = valueBefore * (1 + growth);
       curRent[p.id] = curRent[p.id] * (1 + rentGrowth);
       curCost[p.id] = curCost[p.id] * (1 + inflation);
-
-      const depThisYear = Math.min(depRemaining[p.id], depreciationBase(p) / DEPRECIATION_YEARS);
-      depRemaining[p.id] -= depThisYear;
-      totalDepreciation += depThisYear;
 
       appreciationGain += curValue[p.id] - valueBefore;
       const rentAnnual = rentThisYear * 12 * (1 - vacancy);
@@ -376,20 +345,12 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
       totalPrincipal += principal;
     }
 
-    // Daň z příjmu z pronájmu (§9 ZDP) - platí se KAŽDÝ rok, dokud se pronajímá,
-    // bez ohledu na časový test (ten se týká jen daně z PRODEJE, viz recommendActions).
-    // Základ daně navíc snižuje daňový ODPIS stavby (zjednodušeně, viz depreciationBase) -
-    // po vyčerpání odpisu (obvykle desítky let) základ daně skokově vzroste.
-    const taxBase = totalRentNOI - totalInterest - totalDepreciation;
-    const tax = Math.max(taxBase, 0) * rentalTaxRate;
-    const depreciationExhausted = totalDepreciation <= 0 && activeProps.length > 0;
-
     const oneTimeTotal = events
       .filter((e) => e.type === 'one_time' && targetYear >= Number(e.year_from) && targetYear <= Number(e.year_to || e.year_from))
       .reduce((s, e) => s + (Number(e.value) || 0), 0);
     cashReserve += oneTimeTotal;
 
-    const cashflow = totalRentNOI - totalInterest - totalPrincipal - tax + oneTimeTotal;
+    const cashflow = totalRentNOI - totalInterest - totalPrincipal + oneTimeTotal;
     cumulativeCashflow += cashflow;
 
     const inflationLoss = realEstateValue * inflation;
@@ -474,9 +435,6 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
       totalCosts,
       totalInterest,
       totalPrincipal,
-      totalDepreciation,
-      depreciationExhausted,
-      taxes: tax,
       cumulativeGain,
       soldThisYear,
       perProperty,

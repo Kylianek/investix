@@ -26,7 +26,6 @@ const state = {
   events: [],
   settings: {
     inflation_rate: 0.03,
-    rental_tax_rate: 15,
     capital_gains_tax_rate: 15,
     min_portfolio_value: 0,
     auto_sell_enabled: true,
@@ -924,7 +923,6 @@ function submitLoanForm(e) {
 
 function renderSettings() {
   setFormattedValue(document.getElementById('inflation-input'), (state.settings.inflation_rate * 100).toFixed(2));
-  setFormattedValue(document.getElementById('rental-tax-input'), state.settings.rental_tax_rate);
   setFormattedValue(document.getElementById('capgains-tax-input'), state.settings.capital_gains_tax_rate);
   document.getElementById('auto-sell-enabled-input').checked = state.settings.auto_sell_enabled !== false;
   setFormattedValue(document.getElementById('sale-trigger-input'), state.settings.sale_trigger_amount || '');
@@ -947,7 +945,6 @@ function syncPledgeFinancingOptionsVisibility() {
 
 function wireSettingsInputs() {
   const inflationEl = document.getElementById('inflation-input');
-  const rentalTaxEl = document.getElementById('rental-tax-input');
   const capGainsEl = document.getElementById('capgains-tax-input');
   const autoSellEnabledEl = document.getElementById('auto-sell-enabled-input');
   const saleTriggerEl = document.getElementById('sale-trigger-input');
@@ -956,7 +953,6 @@ function wireSettingsInputs() {
   const pledgeMaxLtvEl = document.getElementById('pledge-max-ltv-input');
   const save = () => {
     state.settings.inflation_rate = parseFormNumber(inflationEl.value) / 100;
-    state.settings.rental_tax_rate = parseFormNumber(rentalTaxEl.value);
     state.settings.capital_gains_tax_rate = parseFormNumber(capGainsEl.value);
     state.settings.auto_sell_enabled = autoSellEnabledEl.checked;
     state.settings.sale_trigger_amount = parseFormNumber(saleTriggerEl.value);
@@ -972,7 +968,6 @@ function wireSettingsInputs() {
     renderFreedom();
   };
   inflationEl.addEventListener('change', save);
-  rentalTaxEl.addEventListener('change', save);
   capGainsEl.addEventListener('change', save);
   autoSellEnabledEl.addEventListener('change', save);
   saleTriggerEl.addEventListener('change', save);
@@ -1147,7 +1142,7 @@ function renderScenario() {
   for (const r of rows) {
     const debtService = r.totalInterest == null ? null : r.totalInterest + r.totalPrincipal;
     const tr = document.createElement('tr');
-    tr.className = 'border-b border-slate-200' + (r.soldThisYear ? ' bg-blue-50' : r.depreciationExhausted ? ' bg-orange-50' : '');
+    tr.className = 'border-b border-slate-200' + (r.soldThisYear ? ' bg-blue-50' : '');
     tr.innerHTML = `
       <td class="py-1.5 pr-3">${r.year}</td>
       <td class="py-1.5 pr-3 text-right">${fmtMoney(r.totalValue)}</td>
@@ -1156,8 +1151,6 @@ function renderScenario() {
       ${detailCell(r.totalRent, 'figure-positive')}
       ${detailCell(r.totalCosts, 'figure-negative')}
       ${detailCell(debtService, 'figure-negative')}
-      ${detailCell(r.totalDepreciation)}
-      ${detailCell(r.taxes, 'figure-negative')}
       ${detailCell(r.cumulativeGain)}
       <td class="py-1.5 pr-3 text-right font-medium ${r.cashflow == null ? '' : r.cashflow < 0 ? 'figure-negative' : 'figure-positive'}">${r.cashflow === null ? '—' : fmtMoney(r.cashflow)}</td>
       ${saleEventCell(r)}`;
@@ -1169,7 +1162,7 @@ function wireScenarioDetailToggle() {
   const btn = document.getElementById('scenario-detail-toggle');
   btn.addEventListener('click', () => {
     scenarioShowDetail = !scenarioShowDetail;
-    btn.textContent = scenarioShowDetail ? 'Skrýt detail' : 'Zobrazit detail (nájem, náklady, splátka, odpisy...)';
+    btn.textContent = scenarioShowDetail ? 'Skrýt detail' : 'Zobrazit detail (nájem, náklady, splátka...)';
     document.querySelectorAll('.scenario-detail-col').forEach((el) => el.classList.toggle('hidden', !scenarioShowDetail));
   });
 }
@@ -1441,7 +1434,7 @@ function renderOverviewGeneric(idPrefix, overviewState, deflate) {
     const d = div;
     setFormula(
       idPrefix + 'kpi-cashflow-formula',
-      `Nájem +${fmtMoney(real(row.totalRent / d))} − náklady ${fmtMoney(real(row.totalCosts / d))} − úrok ${fmtMoney(real(row.totalInterest / d))} − jistina ${fmtMoney(real(row.totalPrincipal / d))} − daň ${fmtMoney(real(row.taxes / d))} = ${fmtMoney(real(row.cashflow / d))}. Úrok a jistina se počítají ze skutečné splátky úvěru v Moje úvěry, ne z pole "Splátka" u nemovitosti.${realNote}`
+      `Nájem +${fmtMoney(real(row.totalRent / d))} − náklady ${fmtMoney(real(row.totalCosts / d))} − úrok ${fmtMoney(real(row.totalInterest / d))} − jistina ${fmtMoney(real(row.totalPrincipal / d))} = ${fmtMoney(real(row.cashflow / d))}. Úrok a jistina se počítají ze skutečné splátky úvěru v Moje úvěry, ne z pole "Splátka" u nemovitosti.${realNote}`
     );
     setFormula(idPrefix + 'kpi-appreciation-formula', `Hodnota nemovitostí příští rok − hodnota dnes, součet za všechny nemovitosti podle jejich zadaného růstu = ${fmtMoney(real(row.appreciationGain / d))}.${realNote}`);
     setFormula(idPrefix + 'kpi-avg-growth-formula', `Roční zhodnocení (${fmtMoney(row.appreciationGain)}) ÷ hodnota nemovitostí (${fmtMoney(row.realEstateValue)}) = ${fmtPercent(row.avgGrowthRate)}. Vážený průměr růstu jednotlivých nemovitostí (podle jejich hodnoty), včetně případných scénářových událostí. Toto je poměr dvou nominálních čísel, inflace se v podílu vyruší.`);
@@ -1458,7 +1451,7 @@ function renderOverviewGeneric(idPrefix, overviewState, deflate) {
 
   if (!deflate) {
     renderRecommendation();
-    renderPledgeCapacity();
+    renderPledgeCapacity(row);
   }
 }
 
@@ -1500,13 +1493,22 @@ function renderRecommendation() {
   el.innerHTML = html || '<p>Zatím nemáš dost dat pro doporučení.</p>';
 }
 
-function renderPledgeCapacity() {
+function renderPledgeCapacity(row) {
   const card = document.getElementById('pledge-purchase-card');
   const enabled = !!state.settings.pledge_financing_enabled;
   card.classList.toggle('hidden', !enabled);
   if (!enabled) return;
   const maxLtv = (Number(state.settings.pledge_max_ltv) || 0) / 100;
-  const { freeCollateral, maxPurchasePrice } = calc.pledgePurchaseCapacity(state.properties, maxLtv);
+  // Zástava je pevná Kč částka (banka ji nezmenšuje jen proto, že hodnota
+  // nemovitosti mezitím vzrostla) - proto se pro vybraný rok přebírá jen
+  // PROJEKTOVANÁ tržní hodnota (row.perProperty, zohledňuje zvolený rok
+  // v Přehledu), zatímco has_lien/lien_value zůstává tak, jak je zadané
+  // u nemovitosti dnes.
+  const projectedProperties = (row.perProperty || []).map((rp) => {
+    const original = state.properties.find((p) => p.id === rp.id) || {};
+    return { market_value: rp.value, has_lien: original.has_lien, lien_value: original.lien_value };
+  });
+  const { freeCollateral, maxPurchasePrice } = calc.pledgePurchaseCapacity(projectedProperties, maxLtv);
   document.getElementById('pledge-free-collateral').textContent = fmtMoney(freeCollateral);
   document.getElementById('pledge-max-purchase').textContent = fmtMoney(maxPurchasePrice);
 }
@@ -1544,7 +1546,7 @@ function importBackup(e) {
       state.properties = Array.isArray(parsed.properties) ? parsed.properties : [];
       state.loans = Array.isArray(parsed.loans) ? parsed.loans : [];
       state.events = Array.isArray(parsed.events) ? parsed.events : [];
-      const defaultSettings = { inflation_rate: 0.03, rental_tax_rate: 15, capital_gains_tax_rate: 15, min_portfolio_value: 0, auto_sell_enabled: true, sale_trigger_amount: 0, pledge_financing_enabled: false, pledge_max_ltv: 80 };
+      const defaultSettings = { inflation_rate: 0.03, capital_gains_tax_rate: 15, min_portfolio_value: 0, auto_sell_enabled: true, sale_trigger_amount: 0, pledge_financing_enabled: false, pledge_max_ltv: 80 };
       state.settings = parsed.settings && typeof parsed.settings.inflation_rate === 'number'
         ? { ...defaultSettings, ...parsed.settings }
         : { ...defaultSettings };
@@ -1582,7 +1584,7 @@ async function clearAllData() {
   state.properties = [];
   state.loans = [];
   state.events = [];
-  state.settings = { inflation_rate: 0.03, rental_tax_rate: 15, capital_gains_tax_rate: 15, min_portfolio_value: 0, auto_sell_enabled: true, sale_trigger_amount: 0, pledge_financing_enabled: false, pledge_max_ltv: 80 };
+  state.settings = { inflation_rate: 0.03, capital_gains_tax_rate: 15, min_portfolio_value: 0, auto_sell_enabled: true, sale_trigger_amount: 0, pledge_financing_enabled: false, pledge_max_ltv: 80 };
   state.scenario = { horizonYears: 20 };
   state.overview = { year: CURRENT_YEAR, period: 'year' };
   state.overviewReal = { year: CURRENT_YEAR, period: 'year' };

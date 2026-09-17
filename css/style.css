@@ -350,7 +350,7 @@ body {
      místa, kde dřív bylo přihlášení. */
   header {
     border-bottom: 2px solid #2563eb !important;
-    margin-bottom: 0.5cm;
+    margin-bottom: 0.25cm;
   }
 
   /* Vynutit plnou šířku stránky bez ohledu na to, jak široký byl zdrojový
@@ -379,6 +379,19 @@ body {
   }
   .kpi-value {
     font-size: 1rem !important;
+  }
+  /* Karty KPI/mřížky mají na obrazovce mb-4/mb-6/mt-4 (Tailwind, 16-24px) -
+     v tisku je to zbytečně moc "mrtvého" místa, přes víc sekcí (Přehled má
+     4-5 z nich) to snadno přeteče na druhou stránku jen kvůli mezerám. */
+  .mb-4,
+  .mb-6 {
+    margin-bottom: 0.25rem !important;
+  }
+  .mt-4 {
+    margin-top: 0.25rem !important;
+  }
+  .space-y-3 > * + * {
+    margin-top: 0.35rem !important;
   }
 
   /* Tabulky s hodně sloupci (nemovitosti, úvěry): menší a stejnoměrné
