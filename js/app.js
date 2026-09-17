@@ -1450,7 +1450,7 @@ function renderOverviewGeneric(idPrefix, overviewState, deflate) {
   realAppEl.classList.toggle('text-emerald-600', (row.realAppreciation || 0) >= 0);
 
   if (!deflate) {
-    renderRecommendation();
+    renderRecommendation(row, selectedYear);
     renderPledgeCapacity(row);
   }
 }
@@ -1463,8 +1463,24 @@ function renderOverviewReal() {
   renderOverviewGeneric('real-', state.overviewReal, true);
 }
 
-function renderRecommendation() {
-  const rec = calc.recommendActions(state.properties, state.loans, state.settings, new Date());
+function renderRecommendation(row, selectedYear) {
+  // Nemovitosti/úvěry se přebírají PODLE ZVOLENÉHO ROKU (tržní hodnota z
+  // projekce, zbývající jistina úvěru dopočítaná dopředu/zpětně) - jinak by
+  // "Doporučení" vždycky mluvilo o dnešku, i když si díváš na jiný rok.
+  const asOfDate = selectedYear === CURRENT_YEAR ? new Date() : new Date(selectedYear, 0, 1);
+  const projectedProperties = (row.perProperty || []).map((rp) => {
+    const original = state.properties.find((p) => p.id === rp.id) || {};
+    return { ...original, market_value: rp.value };
+  });
+  const projectedLoans = state.loans
+    .map((l) => {
+      const amount = calc.projectLoanAmount(l, selectedYear, CURRENT_YEAR);
+      if (amount == null) return null;
+      const loanStartYear = calc.yearOf(l.start_date, CURRENT_YEAR);
+      return { ...l, amount, interest_rate: calc.loanRateForYear(l, loanStartYear, selectedYear) };
+    })
+    .filter(Boolean);
+  const rec = calc.recommendActions(projectedProperties, projectedLoans, state.settings, asOfDate);
   const el = document.getElementById('recommendation-content');
   if (!rec) {
     el.innerHTML = '<p>Zatím nemáš dost dat (přidej nemovitosti a úvěry) pro doporučení.</p>';

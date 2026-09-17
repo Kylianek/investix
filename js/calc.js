@@ -123,18 +123,36 @@ function rebaseToYear(properties, loans, settings, events, targetYear, currentYe
 
   const rebasedLoans = [];
   for (const l of loans) {
-    const loanStartYear = yearOf(l.start_date, currentYear);
-    if (loanStartYear > targetYear) continue;
-    let principal = Number(l.amount) || 0;
-    const payment = Number(l.monthly_payment) || 0;
-    for (let y = currentYear; y > targetYear; y--) {
-      const monthlyRate = loanRateForYear(l, loanStartYear, y) / 12;
-      for (let m = 0; m < 12; m++) principal = (principal + payment) / (1 + monthlyRate);
-    }
-    rebasedLoans.push({ ...l, amount: Math.max(0, principal) });
+    const amount = projectLoanAmount(l, targetYear, currentYear);
+    if (amount == null) continue;
+    rebasedLoans.push({ ...l, amount });
   }
 
   return { properties: rebasedProperties, loans: rebasedLoans };
+}
+
+/**
+ * Zbývající jistina úvěru v libovolném roce (minulém i budoucím) - pro
+ * budoucnost amortizuje dopředu (stejně jako projectPortfolio), pro minulost
+ * obrácením stejným způsobem jako rebaseToYear. Vrací null, pokud úvěr v tom
+ * roce ještě nebyl sjednaný. Používá se v Doporučení na Přehledu, aby "nejhorší
+ * úvěr" odpovídal zvolenému roku, ne vždycky jen dnešku.
+ */
+function projectLoanAmount(loan, targetYear, currentYear) {
+  const loanStartYear = yearOf(loan.start_date, currentYear);
+  if (loanStartYear > targetYear) return null;
+  let principal = Number(loan.amount) || 0;
+  if (targetYear > currentYear) {
+    const ls = { remainingPrincipal: principal, startYear: loanStartYear };
+    for (let y = currentYear; y < targetYear; y++) amortizeLoanForYear(loan, ls, y, currentYear);
+    return ls.remainingPrincipal;
+  }
+  const payment = Number(loan.monthly_payment) || 0;
+  for (let y = currentYear; y > targetYear; y--) {
+    const monthlyRate = loanRateForYear(loan, loanStartYear, y) / 12;
+    for (let m = 0; m < 12; m++) principal = (principal + payment) / (1 + monthlyRate);
+  }
+  return Math.max(0, principal);
 }
 
 /** Kumulovaná inflace mezi dvěma roky (fromYear < toYear), pro převod na "dnešní" kupní sílu. */
@@ -641,4 +659,6 @@ window.calc = {
   simulateDebtFreedomPlan,
   rebaseToYear,
   inflationFactorBetween,
+  projectLoanAmount,
+  yearOf,
 };
