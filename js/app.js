@@ -299,6 +299,7 @@ function stateSnapshot() {
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(stateSnapshot()));
+  if (window.cloudSync) window.cloudSync.schedulePush();
 }
 
 /* ---------- Inicializace ---------- */
@@ -348,15 +349,18 @@ function renderAll() {
 
 /* ---------- Tabs ---------- */
 
+function showTab(tabId) {
+  document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('tab-active', b.dataset.tab === tabId));
+  document.querySelectorAll('.tab-panel').forEach((p) => p.classList.toggle('hidden', p.id !== tabId));
+  window.scrollTo({ top: 0 });
+}
+
 function wireTabs() {
   document.querySelectorAll('.tab-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('tab-active'));
-      document.querySelectorAll('.tab-panel').forEach((p) => p.classList.add('hidden'));
-      btn.classList.add('tab-active');
-      document.getElementById(btn.dataset.tab).classList.remove('hidden');
-    });
+    btn.addEventListener('click', () => showTab(btn.dataset.tab));
   });
+  // Nastavení nemá záložku v liště - otevírá se z hlavičky (ozubené kolo / menu profilu).
+  document.getElementById('btn-settings').addEventListener('click', () => showTab('tab-settings'));
 }
 
 /* ---------- Banky (číselník) ---------- */

@@ -4,12 +4,6 @@
 const CLERK_PUBLISHABLE_KEY = 'pk_test_dHJ1ZS1yZWRmaXNoLTI4MDkuY2xlcmsuYWNjb3VudHMuZGV2JA';
 
 const CLERK_LOCALIZATION_URL = 'https://cdn.jsdelivr.net/npm/@clerk/localizations@4/dist/cs-CZ.mjs';
-
-function clerkFrontendApi(key) {
-  const host = atob(key.split('_')[2] || '');
-  return host.endsWith('$') ? host.slice(0, -1) : host;
-}
-
 const CLERK_SCRIPT_TIMEOUT_MS = 15000;
 
 function withTimeout(promise, ms, what) {
@@ -17,6 +11,11 @@ function withTimeout(promise, ms, what) {
     promise,
     new Promise((_, reject) => setTimeout(() => reject(new Error(`${what}: timeout po ${ms} ms`)), ms)),
   ]);
+}
+
+function clerkFrontendApi(key) {
+  const host = atob(key.split('_')[2] || '');
+  return host.endsWith('$') ? host.slice(0, -1) : host;
 }
 
 function loadClerkScript(src, key) {
@@ -39,15 +38,63 @@ function loadClerkScript(src, key) {
   });
 }
 
+function profileDisplayName(user) {
+  const email = user.primaryEmailAddress && user.primaryEmailAddress.emailAddress;
+  return user.fullName || user.username || email || 'Profil';
+}
+
+/** Přepne hlavičku mezi odhlášeným stavem (tlačítka + ozubené kolo) a přihlášeným (menu profilu). */
+function applyAuthState(user) {
+  const signedIn = !!user;
+  const byId = (id) => document.getElementById(id);
+  byId('btn-sign-in').classList.toggle('hidden', signedIn);
+  byId('btn-sign-up').classList.toggle('hidden', signedIn);
+  byId('btn-settings').classList.toggle('hidden', signedIn);
+  byId('profile-menu').classList.toggle('hidden', !signedIn);
+  byId('profile-dropdown').classList.add('hidden');
+  if (!signedIn) return;
+  byId('profile-display-name').textContent = profileDisplayName(user);
+  const avatar = byId('profile-avatar');
+  avatar.classList.toggle('hidden', !user.imageUrl);
+  if (user.imageUrl) avatar.src = user.imageUrl;
+}
+
+function wireProfileMenu(clerk) {
+  const button = document.getElementById('profile-btn');
+  const dropdown = document.getElementById('profile-dropdown');
+  const close = () => {
+    dropdown.classList.add('hidden');
+    button.setAttribute('aria-expanded', 'false');
+  };
+  button.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = !dropdown.classList.toggle('hidden');
+    button.setAttribute('aria-expanded', String(isOpen));
+  });
+  document.addEventListener('click', (e) => {
+    if (!dropdown.contains(e.target)) close();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') close();
+  });
+  document.getElementById('menu-settings').addEventListener('click', () => {
+    close();
+    showTab('tab-settings');
+  });
+  document.getElementById('menu-account').addEventListener('click', () => {
+    close();
+    clerk.openUserProfile();
+  });
+  document.getElementById('menu-signout').addEventListener('click', () => {
+    close();
+    clerk.signOut();
+  });
+}
+
 async function initAuth() {
   const area = document.getElementById('auth-area');
   const key = CLERK_PUBLISHABLE_KEY.trim();
   if (!area || !/^pk_(test|live)_[A-Za-z0-9+/=_-]{8,}$/.test(key)) return;
-
-  const signInBtn = document.getElementById('btn-sign-in');
-  const signUpBtn = document.getElementById('btn-sign-up');
-  const userButtonEl = document.getElementById('clerk-user-button');
-  let userButtonMounted = false;
 
   try {
     window.__clerk_publishable_key = key;
@@ -78,22 +125,21 @@ async function initAuth() {
       'Clerk.load'
     );
 
+    let lastUserId = null;
     const render = () => {
-      const signedIn = !!clerk.user;
-      signInBtn.classList.toggle('hidden', signedIn);
-      signUpBtn.classList.toggle('hidden', signedIn);
-      userButtonEl.classList.toggle('hidden', !signedIn);
-      if (signedIn && !userButtonMounted) {
-        clerk.mountUserButton(userButtonEl, { showName: true });
-        userButtonMounted = true;
-      } else if (!signedIn && userButtonMounted) {
-        clerk.unmountUserButton(userButtonEl);
-        userButtonMounted = false;
+      applyAuthState(clerk.user);
+      const userId = clerk.user ? clerk.user.id : null;
+      if (userId === lastUserId) return;
+      lastUserId = userId;
+      if (window.cloudSync) {
+        if (userId) window.cloudSync.start(() => clerk.session.getToken());
+        else window.cloudSync.stop();
       }
     };
 
-    signInBtn.addEventListener('click', () => clerk.openSignIn());
-    signUpBtn.addEventListener('click', () => clerk.openSignUp());
+    document.getElementById('btn-sign-in').addEventListener('click', () => clerk.openSignIn());
+    document.getElementById('btn-sign-up').addEventListener('click', () => clerk.openSignUp());
+    wireProfileMenu(clerk);
     clerk.addListener(render);
     render();
     area.classList.remove('hidden');

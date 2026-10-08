@@ -93,7 +93,20 @@ Repozitář je nasazený na GitHub Pages ze složky `/ (root)` větve `main`:
 Volitelné přihlášení běží přes [Clerk](https://clerk.com) (stejně jako v CRM), načítá se
 z [js/auth.js](js/auth.js) bez build kroku. Dokud je v něm `CLERK_PUBLISHABLE_KEY` prázdný,
 přihlášení se v appce vůbec nenabídne. Klíč se bere z Clerk dashboardu (Configure → API Keys,
-je veřejný, smí být v repu). Přihlášení je jen identita - data zůstávají v prohlížeči.
+je veřejný, smí být v repu). Nastavení je pod ozubeným kolem v hlavičce (po přihlášení v menu profilu).
+
+## Cloudová záloha podle účtu (volitelná)
+
+Web zůstává na GitHub Pages, jen o záloze se stará neviditelné API ze složky [api/](api/)
+(Vercel + Postgres/Neon). Prohlížeč mu při každé změně pošle data spolu s Clerk tokenem,
+API token ověří veřejnými klíči Clerku (žádný tajný klíč) a uloží data k danému uživateli.
+
+1. Neon: založ projekt a zkopíruj connection string.
+2. Vercel: importuj tohle repo, v Environment Variables nastav `DATABASE_URL`.
+3. Adresu projektu (např. `https://investix-xxxx.vercel.app`) vlož do `INVESTIX_API_URL` v
+   [js/cloud.js](js/cloud.js). Dokud je prázdná, záloha je vypnutá a data zůstávají v prohlížeči.
+
+Tabulka se v databázi vytvoří sama při prvním použití.
 
 ## Soukromí dat
 

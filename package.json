@@ -1,0 +1,9 @@
+{
+  "name": "investix",
+  "private": true,
+  "description": "Investix - web je statický (GitHub Pages); package.json slouží jen serverové funkci v api/ (Vercel)",
+  "dependencies": {
+    "jose": "^5.10.0",
+    "postgres": "^3.4.9"
+  }
+}

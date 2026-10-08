@@ -13,28 +13,43 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Investix</title>
-<link rel="icon" type="image/png" href="assets/logo.png?v=1791463532" />
+<link rel="icon" type="image/png" href="assets/logo.png?v=1791484964" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="css/style.css?v=1791463532" />
+<link rel="stylesheet" href="css/style.css?v=1791484964" />
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
 
   <div id="app-screen">
     <header class="bg-white border-b border-slate-200">
-      <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+      <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
         <h1 class="flex items-center gap-2">
-          <img src="assets/logo.png?v=1791463532" alt="" width="32" height="32" class="shrink-0" />
+          <img src="assets/logo.png?v=1791484964" alt="" width="32" height="32" class="shrink-0" />
           <span class="brand-name">Investix</span>
         </h1>
-        <div class="flex items-center gap-3" id="header-controls">
-          <span class="text-xs text-slate-400 hidden lg:inline">Data se ukládají jen v tomto prohlížeči</span>
+        <div class="flex items-center gap-2 ml-auto" id="header-controls">
+          <span id="storage-note" class="text-xs text-slate-400 hidden lg:inline mr-1">Data se ukládají jen v tomto prohlížeči</span>
+          <button type="button" id="btn-settings" class="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5 whitespace-nowrap" aria-label="Nastavení">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span class="hidden sm:inline">Nastavení</span>
+          </button>
           <div id="auth-area" class="hidden flex items-center gap-2">
-            <button type="button" id="btn-sign-in" class="btn-secondary text-xs">Přihlásit se</button>
-            <button type="button" id="btn-sign-up" class="btn-primary text-xs">Vytvořit účet</button>
-            <div id="clerk-user-button" class="hidden"></div>
+            <button type="button" id="btn-sign-in" class="btn-secondary text-xs px-3 py-1.5 whitespace-nowrap">Přihlásit se</button>
+            <button type="button" id="btn-sign-up" class="btn-primary text-xs px-3 py-1.5 whitespace-nowrap">Vytvořit účet</button>
+          </div>
+          <div id="profile-menu" class="hidden relative">
+            <button type="button" id="profile-btn" class="flex items-center gap-2 rounded-lg border border-slate-300 bg-white pl-1 pr-2 py-1 text-xs hover:bg-slate-50" aria-haspopup="true" aria-expanded="false">
+              <img id="profile-avatar" alt="" class="w-6 h-6 rounded-full object-cover" />
+              <span id="profile-display-name" class="font-medium text-slate-700 truncate max-w-[8rem]"></span>
+              <svg class="w-3 h-3 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div id="profile-dropdown" class="hidden absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-lg py-1 z-50 text-sm">
+              <button type="button" id="menu-settings" class="block w-full text-left px-3 py-2 hover:bg-slate-50">Nastavení</button>
+              <button type="button" id="menu-account" class="block w-full text-left px-3 py-2 hover:bg-slate-50">Spravovat účet</button>
+              <button type="button" id="menu-signout" class="block w-full text-left px-3 py-2 hover:bg-slate-50 text-red-600">Odhlásit se</button>
+            </div>
           </div>
         </div>
       </div>
@@ -45,7 +60,6 @@
         <button class="tab-btn" data-tab="tab-loans">Moje úvěry</button>
         <button class="tab-btn" data-tab="tab-scenario">Scénáře</button>
         <button class="tab-btn" data-tab="tab-freedom">Osvobození od dluhu</button>
-        <button class="tab-btn" data-tab="tab-settings">Nastavení</button>
       </nav>
     </header>
 
@@ -579,6 +593,7 @@
 
       <!-- NASTAVENÍ -->
       <section id="tab-settings" class="tab-panel hidden">
+        <h2 class="text-lg font-semibold mb-4">Nastavení</h2>
         <div class="bg-white rounded-xl border border-slate-200 p-4 max-w-lg mb-4">
           <h2 class="font-semibold mb-3">Inflace</h2>
           <label class="flex flex-col gap-1 text-sm max-w-[10rem]">Předpokládaná inflace (% ročně)
@@ -638,6 +653,12 @@
               Smazat všechna data v tomto prohlížeči
             </button>
           </div>
+          <div id="cloud-section" class="hidden mt-4 pt-4 border-t border-slate-200 text-sm">
+            <p id="cloud-status" class="text-xs text-slate-500 mb-2"></p>
+            <button id="btn-delete-cloud" type="button" class="text-red-600 hover:underline text-left">
+              Smazat zálohu v cloudu
+            </button>
+          </div>
         </div>
       </section>
 
@@ -663,8 +684,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/calc.js?v=1791463532"></script>
-  <script src="js/app.js?v=1791463532"></script>
-  <script src="js/auth.js?v=1791463532"></script>
+  <script src="js/calc.js?v=1791484964"></script>
+  <script src="js/app.js?v=1791484964"></script>
+  <script src="js/cloud.js?v=1791484964"></script>
+  <script src="js/auth.js?v=1791484964"></script>
 </body>
 </html>
