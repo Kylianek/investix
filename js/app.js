@@ -1,9 +1,9 @@
-/* Hlavní logika aplikace: data se ukládají jen lokálně v prohlížeči (localStorage),
-   žádný účet ani server. Výpočty jsou v js/calc.js. */
+/* Hlavní logika aplikace. Přihlášený uživatel má data v databázi (viz js/cloud.js), nepřihlášenému
+   se data nikam neukládají - drží se jen v sessionStorage (přežije obnovení stránky, po zavření
+   záložky zmizí). Výpočty jsou v js/calc.js. */
 
-// Záměrně NEpřejmenováno na "investix" i po rebrandingu - je to jen interní
-// localStorage klíč, uživatel ho nikde nevidí, ale kdyby se změnil, appka by
-// si "nenašla" data, která si lidi už dřív uložili pod starým klíčem.
+// Klíč pracovní kopie v sessionStorage. Pod stejným názvem dřív appka ukládala data natrvalo do
+// localStorage - ten starý záznam se jen jednou načte a smaže se, až jsou data bezpečně v účtu.
 const STORAGE_KEY = 'investicni-kalkulacka-v1';
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -20,24 +20,54 @@ const CZ_BANKS = [
   'Hypoteční banka',
 ];
 
-const state = {
-  properties: [],
-  loans: [],
-  events: [],
-  settings: {
-    inflation_rate: 0.03,
-    capital_gains_tax_rate: 15,
-    min_portfolio_value: 0,
-    auto_sell_enabled: true,
-    sale_trigger_amount: 0,
-    pledge_financing_enabled: false,
-    pledge_max_ltv: 80,
-  },
-  scenario: { horizonYears: 20 },
-  overview: { year: CURRENT_YEAR, period: 'year' },
-  overviewReal: { year: CURRENT_YEAR, period: 'year' },
-  freedom: { horizonYears: 10 },
+const DEFAULT_SETTINGS = {
+  inflation_rate: 0.03,
+  capital_gains_tax_rate: 15,
+  min_portfolio_value: 0,
+  auto_sell_enabled: true,
+  sale_trigger_amount: 0,
+  pledge_financing_enabled: false,
+  pledge_max_ltv: 80,
 };
+
+function defaultState() {
+  return {
+    properties: [],
+    loans: [],
+    events: [],
+    settings: { ...DEFAULT_SETTINGS },
+    scenario: { horizonYears: 20 },
+    overview: { year: CURRENT_YEAR, period: 'year' },
+    overviewReal: { year: CURRENT_YEAR, period: 'year' },
+    freedom: { horizonYears: 10 },
+  };
+}
+
+const state = defaultState();
+
+function replaceContents(target, source) {
+  Object.keys(target).forEach((key) => delete target[key]);
+  Object.assign(target, source);
+}
+
+/**
+ * Nahradí celý stav (záloha, smazání, odhlášení) - objekty settings/scenario/overview... se mění
+ * NA MÍSTĚ, protože ovládací prvky (např. rok v Přehledu) si drží odkaz na ně. Kdyby se místo
+ * toho přiřadil nový objekt, prvky by dál upravovaly ten starý a změna roku by se neprojevila.
+ */
+function setState(next) {
+  const fallback = defaultState();
+  state.properties = Array.isArray(next.properties) ? next.properties : fallback.properties;
+  state.loans = Array.isArray(next.loans) ? next.loans : fallback.loans;
+  state.events = Array.isArray(next.events) ? next.events : fallback.events;
+  const validSettings = next.settings && typeof next.settings.inflation_rate === 'number';
+  replaceContents(state.settings, { ...DEFAULT_SETTINGS, ...(validSettings ? next.settings : {}) });
+  const pick = (value, key, fallbackValue) => (value && typeof value[key] === 'number' ? value : fallbackValue);
+  replaceContents(state.scenario, pick(next.scenario, 'horizonYears', fallback.scenario));
+  replaceContents(state.overview, pick(next.overview, 'year', fallback.overview));
+  replaceContents(state.overviewReal, pick(next.overviewReal, 'year', fallback.overviewReal));
+  replaceContents(state.freedom, pick(next.freedom, 'horizonYears', fallback.freedom));
+}
 
 let scenarioShowDetail = false;
 
@@ -260,7 +290,7 @@ function showSuccessToast(text) {
   successToastTimer = setTimeout(() => el.classList.add('hidden'), 1800);
 }
 
-/* ---------- Perzistence (localStorage) ---------- */
+/* ---------- Perzistence ---------- */
 
 function applyStateFromObject(parsed) {
   if (!parsed) return;
@@ -276,11 +306,28 @@ function applyStateFromObject(parsed) {
 
 function loadState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    applyStateFromObject(JSON.parse(raw));
+    const session = sessionStorage.getItem(STORAGE_KEY);
+    if (session) {
+      applyStateFromObject(JSON.parse(session));
+      return;
+    }
+    // Starší verze appky ukládala data natrvalo do localStorage - jednou se načtou, ale záznam se
+    // nemaže, dokud se data nenahrají do účtu (clearLegacyLocalCopy), ať se nic neztratí.
+    const legacy = localStorage.getItem(STORAGE_KEY);
+    if (legacy) {
+      applyStateFromObject(JSON.parse(legacy));
+      sessionStorage.setItem(STORAGE_KEY, legacy);
+    }
   } catch (e) {
     console.error('Nepodařilo se načíst uložená data:', e);
+  }
+}
+
+function clearLegacyLocalCopy() {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch (e) {
+    console.warn('Starý záznam se nepodařilo smazat:', e);
   }
 }
 
@@ -297,15 +344,92 @@ function stateSnapshot() {
   };
 }
 
+function persistWorkingCopy() {
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(stateSnapshot()));
+  } catch (e) {
+    console.warn('Pracovní kopii dat se nepodařilo uložit:', e);
+  }
+}
+
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(stateSnapshot()));
+  persistWorkingCopy();
   if (window.cloudSync) window.cloudSync.schedulePush();
+  refreshSessionNotice();
+}
+
+/* ---------- Přihlášený / nepřihlášený uživatel ---------- */
+
+// Plní ho js/auth.js. ready = Clerk se načetl (nebo selhal), signedIn = někdo je přihlášený.
+window.authState = { ready: false, signedIn: false };
+// Příznaky, kdy se NEMÁ ukazovat "opravdu chceš odejít?" (vědomé odhlášení, přihlašovací okno).
+window.leaveGuard = { signingOut: false, authModalOpen: false };
+
+function hasAnyData() {
+  return state.properties.length + state.loans.length + state.events.length > 0;
+}
+
+function setStorageNote(text, tone) {
+  const tones = { neutral: 'text-slate-400', ok: 'text-emerald-600', warn: 'text-amber-600', error: 'text-red-600' };
+  const note = document.getElementById('storage-note');
+  if (note) {
+    note.textContent = text;
+    Object.values(tones).forEach((cls) => note.classList.remove(cls));
+    note.classList.add(tones[tone] || tones.neutral);
+  }
+  const dot = document.getElementById('sync-dot');
+  if (dot) {
+    const dots = { ok: 'bg-emerald-500', warn: 'bg-amber-400', error: 'bg-red-500', neutral: 'bg-slate-300' };
+    Object.values(dots).forEach((cls) => dot.classList.remove(cls));
+    dot.classList.add(dots[tone] || dots.neutral);
+    dot.title = text;
+    dot.classList.toggle('hidden', !window.authState.signedIn);
+  }
+}
+
+// Pruh "nejsi přihlášen(a)" - ukáže se, jen když by se přišlo o nějaká data.
+function refreshSessionNotice() {
+  const notice = document.getElementById('session-notice');
+  if (!notice) return;
+  notice.classList.toggle('hidden', !(window.authState.ready && !window.authState.signedIn && hasAnyData()));
+}
+
+function setSyncOverlay(visible) {
+  const overlay = document.getElementById('sync-overlay');
+  if (overlay) overlay.classList.toggle('hidden', !visible);
+}
+
+// Po odhlášení v prohlížeči nezůstane nic (ani pracovní kopie) - bez uložení, ať se nic nepošle do cloudu.
+function wipeWorkingCopy() {
+  setState(defaultState());
+  try {
+    sessionStorage.removeItem(STORAGE_KEY);
+  } catch (e) {
+    console.warn('Pracovní kopii se nepodařilo smazat:', e);
+  }
+  renderAll();
+  refreshSessionNotice();
+}
+
+// Při zavírání/obnovení stránky prohlížeč zobrazí vlastní upozornění (text si volit nelze), když by
+// se přišlo o data: bez přihlášení kdykoli, po přihlášení jen s ještě neuloženou změnou.
+function wireLeaveGuard() {
+  window.addEventListener('beforeunload', (e) => {
+    if (window.leaveGuard.signingOut || window.leaveGuard.authModalOpen) return;
+    const unsaved = window.authState.signedIn
+      ? !!(window.cloudSync && window.cloudSync.hasUnsavedChanges())
+      : hasAnyData();
+    if (!unsaved) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
 }
 
 /* ---------- Inicializace ---------- */
 
 function init() {
   loadState();
+  wireLeaveGuard();
   wireTabs();
   wireForms();
   wireBackup();
@@ -1090,6 +1214,8 @@ function wireOverviewRealControls() {
 }
 
 function renderOverviewGeneric(idPrefix, overviewState, deflate) {
+  document.getElementById(idPrefix + 'overview-period-year').classList.toggle('period-toggle-active', overviewState.period !== 'month');
+  document.getElementById(idPrefix + 'overview-period-month').classList.toggle('period-toggle-active', overviewState.period === 'month');
   const selectedYear = overviewState.year || CURRENT_YEAR;
   setValueIfNotFocused(document.getElementById(idPrefix + 'overview-year'), selectedYear);
 
@@ -1295,26 +1421,8 @@ function importBackup(e) {
   reader.onload = async () => {
     try {
       const parsed = JSON.parse(reader.result);
-      if (!(await customConfirm('Nahrání zálohy přepíše aktuální data v tomto prohlížeči. Pokračovat?', 'Nahrát a přepsat'))) return;
-      state.properties = Array.isArray(parsed.properties) ? parsed.properties : [];
-      state.loans = Array.isArray(parsed.loans) ? parsed.loans : [];
-      state.events = Array.isArray(parsed.events) ? parsed.events : [];
-      const defaultSettings = { inflation_rate: 0.03, capital_gains_tax_rate: 15, min_portfolio_value: 0, auto_sell_enabled: true, sale_trigger_amount: 0, pledge_financing_enabled: false, pledge_max_ltv: 80 };
-      state.settings = parsed.settings && typeof parsed.settings.inflation_rate === 'number'
-        ? { ...defaultSettings, ...parsed.settings }
-        : { ...defaultSettings };
-      state.scenario = parsed.scenario && typeof parsed.scenario.horizonYears === 'number'
-        ? parsed.scenario
-        : { horizonYears: 20 };
-      state.overview = parsed.overview && typeof parsed.overview.year === 'number'
-        ? parsed.overview
-        : { year: CURRENT_YEAR, period: 'year' };
-      state.overviewReal = parsed.overviewReal && typeof parsed.overviewReal.year === 'number'
-        ? parsed.overviewReal
-        : { year: CURRENT_YEAR, period: 'year' };
-      state.freedom = parsed.freedom && typeof parsed.freedom.horizonYears === 'number'
-        ? parsed.freedom
-        : { horizonYears: 10 };
+      if (!(await customConfirm('Nahrání zálohy přepíše aktuální data. Pokračovat?', 'Nahrát a přepsat'))) return;
+      setState(parsed);
       saveState();
       renderAll();
       alert('Záloha byla úspěšně nahrána.');
@@ -1328,20 +1436,15 @@ function importBackup(e) {
 }
 
 async function clearAllData() {
+  const where = window.authState.signedIn ? 'Smažou se i z tvého účtu.' : 'Nejsi přihlášen(a), data se nikde neukládají.';
   const confirmed = await confirmTwice(
-    'Opravdu smazat všechna data v tomto prohlížeči? Tuto akci nelze vrátit zpět.',
-    'Fakt si tím jistý/á? Všechny nemovitosti, úvěry i nastavení v tomto prohlížeči zmizí a nedají se obnovit (pokud si je předtím nezálohuješ).',
+    `Opravdu smazat všechna data? ${where} Tuto akci nelze vrátit zpět.`,
+    'Fakt si tím jistý/á? Všechny nemovitosti, úvěry i nastavení zmizí a nedají se obnovit (pokud si je předtím nezálohuješ).',
     'Smazat'
   );
   if (!confirmed) return;
-  state.properties = [];
-  state.loans = [];
-  state.events = [];
-  state.settings = { inflation_rate: 0.03, capital_gains_tax_rate: 15, min_portfolio_value: 0, auto_sell_enabled: true, sale_trigger_amount: 0, pledge_financing_enabled: false, pledge_max_ltv: 80 };
-  state.scenario = { horizonYears: 20 };
-  state.overview = { year: CURRENT_YEAR, period: 'year' };
-  state.overviewReal = { year: CURRENT_YEAR, period: 'year' };
-  state.freedom = { horizonYears: 10 };
+  setState(defaultState());
+  clearLegacyLocalCopy();
   saveState();
   renderAll();
 }

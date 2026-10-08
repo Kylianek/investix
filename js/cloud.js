@@ -1,37 +1,48 @@
-/* Záloha dat do cloudu podle přihlášeného účtu (Clerk + API ze složky api/ - viz api/data.js).
-   Web zůstává na GitHub Pages, API je jen neviditelný backend. Dokud je adresa prázdná,
-   záloha je vypnutá a data zůstávají jen v prohlížeči.
-   Adresa: Vercel projekt s tímhle repem, např. 'https://investix-api.vercel.app' (bez lomítka na konci). */
+/* Data přihlášeného uživatele žijí v databázi (Clerk přihlášení + API ze složky api/ - viz api/data.js):
+   každá uložená změna se hned odešle. Web zůstává na GitHub Pages, API je jen neviditelný backend.
+   Adresa API: Vercel projekt s tímhle repem (bez lomítka na konci). */
 const INVESTIX_API_URL = 'https://investix-sigma.vercel.app';
 
 window.cloudSync = (() => {
   const base = INVESTIX_API_URL.trim().replace(/\/+$/, '');
-  const NOTE_LOCAL = 'Data se ukládají jen v tomto prohlížeči';
-  const NOTE_CLOUD = 'Data se zálohují do cloudu';
+  const SAVE_DELAY_MS = 200; // jen slepí rychlé změny za sebou do jednoho zápisu
+  const RETRY_MS = 15000;
+
+  const MESSAGES = {
+    loading: ['Načítám data z účtu…', 'neutral'],
+    saving: ['Ukládám…', 'warn'],
+    saved: ['Uloženo v cloudu', 'ok'],
+    error: ['Ukládání do cloudu selhalo', 'error'],
+    unreachable: ['Cloud je nedostupný - změny se neukládají', 'error'],
+    unconfigured: ['Ukládání do cloudu není nastavené', 'error'],
+  };
 
   let getToken = null;
-  let ready = false; // zapisovat do cloudu se smí až po úspěšném PŘEČTENÍ - jinak hrozí přepsání cizích/novějších dat
+  let ready = false; // zapisovat se smí až po úspěšném PŘEČTENÍ - jinak hrozí přepsání novějších dat
   let generation = 0; // zahodí pozdní odpovědi po odhlášení / přepnutí účtu
   let pushTimer = null;
+  let retryTimer = null;
   let pushing = false;
+  let pushPromise = null;
   let dirty = false;
+  let failed = false;
   let lastStartAttempt = 0;
 
   const byId = (id) => document.getElementById(id);
 
-  function setStatus(text, isError) {
-    const el = byId('cloud-status');
-    if (!el) return;
-    el.textContent = text;
-    el.classList.toggle('text-red-600', !!isError);
-    el.classList.toggle('text-slate-500', !isError);
+  function show(kind) {
+    const [text, tone] = MESSAGES[kind];
+    setStorageNote(text, tone);
+    const status = byId('cloud-status');
+    if (!status) return;
+    status.textContent = text;
+    status.classList.toggle('text-red-600', tone === 'error');
+    status.classList.toggle('text-slate-500', tone !== 'error');
   }
 
   function setUi(active) {
     const section = byId('cloud-section');
     if (section) section.classList.toggle('hidden', !active);
-    const note = byId('storage-note');
-    if (note) note.textContent = active ? NOTE_CLOUD : NOTE_LOCAL;
   }
 
   async function api(method, body) {
@@ -41,7 +52,15 @@ window.cloudSync = (() => {
       headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (!response.ok) throw new Error(`API ${response.status}`);
+    if (!response.ok) {
+      let reason = '';
+      try {
+        reason = (await response.json()).reason || '';
+      } catch (e) {
+        /* odpověď nebyla JSON */
+      }
+      throw new Error(`API ${response.status}${reason ? ' ' + reason : ''}`);
+    }
     return response.json();
   }
 
@@ -73,9 +92,10 @@ window.cloudSync = (() => {
   }
 
   async function adoptRemote(remote) {
-    applyStateFromObject(remote);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(stateSnapshot()));
+    setState(remote);
+    persistWorkingCopy();
     renderAll();
+    refreshSessionNotice();
     // starší záloha nemusí mít všechna dnešní nastavení - doplněný stav se pošle zpět, ať se příště nerozchází
     if (fingerprint(stateSnapshot()) !== fingerprint(remote)) await push();
   }
@@ -92,34 +112,41 @@ window.cloudSync = (() => {
     }
     if (fingerprint(remote) === fingerprint(local)) return;
     const useCloud = await customConfirm(
-      'V cloudu jsou jiná data než v tomto prohlížeči. Který stav chceš zachovat? Druhý se přepíše.',
-      'Použít cloud',
-      'Použít tento prohlížeč'
+      'V účtu jsou jiná data než tady na stránce. Který stav chceš zachovat? Druhý se přepíše.',
+      'Použít data z účtu',
+      'Použít data ze stránky'
     );
     if (useCloud) await adoptRemote(remote);
     else await push();
   }
 
   async function start(tokenGetter) {
-    if (!base) return;
+    if (!base) {
+      show('unconfigured');
+      return;
+    }
     getToken = tokenGetter;
     ready = false;
+    failed = false;
     clearTimeout(pushTimer);
+    pushTimer = null;
+    clearTimeout(retryTimer);
     const current = ++generation;
     lastStartAttempt = Date.now();
     setUi(true);
-    setStatus('Načítám zálohu z cloudu…');
+    show('loading');
     try {
       const { data: remote } = await api('GET');
       if (current !== generation) return;
       await reconcile(remote);
       if (current !== generation) return;
+      clearLegacyLocalCopy(); // data jsou bezpečně v účtu - starý záznam z dřívější verze už není potřeba
       ready = true;
-      setStatus('Data jsou zálohovaná v cloudu.');
+      show('saved');
     } catch (e) {
       if (current !== generation) return;
-      console.warn('Záloha do cloudu:', e);
-      setStatus('Cloud je nedostupný - data zůstávají jen v tomto prohlížeči.', true);
+      console.warn('Cloud:', e);
+      show('unreachable');
     }
   }
 
@@ -127,30 +154,48 @@ window.cloudSync = (() => {
     generation += 1;
     ready = false;
     getToken = null;
+    failed = false;
+    dirty = false;
     clearTimeout(pushTimer);
+    pushTimer = null;
+    clearTimeout(retryTimer);
     setUi(false);
   }
 
-  async function runPush() {
+  function scheduleRetry() {
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(() => {
+      if (getToken && ready && failed) pushNow();
+    }, RETRY_MS);
+  }
+
+  function pushNow() {
     if (pushing) {
       dirty = true;
-      return;
+      return pushPromise;
     }
     pushing = true;
-    const current = generation;
-    try {
-      await push();
-      if (current === generation) setStatus('Data jsou zálohovaná v cloudu.');
-    } catch (e) {
-      console.warn('Záloha do cloudu:', e);
-      if (current === generation) setStatus('Zálohu do cloudu se nepodařilo uložit.', true);
-    } finally {
-      pushing = false;
-      if (dirty) {
+    pushPromise = (async () => {
+      const current = generation;
+      do {
         dirty = false;
-        schedulePush();
-      }
-    }
+        try {
+          await push();
+          failed = false;
+          if (current === generation) show('saved');
+        } catch (e) {
+          failed = true;
+          console.warn('Cloud:', e);
+          if (current === generation) {
+            show('error');
+            scheduleRetry();
+          }
+          break;
+        }
+      } while (dirty);
+      pushing = false;
+    })();
+    return pushPromise;
   }
 
   function schedulePush() {
@@ -160,31 +205,49 @@ window.cloudSync = (() => {
       if (Date.now() - lastStartAttempt > 20000) start(getToken);
       return;
     }
+    show('saving');
     clearTimeout(pushTimer);
-    pushTimer = setTimeout(runPush, 800);
+    pushTimer = setTimeout(() => {
+      pushTimer = null;
+      pushNow();
+    }, SAVE_DELAY_MS);
+  }
+
+  /** Okamžitě odešle všechno, co ještě čeká (před odhlášením). */
+  async function flush() {
+    if (!base || !getToken || !ready) return;
+    if (pushTimer === null && !pushing && !dirty && !failed) return;
+    clearTimeout(pushTimer);
+    pushTimer = null;
+    await pushNow();
+  }
+
+  function hasUnsavedChanges() {
+    if (!base || !getToken) return hasAnyData();
+    if (!ready) return hasAnyData();
+    return pushTimer !== null || pushing || dirty || failed;
   }
 
   async function confirmAndDelete() {
     if (!getToken) return;
     const confirmed = await confirmTwice(
-      'Opravdu smazat zálohu dat uloženou v cloudu? Data v tomto prohlížeči zůstanou beze změny. Tuto akci nelze vrátit zpět.',
-      'Fakt si tím jistý/á? Cloudová záloha se nedá obnovit a budeš odhlášen(a).',
-      'Smazat zálohu'
+      'Opravdu smazat všechna data z tvého účtu? Nelze je obnovit.',
+      'Fakt si tím jistý/á? Data z účtu zmizí navždy, budeš odhlášen(a) a z této stránky se smažou taky.',
+      'Smazat data z účtu'
     );
     if (!confirmed) return;
     try {
       await api('DELETE');
     } catch (e) {
-      alert('Smazání cloudové zálohy se nepodařilo.');
+      alert('Smazání dat z účtu se nepodařilo.');
       return;
     }
-    stop();
-    alert('Cloudová záloha byla smazána. Byl(a) jsi odhlášen(a).');
-    if (window.Clerk) window.Clerk.signOut();
+    alert('Data z tvého účtu byla smazána. Byl(a) jsi odhlášen(a).');
+    await window.investixSignOut({ flush: false });
   }
 
   const deleteButton = byId('btn-delete-cloud');
   if (deleteButton) deleteButton.addEventListener('click', confirmAndDelete);
 
-  return { start, stop, schedulePush };
+  return { start, stop, schedulePush, flush, hasUnsavedChanges };
 })();

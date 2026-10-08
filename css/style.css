@@ -321,6 +321,8 @@ body {
   }
   header nav,
   #header-controls,
+  #session-notice,
+  #sync-overlay,
   #success-toast,
   #confirm-modal,
   .number-stepper-buttons,

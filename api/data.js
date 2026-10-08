@@ -15,10 +15,14 @@ const ALLOWED_ORIGINS = [
 
 const jwks = createRemoteJWKSet(new URL(`${ISSUER}/.well-known/jwks.json`));
 
+function rejection(code, message) {
+  return Object.assign(new Error(message), { code });
+}
+
 async function verifyToken(token, origin) {
   const { payload } = await jwtVerify(token, jwks, { issuer: ISSUER, clockTolerance: 5 });
-  if (!payload.sub) throw new Error('token bez uživatele');
-  if (payload.azp && payload.azp !== origin) throw new Error('token patří jiné aplikaci');
+  if (!payload.sub) throw rejection('NO_SUBJECT', 'token bez uživatele');
+  if (payload.azp && payload.azp !== origin) throw rejection('AZP_MISMATCH', 'token patří jiné aplikaci');
   return payload.sub;
 }
 

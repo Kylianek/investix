@@ -13,12 +13,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Investix</title>
-<link rel="icon" type="image/png" href="assets/logo.png?v=1791486333" />
+<link rel="icon" type="image/png" href="assets/logo.png?v=1791488102" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="css/style.css?v=1791486333" />
+<link rel="stylesheet" href="css/style.css?v=1791488102" />
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
 
@@ -26,11 +26,12 @@
     <header class="bg-white border-b border-slate-200">
       <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
         <h1 class="flex items-center gap-2">
-          <img src="assets/logo.png?v=1791486333" alt="" width="32" height="32" class="shrink-0" />
+          <img src="assets/logo.png?v=1791488102" alt="" width="32" height="32" class="shrink-0" />
           <span class="brand-name">Investix</span>
         </h1>
         <div class="flex items-center gap-2 ml-auto" id="header-controls">
-          <span id="storage-note" class="text-xs text-slate-400 hidden lg:inline mr-1">Data se ukládají jen v tomto prohlížeči</span>
+          <span id="storage-note" class="text-xs text-slate-400 hidden sm:inline mr-1"></span>
+          <span id="sync-dot" class="hidden w-2 h-2 rounded-full bg-slate-300 shrink-0" title="" aria-hidden="true"></span>
           <button type="button" id="btn-settings" class="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5 whitespace-nowrap" aria-label="Nastavení">
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             <span class="hidden sm:inline">Nastavení</span>
@@ -62,6 +63,11 @@
         <button class="tab-btn" data-tab="tab-freedom">Osvobození od dluhu</button>
       </nav>
     </header>
+
+    <div id="session-notice" class="hidden bg-amber-50 border-b border-amber-200 text-amber-800 text-xs px-4 py-2 text-center">
+      Nejsi přihlášen(a) - data se neukládají a po zavření stránky zmizí.
+      <button type="button" id="session-notice-signin" class="underline font-medium ml-1">Přihlásit se</button>
+    </div>
 
     <main class="max-w-6xl mx-auto px-4 py-6">
 
@@ -640,8 +646,8 @@
         <div class="bg-white rounded-xl border border-slate-200 p-4 max-w-lg">
           <h2 class="font-semibold mb-1">Záloha dat</h2>
           <p class="text-xs text-slate-500 mb-3">
-            Data jsou uložena jen v tomto prohlížeči. Pro zálohu nebo přenos na jiné
-            zařízení si je stáhni jako soubor a na druhé straně ho nahraj zpět.
+            Přihlášeným se data ukládají do účtu. Bez přihlášení se neukládají nikam - záloha do
+            souboru je pak jediná cesta, jak je zachovat.
           </p>
           <div class="flex flex-col gap-2 text-sm max-w-xs">
             <button id="btn-export" type="button" class="btn-secondary">Stáhnout zálohu (JSON)</button>
@@ -650,13 +656,13 @@
               <input id="import-file" type="file" accept="application/json" class="hidden" />
             </label>
             <button id="btn-clear" type="button" class="text-red-600 hover:underline text-left mt-2">
-              Smazat všechna data v tomto prohlížeči
+              Smazat všechna data
             </button>
           </div>
           <div id="cloud-section" class="hidden mt-4 pt-4 border-t border-slate-200 text-sm">
             <p id="cloud-status" class="text-xs text-slate-500 mb-2"></p>
             <button id="btn-delete-cloud" type="button" class="text-red-600 hover:underline text-left">
-              Smazat zálohu v cloudu
+              Smazat data z mého účtu
             </button>
           </div>
         </div>
@@ -666,6 +672,8 @@
   </div>
 
   <datalist id="bank-list"></datalist>
+
+  <div id="sync-overlay" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-white/80 text-sm text-slate-600">Načítám data z účtu…</div>
 
   <div id="confirm-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(15,23,42,0.5)">
     <div class="bg-white rounded-xl shadow-lg p-5 max-w-sm w-full">
@@ -684,9 +692,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/calc.js?v=1791486333"></script>
-  <script src="js/app.js?v=1791486333"></script>
-  <script src="js/cloud.js?v=1791486333"></script>
-  <script src="js/auth.js?v=1791486333"></script>
+  <script src="js/calc.js?v=1791488102"></script>
+  <script src="js/app.js?v=1791488102"></script>
+  <script src="js/cloud.js?v=1791488102"></script>
+  <script src="js/auth.js?v=1791488102"></script>
 </body>
 </html>

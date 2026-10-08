@@ -3,12 +3,9 @@
 Webová verze osobní kalkulačky z `INVESTIČNÍ KALKULAČKA 1.xlsx` — přehled nemovitostí,
 úvěrů (fixací), časového testu / zástav a zhodnocení portfolia.
 
-Žádný server. Aplikace je čistě statická stránka
-(HTML/CSS/JS, žádný build krok) a všechna data se ukládají výhradně v `localStorage`
-tvého prohlížeče — nikam se neposílají, takže nejsou nikde veřejně vidět. Nevýhoda
-tohoto přístupu: data jsou dostupná jen v tom jednom prohlížeči/zařízení, kde je
-zadáš, a zmizí, pokud v něm vymažeš data stránek. Proto je v záložce **Nastavení**
-tlačítko na stažení/nahrání zálohy (JSON soubor).
+Aplikace je čistá statická stránka (HTML/CSS/JS, žádný build krok). Přihlášený uživatel má data
+v databázi, nepřihlášenému se data nikam neukládají a po zavření stránky zmizí - jediná cesta,
+jak je zachovat, je záloha do souboru (Nastavení → Záloha dat).
 
 ## Jak vzorce odpovídají originálnímu Excelu
 
@@ -90,30 +87,36 @@ Repozitář je nasazený na GitHub Pages ze složky `/ (root)` větve `main`:
 
 ## Přihlášení (Clerk)
 
-Volitelné přihlášení běží přes [Clerk](https://clerk.com) (stejně jako v CRM), načítá se
-z [js/auth.js](js/auth.js) bez build kroku. Dokud je v něm `CLERK_PUBLISHABLE_KEY` prázdný,
-přihlášení se v appce vůbec nenabídne. Klíč se bere z Clerk dashboardu (Configure → API Keys,
-je veřejný, smí být v repu). Nastavení je pod ozubeným kolem v hlavičce (po přihlášení v menu profilu).
+Přihlášení běží přes [Clerk](https://clerk.com) (stejně jako v CRM), načítá se z
+[js/auth.js](js/auth.js) bez build kroku. Dokud je v něm `CLERK_PUBLISHABLE_KEY` prázdný, přihlášení se
+v appce vůbec nenabídne. Klíč se bere z Clerk dashboardu (Configure → API Keys, je veřejný, smí
+být v repu). Nastavení je pod ozubeným kolem v hlavičce (po přihlášení v menu profilu).
 
-## Cloudová záloha podle účtu (volitelná)
+## Ukládání dat
 
-Web zůstává na GitHub Pages, jen o záloze se stará neviditelné API ze složky [api/](api/)
-(Vercel + Postgres/Neon). Prohlížeč mu při každé změně pošle data spolu s Clerk tokenem,
-API token ověří veřejnými klíči Clerku (žádný tajný klíč) a uloží data k danému uživateli.
+- **Přihlášený:** každá uložená změna se do ~0,2 s odešle do databáze (stav je vidět v hlavičce).
+  V prohlížeči zůstává jen pracovní kopie v `sessionStorage` (přežije obnovení stránky, po zavření
+  záložky zmizí). Po odhlášení se i ta smaže.
+- **Nepřihlášený:** nic se neukládá. Pracovní kopie v `sessionStorage` zmizí po zavření záložky a
+  appka na to upozorní (pruh nahoře i dotaz prohlížeče při odchodu). Po přihlášení se data ze stránky
+  nahrají do účtu.
+- Starší data z `localStorage` (dřívější verze) se jednou načtou a smažou se, až jsou v účtu.
 
-1. Neon: založ projekt a zkopíruj connection string.
-2. Vercel: importuj tohle repo, v Environment Variables nastav `DATABASE_URL`.
-3. Adresu projektu (např. `https://investix-xxxx.vercel.app`) vlož do `INVESTIX_API_URL` v
-   [js/cloud.js](js/cloud.js). Dokud je prázdná, záloha je vypnutá a data zůstávají v prohlížeči.
+### Databáze (Vercel + Postgres/Neon)
 
-Tabulka se v databázi vytvoří sama při prvním použití.
+Web zůstává na GitHub Pages, o databázi se stará neviditelné API ze složky [api/](api/). Prohlížeč mu
+data posílá spolu s Clerk tokenem, API token ověří veřejnými klíči Clerku (žádný tajný klíč) a uloží
+data k danému uživateli.
+
+1. Neon: databáze propojená s Vercel projektem (proměnná `DATABASE_URL` nebo `POSTGRES_URL`).
+2. Vercel: projekt z tohoto repa, kořen se přesměrovává na GitHub Pages (viz [vercel.json](vercel.json)).
+3. Adresa projektu je v `INVESTIX_API_URL` v [js/cloud.js](js/cloud.js).
+
+Tabulka se v databázi vytvoří sama. Diagnostika (bez tajných údajů): `/api/health`.
 
 ## Soukromí dat
 
-- Appka se otevře rovnou, přihlášení není potřeba.
-- Veškerá data (nemovitosti, úvěry, nastavení) se ukládají pouze lokálně v
-  `localStorage` tvého prohlížeče. Nic se neodesílá na žádný server, takže nejsou
-  nikde veřejně dostupná, ani ve zdrojovém kódu na GitHubu.
-- Zálohuj si data přes tlačítko "Stáhnout zálohu (JSON)" v Nastavení — zvlášť před
-  smazáním dat prohlížeče nebo při přechodu na jiné zařízení/prohlížeč (tam pak
-  zálohu nahraješ přes "Nahrát zálohu").
+- Data přihlášeného jsou v jeho účtu v databázi a nikdo jiný je nevidí (API čte a zapisuje jen
+  záznam uživatele z ověřeného tokenu). Nejsou ani ve zdrojovém kódu na GitHubu.
+- Zálohuj si data přes tlačítko "Stáhnout zálohu (JSON)" v Nastavení - jde nahrát zpět přes
+  "Nahrát zálohu", i bez přihlášení.

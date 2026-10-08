@@ -50,8 +50,11 @@ function createHandler({ store, verifyToken, allowedOrigins }) {
     let userId;
     try {
       userId = await verifyToken(token, origin);
-    } catch {
-      return send(res, 401, { error: 'invalid_token' });
+    } catch (e) {
+      // jen kód důvodu (např. ERR_JWT_EXPIRED), nikdy obsah tokenu - usnadní hledání chyby v logu
+      const reason = (e && e.code) || 'invalid';
+      console.warn('investix api: token odmítnut:', reason);
+      return send(res, 401, { error: 'invalid_token', reason });
     }
 
     try {
