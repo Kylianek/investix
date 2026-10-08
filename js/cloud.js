@@ -2,7 +2,7 @@
    Web zůstává na GitHub Pages, API je jen neviditelný backend. Dokud je adresa prázdná,
    záloha je vypnutá a data zůstávají jen v prohlížeči.
    Adresa: Vercel projekt s tímhle repem, např. 'https://investix-api.vercel.app' (bez lomítka na konci). */
-const INVESTIX_API_URL = '';
+const INVESTIX_API_URL = 'https://investix-sigma.vercel.app';
 
 window.cloudSync = (() => {
   const base = INVESTIX_API_URL.trim().replace(/\/+$/, '');

@@ -1,3 +1,6 @@
 {
-  "regions": ["fra1"]
+  "regions": ["fra1"],
+  "redirects": [
+    { "source": "/((?!api/).*)", "destination": "https://kylianek.github.io/investix/", "permanent": false }
+  ]
 }
