@@ -13,12 +13,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Investix</title>
-<link rel="icon" type="image/png" href="assets/logo.png?v=1791457035" />
+<link rel="icon" type="image/png" href="assets/logo.png?v=1791458111" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="css/style.css?v=1791457035" />
+<link rel="stylesheet" href="css/style.css?v=1791458111" />
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
 
@@ -26,11 +26,16 @@
     <header class="bg-white border-b border-slate-200">
       <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
         <h1 class="flex items-center gap-2">
-          <img src="assets/logo.png?v=1791457035" alt="" width="32" height="32" class="shrink-0" />
+          <img src="assets/logo.png?v=1791458111" alt="" width="32" height="32" class="shrink-0" />
           <span class="brand-name">Investix</span>
         </h1>
         <div class="flex items-center gap-3" id="header-controls">
           <span class="text-xs text-slate-400 hidden lg:inline">Data se ukládají jen v tomto prohlížeči</span>
+          <div id="auth-area" class="hidden flex items-center gap-2">
+            <button type="button" id="btn-sign-in" class="btn-secondary text-xs">Přihlásit se</button>
+            <button type="button" id="btn-sign-up" class="btn-primary text-xs">Vytvořit účet</button>
+            <div id="clerk-user-button" class="hidden"></div>
+          </div>
         </div>
       </div>
       <nav class="max-w-6xl mx-auto px-4 flex flex-wrap gap-1 -mb-px">
@@ -658,7 +663,8 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/calc.js?v=1791457035"></script>
-  <script src="js/app.js?v=1791457035"></script>
+  <script src="js/calc.js?v=1791458111"></script>
+  <script src="js/app.js?v=1791458111"></script>
+  <script src="js/auth.js?v=1791458111"></script>
 </body>
 </html>

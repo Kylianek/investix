@@ -3,7 +3,7 @@
 Webová verze osobní kalkulačky z `INVESTIČNÍ KALKULAČKA 1.xlsx` — přehled nemovitostí,
 úvěrů (fixací), časového testu / zástav a zhodnocení portfolia.
 
-Žádné přihlašování, žádný účet, žádný server. Aplikace je čistě statická stránka
+Žádný server. Aplikace je čistě statická stránka
 (HTML/CSS/JS, žádný build krok) a všechna data se ukládají výhradně v `localStorage`
 tvého prohlížeče — nikam se neposílají, takže nejsou nikde veřejně vidět. Nevýhoda
 tohoto přístupu: data jsou dostupná jen v tom jednom prohlížeči/zařízení, kde je
@@ -88,9 +88,16 @@ lokální server, např. `npx serve .`
 Repozitář je nasazený na GitHub Pages ze složky `/ (root)` větve `main`:
 **https://kylianek.github.io/investix/**
 
+## Přihlášení (Clerk)
+
+Volitelné přihlášení běží přes [Clerk](https://clerk.com) (stejně jako v CRM), načítá se
+z [js/auth.js](js/auth.js) bez build kroku. Dokud je v něm `CLERK_PUBLISHABLE_KEY` prázdný,
+přihlášení se v appce vůbec nenabídne. Klíč se bere z Clerk dashboardu (Configure → API Keys,
+je veřejný, smí být v repu). Přihlášení je jen identita - data zůstávají v prohlížeči.
+
 ## Soukromí dat
 
-- Žádné přihlašování ani účet — aplikace se otevře rovnou.
+- Appka se otevře rovnou, přihlášení není potřeba.
 - Veškerá data (nemovitosti, úvěry, nastavení) se ukládají pouze lokálně v
   `localStorage` tvého prohlížeče. Nic se neodesílá na žádný server, takže nejsou
   nikde veřejně dostupná, ani ve zdrojovém kódu na GitHubu.
