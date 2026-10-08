@@ -40,9 +40,6 @@ const state = {
 };
 
 let scenarioShowDetail = false;
-let currentUserId = null;
-let syncDebounceTimer = null;
-const SYNC_TABLE = 'app_data';
 
 // Nedělitelná mezera ( ) mezi skupinami číslic i před jednotkou - číslo se
 // svojí příponou (Kč/%) se tak nikdy nezalomí na dva řádky uprostřed buňky.
@@ -218,7 +215,7 @@ function customConfirm(message, okLabel, cancelLabel) {
 }
 
 /**
- * Pro nevratné mazání dat (lokálně i v cloudu) se ptá DVAKRÁT po sobě - první
+ * Pro nevratné mazání dat se ptá DVAKRÁT po sobě - první
  * potvrzení je běžný dotaz, druhé je záměrně formulované jinak (ne jen
  * zopakované), ať jde vidět, že to není omylem odklikané dvojklikem.
  * Vrací true jen pokud uživatel potvrdí OBĚ dotazy.
@@ -302,313 +299,6 @@ function stateSnapshot() {
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(stateSnapshot()));
-  scheduleCloudSync();
-}
-
-/* ---------- Volitelné přihlášení a záloha do cloudu (Supabase) ---------- */
-
-function scheduleCloudSync() {
-  if (!currentUserId || !supabaseClient) return;
-  clearTimeout(syncDebounceTimer);
-  syncDebounceTimer = setTimeout(() => pushToCloud(currentUserId), 800);
-}
-
-async function pushToCloud(userId) {
-  if (!supabaseClient) return;
-  const { error } = await supabaseClient
-    .from(SYNC_TABLE)
-    .upsert({ user_id: userId, data: stateSnapshot(), updated_at: new Date().toISOString() });
-  const statusEl = document.getElementById('auth-sync-status');
-  if (statusEl) statusEl.textContent = error ? 'Zálohu do cloudu se nepodařilo uložit.' : 'Data jsou zálohovaná v cloudu.';
-}
-
-/**
- * Smaže záznam z tabulky app_data patřící přihlášenému uživateli - ne jen
- * přepíše prázdnými daty, ale skutečně smaže ten řádek (RLS "owner only"
- * politika DELETE u vlastního řádku už povoluje, žádná změna v Supabase
- * není potřeba). Lokální data v tomto prohlížeči tím nejsou nijak dotčená -
- * jakmile se ale příště něco lokálně změní, autosync by zálohu zase nahrál
- * nahoru, proto se po smazání ODHLÁSÍ, ať si uživatel vědomě řekne, jestli
- * chce zálohování znovu zapnout přihlášením.
- */
-async function deleteCloudData() {
-  if (!supabaseClient || !currentUserId) return;
-  const userId = currentUserId;
-  const { error } = await supabaseClient.from(SYNC_TABLE).delete().eq('user_id', userId);
-  if (error) {
-    alert('Smazání cloudové zálohy se nepodařilo: ' + error.message);
-    return;
-  }
-  await supabaseClient.auth.signOut();
-  currentUserId = null;
-  alert('Cloudová záloha byla smazána. Byl(a) jsi odhlášen(a).');
-}
-
-/**
- * Po přihlášení VŽDY vyhraje cloud, pokud v něm něco je - žádné dotazování.
- * Nemá smysl nutit uživatele volit "lokální vs. cloud" pokaždé, když se
- * přihlásí ze zařízení, které už s cloudem jednou synchronizovalo - cloud je
- * "zdroj pravdy". Jen když cloud ještě nemá vůbec nic (úplně první přihlášení
- * z libovolného zařízení), nahraje se tam to, co má uživatel rozdělané lokálně.
- */
-async function handlePostLogin(userId) {
-  currentUserId = userId;
-  const { data, error } = await supabaseClient.from(SYNC_TABLE).select('data').eq('user_id', userId).maybeSingle();
-  if (error) {
-    console.error(error);
-    return;
-  }
-  const cloud = data && data.data;
-  const cloudHasData = cloud && ((Array.isArray(cloud.properties) && cloud.properties.length) || (Array.isArray(cloud.loans) && cloud.loans.length));
-
-  if (cloudHasData) {
-    applyStateFromObject(cloud);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(stateSnapshot()));
-    renderAll();
-  } else {
-    await pushToCloud(userId);
-  }
-}
-
-/**
- * Přihlašovací UI existuje na dvou místech (kompaktní widget v hlavičce a
- * plná karta v Nastavení), obě řízená stejnou logikou - prefix '' je karta
- * v Nastavení (auth-email, auth-form...), prefix 'header-' je widget v
- * hlavičce (header-auth-email, header-auth-form...). Aktualizují/reagují
- * se vždy OBĚ najednou, ať uživatel vidí konzistentní stav, ať přihlášení
- * použije odkudkoliv.
- */
-const AUTH_UI_PREFIXES = ['', 'header-'];
-
-function updateAuthUI(session) {
-  for (const prefix of AUTH_UI_PREFIXES) {
-    const loggedOut = document.getElementById(prefix + 'auth-logged-out');
-    const loggedIn = document.getElementById(prefix + 'auth-logged-in');
-    if (!loggedOut || !loggedIn) continue;
-    if (session) {
-      loggedOut.classList.add('hidden');
-      loggedIn.classList.remove('hidden');
-      const name = session.user.user_metadata && session.user.user_metadata.full_name;
-      document.getElementById(prefix + 'auth-user-email').textContent = name || session.user.email;
-    } else {
-      loggedOut.classList.remove('hidden');
-      loggedIn.classList.add('hidden');
-      setAuthMode(prefix, 'login');
-    }
-  }
-  if (!session) currentUserId = null;
-  document.getElementById('header-auth-dropdown').classList.add('hidden');
-  document.getElementById('cloud-delete-section').classList.toggle('hidden', !session);
-  // Profil (jméno/heslo) je jen v Nastavení, ne v hlavičkovém widgetu.
-  const profileNameInput = document.getElementById('profile-name');
-  if (profileNameInput) {
-    profileNameInput.value = (session && session.user.user_metadata && session.user.user_metadata.full_name) || '';
-  }
-}
-
-function showAuthMessage(prefix, text) {
-  const el = document.getElementById(prefix + 'auth-message');
-  if (!el) return;
-  el.textContent = text;
-  el.classList.toggle('hidden', !text);
-}
-
-function setAuthFieldsInvalid(prefix, invalid) {
-  const emailEl = document.getElementById(prefix + 'auth-email');
-  const passwordEl = document.getElementById(prefix + 'auth-password');
-  const nameEl = document.getElementById(prefix + 'auth-name');
-  emailEl.classList.toggle('input-error', invalid);
-  passwordEl.classList.toggle('input-error', invalid);
-  if (nameEl) nameEl.classList.toggle('input-error', invalid && document.getElementById(prefix + 'auth-form').dataset.mode === 'signup');
-}
-
-function translateAuthError(message) {
-  const known = {
-    'Invalid login credentials': 'Nesprávný e-mail nebo heslo.',
-    'User already registered': 'Uživatel s tímto e-mailem už existuje.',
-    'Password should be at least 6 characters': 'Heslo musí mít alespoň 6 znaků.',
-    'Email not confirmed': 'E-mail zatím nebyl potvrzen - zkontroluj schránku.',
-  };
-  if (known[message]) return known[message];
-  // Supabase vrací číslo vteřin přímo v textu (mění se každý pokus), takže
-  // přesnou shodu v `known` nejde použít - hlídá to proti spamování mailů.
-  const rateLimitMatch = message.match(/^For security purposes, you can only request this after (\d+) seconds?\.$/);
-  if (rateLimitMatch) {
-    return `Z bezpečnostních důvodů to zkus znovu až za ${rateLimitMatch[1]} sekund.`;
-  }
-  return message;
-}
-
-async function handleAuthLogin(prefix) {
-  if (!supabaseClient) return;
-  const email = document.getElementById(prefix + 'auth-email').value.trim();
-  const password = document.getElementById(prefix + 'auth-password').value;
-  // Bez emailu/hesla by Supabase volání vzalo jako pokus o anonymní
-  // přihlášení (které appka nepoužívá) a vrátilo matoucí anglickou hlášku
-  // "Anonymous sign-ins are disabled" - radši zachytit prázdná pole rovnou tady.
-  if (!email || !password) {
-    setAuthFieldsInvalid(prefix, true);
-    showAuthMessage(prefix, 'Vyplň e-mail i heslo.');
-    return;
-  }
-  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-  setAuthFieldsInvalid(prefix, !!error);
-  showAuthMessage(prefix, error ? translateAuthError(error.message) : '');
-}
-
-async function handleAuthSignup(prefix) {
-  if (!supabaseClient) return;
-  const email = document.getElementById(prefix + 'auth-email').value.trim();
-  const password = document.getElementById(prefix + 'auth-password').value;
-  const name = document.getElementById(prefix + 'auth-name').value.trim();
-  if (!email || !password || !name) {
-    setAuthFieldsInvalid(prefix, true);
-    showAuthMessage(prefix, 'Vyplň jméno, e-mail i heslo.');
-    return;
-  }
-  const { data, error } = await supabaseClient.auth.signUp({
-    email,
-    password,
-    options: { data: { full_name: name } },
-  });
-  if (error) {
-    setAuthFieldsInvalid(prefix, true);
-    showAuthMessage(prefix, translateAuthError(error.message));
-    return;
-  }
-  // Supabase u už zaregistrovaného e-mailu NEvrací chybu (aby šlo přes chybovou
-  // hlášku zjistit, jaké e-maily appka zná) - místo toho vrátí "úspěch" s
-  // user.identities: [] (prázdné pole = žádná nová identita nevznikla).
-  if (data.user && data.user.identities && data.user.identities.length === 0) {
-    setAuthFieldsInvalid(prefix, true);
-    showAuthMessage(prefix, 'Uživatel s tímto e-mailem už existuje - zkus se rovnou přihlásit.');
-    return;
-  }
-  setAuthFieldsInvalid(prefix, false);
-  if (data.user && !data.session) {
-    showAuthMessage(prefix, 'Registrace proběhla - zkontroluj e-mail a potvrď účet, pak se přihlas.');
-  }
-}
-
-function handleAuthSubmit(prefix, e) {
-  e.preventDefault();
-  const form = document.getElementById(prefix + 'auth-form');
-  if (form.dataset.mode === 'signup') {
-    handleAuthSignup(prefix);
-  } else {
-    handleAuthLogin(prefix);
-  }
-}
-
-/** Přepne formulář mezi "Přihlásit se" (jen e-mail/heslo) a "Vytvořit účet" (+ jméno). */
-function setAuthMode(prefix, mode) {
-  const form = document.getElementById(prefix + 'auth-form');
-  form.dataset.mode = mode;
-  document.getElementById(prefix + 'auth-name-wrap').classList.toggle('hidden', mode !== 'signup');
-  document.getElementById(prefix + 'auth-submit').textContent = mode === 'signup' ? 'Vytvořit účet' : 'Přihlásit se';
-  document.querySelectorAll(`#${prefix}auth-mode-toggle .auth-mode-btn`).forEach((btn) => {
-    btn.classList.toggle('period-toggle-active', btn.dataset.mode === mode);
-  });
-  setAuthFieldsInvalid(prefix, false);
-  showAuthMessage(prefix, '');
-}
-
-async function handleAuthSignout() {
-  if (!supabaseClient) return;
-  await supabaseClient.auth.signOut();
-  currentUserId = null;
-}
-
-function showProfileMessage(elId, text, isError) {
-  const el = document.getElementById(elId);
-  if (!el) return;
-  el.textContent = text;
-  el.classList.remove('hidden', 'text-red-600', 'text-green-600');
-  el.classList.add(isError ? 'text-red-600' : 'text-green-600');
-}
-
-async function handleProfileNameSave() {
-  if (!supabaseClient) return;
-  const name = document.getElementById('profile-name').value.trim();
-  if (!name) {
-    showProfileMessage('profile-name-message', 'Jméno nesmí být prázdné.', true);
-    return;
-  }
-  const { error } = await supabaseClient.auth.updateUser({ data: { full_name: name } });
-  if (error) {
-    showProfileMessage('profile-name-message', translateAuthError(error.message), true);
-    return;
-  }
-  showProfileMessage('profile-name-message', 'Jméno uloženo.', false);
-  const { data } = await supabaseClient.auth.getSession();
-  updateAuthUI(data.session);
-}
-
-async function handleProfilePasswordSave() {
-  if (!supabaseClient) return;
-  const password = document.getElementById('profile-password').value;
-  if (!password) {
-    showProfileMessage('profile-password-message', 'Zadej nové heslo.', true);
-    return;
-  }
-  const { error } = await supabaseClient.auth.updateUser({ password });
-  if (error) {
-    showProfileMessage('profile-password-message', translateAuthError(error.message), true);
-    return;
-  }
-  document.getElementById('profile-password').value = '';
-  showProfileMessage('profile-password-message', 'Heslo změněno.', false);
-}
-
-function wireProfileControls() {
-  document.getElementById('btn-profile-save-name').addEventListener('click', handleProfileNameSave);
-  document.getElementById('btn-profile-save-password').addEventListener('click', handleProfilePasswordSave);
-}
-
-function wireAuthPrefix(prefix) {
-  const form = document.getElementById(prefix + 'auth-form');
-  if (!form) return;
-  form.addEventListener('submit', (e) => handleAuthSubmit(prefix, e));
-  document.getElementById(prefix + 'btn-auth-signout').addEventListener('click', handleAuthSignout);
-  document.querySelectorAll(`#${prefix}auth-mode-toggle .auth-mode-btn`).forEach((btn) => {
-    btn.addEventListener('click', () => setAuthMode(prefix, btn.dataset.mode));
-  });
-  // Jakmile uživatel začne znovu psát, zmizí červené zvýraznění po chybě.
-  document.getElementById(prefix + 'auth-email').addEventListener('input', () => setAuthFieldsInvalid(prefix, false));
-  document.getElementById(prefix + 'auth-password').addEventListener('input', () => setAuthFieldsInvalid(prefix, false));
-  document.getElementById(prefix + 'auth-name').addEventListener('input', () => setAuthFieldsInvalid(prefix, false));
-}
-
-/** Kompaktní přihlašovací dropdown v hlavičce - klik na tlačítko ho otevře/zavře, klik mimo něj ho zavře. */
-function wireHeaderAuthDropdown() {
-  const toggle = document.getElementById('header-auth-toggle');
-  const dropdown = document.getElementById('header-auth-dropdown');
-  toggle.addEventListener('click', (e) => {
-    e.stopPropagation();
-    dropdown.classList.toggle('hidden');
-  });
-  dropdown.addEventListener('click', (e) => e.stopPropagation());
-  document.addEventListener('click', () => dropdown.classList.add('hidden'));
-}
-
-function initAuth() {
-  if (!supabaseClient) {
-    document.getElementById('auth-config-warning').classList.remove('hidden');
-    document.getElementById('header-auth-widget').classList.add('hidden');
-    return;
-  }
-  for (const prefix of AUTH_UI_PREFIXES) wireAuthPrefix(prefix);
-  wireHeaderAuthDropdown();
-  wireProfileControls();
-
-  supabaseClient.auth.onAuthStateChange((_event, session) => {
-    updateAuthUI(session);
-    if (session) handlePostLogin(session.user.id);
-  });
-  supabaseClient.auth.getSession().then(({ data }) => {
-    updateAuthUI(data.session);
-    if (data.session) handlePostLogin(data.session.user.id);
-  });
 }
 
 /* ---------- Inicializace ---------- */
@@ -632,7 +322,6 @@ function init() {
   wireFreedomControls();
   wireKpiFormulaToggles();
   wirePdfExportButtons();
-  initAuth();
   document.getElementById('event-type').addEventListener('change', updateEventValueLabel);
   document.getElementById('scenario-horizon').addEventListener('input', (e) => {
     state.scenario.horizonYears = Math.max(1, Number(e.target.value) || 1);
@@ -1580,7 +1269,6 @@ function wireBackup() {
   document.getElementById('btn-export').addEventListener('click', exportBackup);
   document.getElementById('import-file').addEventListener('change', importBackup);
   document.getElementById('btn-clear').addEventListener('click', clearAllData);
-  document.getElementById('btn-delete-cloud').addEventListener('click', confirmAndDeleteCloudData);
 }
 
 function exportBackup() {
@@ -1652,16 +1340,6 @@ async function clearAllData() {
   state.freedom = { horizonYears: 10 };
   saveState();
   renderAll();
-}
-
-async function confirmAndDeleteCloudData() {
-  const confirmed = await confirmTwice(
-    'Opravdu smazat zálohu dat uloženou v cloudu? Lokální data v tomto prohlížeči zůstanou beze změny. Tuto akci nelze vrátit zpět.',
-    'Fakt si tím jistý/á? Cloudová záloha se nedá obnovit a budeš odhlášen(a).',
-    'Smazat zálohu'
-  );
-  if (!confirmed) return;
-  await deleteCloudData();
 }
 
 /* ---------- Vzorce na kartách (klikni pro rozkliknutí) ---------- */

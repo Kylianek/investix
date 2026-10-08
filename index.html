@@ -13,13 +13,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Investix</title>
-<link rel="icon" type="image/png" href="assets/logo.png?v=1789676722" />
+<link rel="icon" type="image/png" href="assets/logo.png?v=1791457035" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<link rel="stylesheet" href="css/style.css?v=1789676722" />
+<link rel="stylesheet" href="css/style.css?v=1791457035" />
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
 
@@ -27,39 +26,11 @@
     <header class="bg-white border-b border-slate-200">
       <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
         <h1 class="flex items-center gap-2">
-          <img src="assets/logo.png?v=1789676722" alt="" width="32" height="32" class="shrink-0" />
+          <img src="assets/logo.png?v=1791457035" alt="" width="32" height="32" class="shrink-0" />
           <span class="brand-name">Investix</span>
         </h1>
         <div class="flex items-center gap-3" id="header-controls">
           <span class="text-xs text-slate-400 hidden lg:inline">Data se ukládají jen v tomto prohlížeči</span>
-          <div class="relative" id="header-auth-widget">
-            <div id="header-auth-logged-out">
-              <button type="button" id="header-auth-toggle" class="btn-secondary text-xs">Přihlásit se</button>
-              <div id="header-auth-dropdown" class="hidden absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-lg p-4 z-50 text-left">
-                <div class="flex rounded-lg border border-slate-300 overflow-hidden mb-3" id="header-auth-mode-toggle">
-                  <button type="button" class="auth-mode-btn period-toggle-btn period-toggle-active flex-1" data-mode="login">Přihlásit se</button>
-                  <button type="button" class="auth-mode-btn period-toggle-btn flex-1" data-mode="signup">Vytvořit účet</button>
-                </div>
-                <form id="header-auth-form" class="space-y-2 text-sm" data-mode="login">
-                  <label class="flex flex-col gap-1">E-mail
-                    <input id="header-auth-email" type="email" class="input" autocomplete="email" />
-                  </label>
-                  <label class="hidden flex-col gap-1" id="header-auth-name-wrap">Jméno
-                    <input id="header-auth-name" type="text" class="input" autocomplete="name" />
-                  </label>
-                  <label class="flex flex-col gap-1">Heslo
-                    <input id="header-auth-password" type="password" class="input" autocomplete="current-password" minlength="6" />
-                  </label>
-                  <p id="header-auth-message" class="hidden text-xs text-red-600"></p>
-                  <button type="submit" id="header-auth-submit" class="btn-primary text-xs w-full">Přihlásit se</button>
-                </form>
-              </div>
-            </div>
-            <div id="header-auth-logged-in" class="hidden flex items-center gap-2 text-xs">
-              <span class="text-slate-600 truncate max-w-[9rem] sm:max-w-none" id="header-auth-user-email"></span>
-              <button type="button" id="header-btn-auth-signout" class="text-blue-600 hover:underline whitespace-nowrap">Odhlásit se</button>
-            </div>
-          </div>
         </div>
       </div>
       <nav class="max-w-6xl mx-auto px-4 flex flex-wrap gap-1 -mb-px">
@@ -604,62 +575,6 @@
       <!-- NASTAVENÍ -->
       <section id="tab-settings" class="tab-panel hidden">
         <div class="bg-white rounded-xl border border-slate-200 p-4 max-w-lg mb-4">
-          <h2 class="font-semibold mb-1">Přihlášení (volitelné)</h2>
-          <p class="text-xs text-slate-500 mb-3">
-            Appka funguje i bez přihlášení - data zůstávají jen v tomto prohlížeči. Přihlášením e-mailem
-            se navíc data zálohují do cloudu a budou dostupná i z jiného zařízení/prohlížeče.
-          </p>
-          <div id="auth-config-warning" class="hidden text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3">
-            Přihlášení zatím není nastavené - viz návod v <code>js/config.js</code>.
-          </div>
-          <div id="auth-logged-out">
-            <div class="flex rounded-lg border border-slate-300 overflow-hidden mb-3 max-w-xs" id="auth-mode-toggle">
-              <button type="button" class="auth-mode-btn period-toggle-btn period-toggle-active flex-1" data-mode="login">Přihlásit se</button>
-              <button type="button" class="auth-mode-btn period-toggle-btn flex-1" data-mode="signup">Vytvořit účet</button>
-            </div>
-            <form id="auth-form" class="space-y-2 text-sm max-w-xs" data-mode="login">
-              <label class="flex flex-col gap-1">E-mail
-                <input id="auth-email" type="email" class="input" autocomplete="email" />
-              </label>
-              <label class="hidden flex-col gap-1" id="auth-name-wrap">Jméno
-                <input id="auth-name" type="text" class="input" autocomplete="name" />
-              </label>
-              <label class="flex flex-col gap-1">Heslo
-                <input id="auth-password" type="password" class="input" autocomplete="current-password" minlength="6" />
-              </label>
-              <p id="auth-message" class="hidden text-xs"></p>
-              <button type="submit" id="auth-submit" class="btn-primary">Přihlásit se</button>
-            </form>
-          </div>
-          <div id="auth-logged-in" class="hidden text-sm">
-            <p class="mb-1">Přihlášen(a) jako <span id="auth-user-email" class="font-medium"></span></p>
-            <p id="auth-sync-status" class="text-xs text-slate-500 mb-3"></p>
-            <button type="button" id="btn-auth-signout" class="btn-secondary">Odhlásit se</button>
-
-            <div class="mt-4 pt-4 border-t border-slate-200 space-y-4 max-w-xs">
-              <div>
-                <label class="flex flex-col gap-1 text-sm">Jméno
-                  <input id="profile-name" type="text" class="input" autocomplete="name" />
-                </label>
-                <div class="flex items-center gap-2 mt-2">
-                  <button type="button" id="btn-profile-save-name" class="btn-secondary text-xs">Uložit jméno</button>
-                  <p id="profile-name-message" class="hidden text-xs"></p>
-                </div>
-              </div>
-              <div>
-                <label class="flex flex-col gap-1 text-sm">Nové heslo
-                  <input id="profile-password" type="password" class="input" autocomplete="new-password" minlength="6" />
-                </label>
-                <div class="flex items-center gap-2 mt-2">
-                  <button type="button" id="btn-profile-save-password" class="btn-secondary text-xs">Změnit heslo</button>
-                  <p id="profile-password-message" class="hidden text-xs"></p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="bg-white rounded-xl border border-slate-200 p-4 max-w-lg mb-4">
           <h2 class="font-semibold mb-3">Inflace</h2>
           <label class="flex flex-col gap-1 text-sm max-w-[10rem]">Předpokládaná inflace (% ročně)
             <input id="inflation-input" data-unit="percent" class="input" />
@@ -718,16 +633,6 @@
               Smazat všechna data v tomto prohlížeči
             </button>
           </div>
-          <div id="cloud-delete-section" class="hidden mt-4 pt-4 border-t border-slate-200">
-            <p class="text-xs text-slate-500 mb-2">
-              Smaže zálohu dat uloženou v cloudu pod tvým přihlašovacím účtem - lokální
-              data v tomto prohlížeči zůstanou beze změny. Po smazání tě appka odhlásí,
-              ať se autosync omylem znovu nenahraje nahoru.
-            </p>
-            <button id="btn-delete-cloud" type="button" class="text-red-600 hover:underline text-left">
-              Smazat zálohu v cloudu
-            </button>
-          </div>
         </div>
       </section>
 
@@ -753,9 +658,7 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/config.js?v=1789676722"></script>
-  <script src="js/supabaseClient.js?v=1789676722"></script>
-  <script src="js/calc.js?v=1789676722"></script>
-  <script src="js/app.js?v=1789676722"></script>
+  <script src="js/calc.js?v=1791457035"></script>
+  <script src="js/app.js?v=1791457035"></script>
 </body>
 </html>

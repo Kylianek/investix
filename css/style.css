@@ -85,14 +85,6 @@ body {
   outline: none;
   box-shadow: 0 0 0 2px #3b82f6;
 }
-.input-error {
-  border-color: #dc2626;
-  background: #fef2f2;
-}
-.input-error:focus {
-  box-shadow: 0 0 0 2px #dc2626;
-}
-
 .btn-primary {
   background: #2563eb;
   color: white;
@@ -348,8 +340,7 @@ body {
   }
 
   /* Hlavička reportu: po schování #header-controls zůstane v hlavičce jen
-     logo + název - jemné oddělení od obsahu místo "osiřelého" prázdného
-     místa, kde dřív bylo přihlášení. */
+     logo + název - jemné oddělení od obsahu místo "osiřelého" prázdného místa. */
   header {
     border-bottom: 2px solid #2563eb !important;
     margin-bottom: 0.25cm;
