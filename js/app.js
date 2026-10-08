@@ -5,6 +5,7 @@
 // Klíč pracovní kopie v sessionStorage. Pod stejným názvem dřív appka ukládala data natrvalo do
 // localStorage - ten starý záznam se jen jednou načte a smaže se, až jsou data bezpečně v účtu.
 const STORAGE_KEY = 'investicni-kalkulacka-v1';
+const THEME_KEY = 'investix-theme';
 const CURRENT_YEAR = new Date().getFullYear();
 
 const CZ_BANKS = [
@@ -22,9 +23,12 @@ const CZ_BANKS = [
 
 const DEFAULT_SETTINGS = {
   inflation_rate: 0.03,
+  default_rent_growth: null,
   capital_gains_tax_rate: 15,
+  po_tax_rate: 21,
   min_portfolio_value: 0,
   auto_sell_enabled: true,
+  po_sell_asap: true,
   sale_trigger_amount: 0,
   pledge_financing_enabled: false,
   pledge_max_ltv: 80,
@@ -38,8 +42,6 @@ function defaultState() {
     settings: { ...DEFAULT_SETTINGS },
     scenario: { horizonYears: 20 },
     overview: { year: CURRENT_YEAR, period: 'year' },
-    overviewReal: { year: CURRENT_YEAR, period: 'year' },
-    freedom: { horizonYears: 10 },
   };
 }
 
@@ -65,26 +67,39 @@ function setState(next) {
   const pick = (value, key, fallbackValue) => (value && typeof value[key] === 'number' ? value : fallbackValue);
   replaceContents(state.scenario, pick(next.scenario, 'horizonYears', fallback.scenario));
   replaceContents(state.overview, pick(next.overview, 'year', fallback.overview));
-  replaceContents(state.overviewReal, pick(next.overviewReal, 'year', fallback.overviewReal));
-  replaceContents(state.freedom, pick(next.freedom, 'horizonYears', fallback.freedom));
 }
 
+// Rozbalené roky ve Scénářích (jen pro zobrazení, neukládá se)
+const expandedYears = new Set();
 let scenarioShowDetail = false;
 
-// Nedělitelná mezera ( ) mezi skupinami číslic i před jednotkou - číslo se
+// Nedělitelná mezera mezi skupinami číslic i před jednotkou - číslo se
 // svojí příponou (Kč/%) se tak nikdy nezalomí na dva řádky uprostřed buňky.
 const fmtMoney = (n) =>
-  (Number(n) || 0).toLocaleString('cs-CZ', { maximumFractionDigits: 0 }).replace(/\s/g, ' ') + ' Kč';
+  (Number(n) || 0).toLocaleString('cs-CZ', { maximumFractionDigits: 0 }).replace(/\s/g, ' ') + ' Kč';
 const fmtPercent = (n) =>
-  ((Number(n) || 0) * 100).toLocaleString('cs-CZ', { maximumFractionDigits: 2 }).replace(/\s/g, ' ') + ' %';
+  ((Number(n) || 0) * 100).toLocaleString('cs-CZ', { maximumFractionDigits: 2 }).replace(/\s/g, ' ') + ' %';
+const fmtNumber = (n, digits = 2) =>
+  (Number(n) || 0).toLocaleString('cs-CZ', { maximumFractionDigits: digits }).replace(/\s/g, ' ');
+const fmtDate = (str) => {
+  if (!str) return '';
+  const d = new Date(str);
+  return isNaN(d) ? '' : d.toLocaleDateString('cs-CZ').replace(/\s/g, ' ');
+};
 
 function uid() {
   return (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
 }
 
-/* ---------- Formátovaná pole (Kč / %) - živé zarovnávání tisíců + jednotka ---------- */
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str ?? '';
+  return div.innerHTML;
+}
 
-const UNIT_SUFFIX = { money: 'Kč', percent: '%' };
+/* ---------- Formátovaná pole (Kč / % / p. b.) - živé zarovnávání tisíců + jednotka ---------- */
+
+const UNIT_SUFFIX = { money: 'Kč', percent: '%', pp: 'p. b.' };
 
 function formatGroupedInteger(raw) {
   const neg = raw.trim().startsWith('-');
@@ -113,7 +128,7 @@ function formatInputHandler(kind) {
   return function () {
     const el = this;
     const cursorFromEnd = el.value.length - el.selectionStart;
-    const formatted = kind === 'percent' ? formatDecimalValue(el.value) : formatGroupedInteger(el.value);
+    const formatted = kind === 'money' ? formatGroupedInteger(el.value) : formatDecimalValue(el.value);
     el.value = formatted;
     const newPos = Math.max(formatted.length - cursorFromEnd, 0);
     try {
@@ -129,6 +144,7 @@ function setFieldUnit(el, kind) {
   el._formatHandler = formatInputHandler(kind);
   el.addEventListener('input', el._formatHandler);
   el.dataset.unit = kind;
+  el.setAttribute('inputmode', kind === 'money' ? 'numeric' : 'decimal');
   const suffixEl = el.parentElement.querySelector('.input-suffix');
   if (suffixEl) suffixEl.textContent = UNIT_SUFFIX[kind] || '';
   el.dispatchEvent(new Event('input'));
@@ -138,7 +154,7 @@ function wireFormattedInputs() {
   document.querySelectorAll('[data-unit]').forEach((el) => {
     const kind = el.dataset.unit;
     el.setAttribute('type', 'text');
-    el.setAttribute('inputmode', kind === 'percent' ? 'decimal' : 'numeric');
+    el.setAttribute('inputmode', kind === 'money' ? 'numeric' : 'decimal');
     el.setAttribute('autocomplete', 'off');
 
     const wrap = document.createElement('div');
@@ -259,8 +275,7 @@ async function confirmTwice(firstMessage, secondMessage, okLabel) {
  * Nastaví hodnotu pole, JEN pokud na něm zrovna není focus. Používá se u polí
  * jako "horizont"/"rok", kde render běží i z vlastního 'input' posluchače
  * pole - bez tyhle podmínky by se hodnota psaná uživatelem přepisovala po
- * každém stisku klávesy (nešlo by pole smazat/přepsat). Díky tomu se validace
- * (např. minimum) projeví až po odfokusování, ne během psaní.
+ * každém stisku klávesy (nešlo by pole smazat/přepsat).
  */
 function setValueIfNotFocused(el, value) {
   if (document.activeElement !== el) el.value = value;
@@ -290,6 +305,227 @@ function showSuccessToast(text) {
   successToastTimer = setTimeout(() => el.classList.add('hidden'), 1800);
 }
 
+/** Po kliknutí na "Upravit" posune stránku k formuláři nahoře a krátce ho zvýrazní. */
+function revealForm(cardId) {
+  const card = document.getElementById(cardId);
+  if (!card) return;
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // když prohlížeč plynulé posouvání nespustí (vypnuté animace v systému), skočí se k formuláři rovnou
+  setTimeout(() => {
+    if (Math.abs(card.getBoundingClientRect().top) > 160) card.scrollIntoView({ block: 'start' });
+  }, 900);
+  card.classList.remove('flash');
+  void card.offsetWidth;
+  card.classList.add('flash');
+  setTimeout(() => {
+    const first = card.querySelector('input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), select');
+    if (first) first.focus({ preventScroll: true });
+  }, 400);
+}
+
+/* ---------- Motiv (světlý / tmavý / barevný) ---------- */
+
+const THEMES = ['light', 'dark', 'color'];
+const THEME_LABELS = { light: 'Světlý', dark: 'Tmavý', color: 'Barevný' };
+const THEME_ICONS = {
+  light:
+    '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  dark: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+  color:
+    '<circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 22a10 10 0 1 1 10-10c0 2.8-2.2 3-4 3h-2a2 2 0 0 0-1.4 3.4c.6.7.4 3.6-2.6 3.6z"/>',
+};
+
+function currentTheme() {
+  const theme = document.documentElement.getAttribute('data-theme');
+  return THEMES.includes(theme) ? theme : 'light';
+}
+
+function applyTheme(theme) {
+  if (!THEMES.includes(theme)) theme = 'light';
+  document.documentElement.setAttribute('data-theme', theme);
+  try {
+    localStorage.setItem(THEME_KEY, theme);
+  } catch (e) {
+    /* soukromé okno / zablokované úložiště - motiv se jen nezapamatuje */
+  }
+  const icon = document.getElementById('theme-icon');
+  if (icon) icon.innerHTML = THEME_ICONS[theme];
+  const button = document.getElementById('btn-theme');
+  if (button) {
+    button.title = `Vzhled: ${THEME_LABELS[theme]}`;
+    button.setAttribute('aria-label', button.title);
+  }
+  document.querySelectorAll('input[name="theme"]').forEach((radio) => {
+    radio.checked = radio.value === theme;
+  });
+}
+
+function wireTheme() {
+  applyTheme(currentTheme());
+  document.getElementById('btn-theme').addEventListener('click', () => {
+    applyTheme(THEMES[(THEMES.indexOf(currentTheme()) + 1) % THEMES.length]);
+  });
+  document.querySelectorAll('input[name="theme"]').forEach((radio) => {
+    radio.addEventListener('change', () => radio.checked && applyTheme(radio.value));
+  });
+}
+
+/** Vlna po kliknutí na tlačítka - drobnost, díky které appka působí živěji. */
+function wireRipples() {
+  const selector = '.btn-primary, .btn-secondary, .btn-danger, .btn-ghost, .btn-icon, .seg > button, .seg > label, .scenario-chip';
+  document.addEventListener('pointerdown', (e) => {
+    const target = e.target.closest ? e.target.closest(selector) : null;
+    if (!target || target.disabled) return;
+    const rect = target.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height);
+    const ripple = document.createElement('span');
+    ripple.className = 'ripple';
+    ripple.style.width = ripple.style.height = size + 'px';
+    ripple.style.left = e.clientX - rect.left - size / 2 + 'px';
+    ripple.style.top = e.clientY - rect.top - size / 2 + 'px';
+    if (getComputedStyle(target).position === 'static') target.style.position = 'relative';
+    target.appendChild(ripple);
+    ripple.addEventListener('animationend', () => ripple.remove());
+  });
+}
+
+/* ---------- Vlastní výběr banky (combobox) ---------- */
+
+const BANK_COLORS = ['#2563eb', '#7c3aed', '#db2777', '#ea580c', '#059669', '#0891b2', '#b45309', '#4f46e5'];
+
+function bankColor(name) {
+  let hash = 0;
+  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return BANK_COLORS[hash % BANK_COLORS.length];
+}
+
+/** Nabídka bank: číselník + banky, které už v datech jsou (úvěry, zástavy). */
+function bankOptions() {
+  const seen = new Set();
+  const out = [];
+  const add = (name) => {
+    const trimmed = (name || '').trim();
+    if (!trimmed || seen.has(trimmed.toLowerCase())) return;
+    seen.add(trimmed.toLowerCase());
+    out.push(trimmed);
+  };
+  CZ_BANKS.forEach(add);
+  state.loans.forEach((l) => add(l.bank));
+  state.properties.forEach((p) => add(p.lien_bank));
+  return out;
+}
+
+function makeCombobox(input, getOptions) {
+  const wrap = document.createElement('div');
+  wrap.className = 'combo';
+  input.parentNode.insertBefore(wrap, input);
+  wrap.appendChild(input);
+
+  const caret = document.createElement('button');
+  caret.type = 'button';
+  caret.className = 'combo-caret';
+  caret.tabIndex = -1;
+  caret.setAttribute('aria-label', 'Zobrazit seznam');
+  caret.innerHTML =
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+  wrap.appendChild(caret);
+
+  const list = document.createElement('div');
+  list.className = 'combo-list hidden';
+  list.setAttribute('role', 'listbox');
+  wrap.appendChild(list);
+
+  let items = [];
+  let active = -1;
+  let typed = false;
+
+  function build() {
+    const all = getOptions();
+    const query = typed ? input.value.trim().toLowerCase() : '';
+    items = query ? all.filter((o) => o.toLowerCase().includes(query)) : all;
+    const current = input.value.trim().toLowerCase();
+    let html = items
+      .map(
+        (o, i) => `<div class="combo-item${i === active ? ' is-active' : ''}${o.toLowerCase() === current ? ' is-selected' : ''}" role="option" data-i="${i}">
+          <span class="combo-avatar" style="background:${bankColor(o)}">${escapeHtml(o.charAt(0).toUpperCase())}</span><span>${escapeHtml(o)}</span></div>`
+      )
+      .join('');
+    if (typed && query && !all.some((o) => o.toLowerCase() === query)) {
+      html += `<div class="combo-hint">Vlastní: „${escapeHtml(input.value.trim())}“</div>`;
+    }
+    list.innerHTML = html || '<div class="combo-hint">Nic k výběru</div>';
+  }
+
+  function open() {
+    build();
+    list.classList.remove('hidden');
+    wrap.classList.add('is-open');
+  }
+  function close() {
+    list.classList.add('hidden');
+    wrap.classList.remove('is-open');
+    active = -1;
+    typed = false;
+  }
+  function choose(value) {
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    close();
+  }
+  function setActive(index) {
+    if (!items.length) return;
+    active = (index + items.length) % items.length;
+    build();
+    const el = list.querySelector('.is-active');
+    if (el) el.scrollIntoView({ block: 'nearest' });
+  }
+
+  if (input.form) input.form.addEventListener('reset', close);
+  input.addEventListener('focus', () => {
+    typed = false;
+    open();
+  });
+  input.addEventListener('input', () => {
+    typed = true;
+    active = -1;
+    open();
+  });
+  input.addEventListener('blur', close);
+  input.addEventListener('keydown', (e) => {
+    const isOpen = !list.classList.contains('hidden');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!isOpen) open();
+      else setActive(active + 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (isOpen) setActive(active - 1);
+    } else if (e.key === 'Enter' && isOpen && active >= 0) {
+      e.preventDefault();
+      choose(items[active]);
+    } else if (e.key === 'Escape' && isOpen) {
+      e.stopPropagation();
+      close();
+    }
+  });
+  list.addEventListener('mousedown', (e) => {
+    e.preventDefault(); // pole si nechá focus, ať nezavře seznam dřív než se vybere
+    const item = e.target.closest('.combo-item');
+    if (item) choose(items[Number(item.dataset.i)]);
+  });
+  caret.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    if (list.classList.contains('hidden')) {
+      input.focus();
+      typed = false;
+      open();
+    } else {
+      close();
+    }
+  });
+}
+
 /* ---------- Perzistence ---------- */
 
 function applyStateFromObject(parsed) {
@@ -300,8 +536,6 @@ function applyStateFromObject(parsed) {
   if (parsed.settings) Object.assign(state.settings, parsed.settings);
   if (parsed.scenario) Object.assign(state.scenario, parsed.scenario);
   if (parsed.overview) Object.assign(state.overview, parsed.overview);
-  if (parsed.overviewReal) Object.assign(state.overviewReal, parsed.overviewReal);
-  if (parsed.freedom) Object.assign(state.freedom, parsed.freedom);
 }
 
 function loadState() {
@@ -339,8 +573,6 @@ function stateSnapshot() {
     settings: state.settings,
     scenario: state.scenario,
     overview: state.overview,
-    overviewReal: state.overviewReal,
-    freedom: state.freedom,
   };
 }
 
@@ -369,22 +601,14 @@ function hasAnyData() {
   return state.properties.length + state.loans.length + state.events.length > 0;
 }
 
+// Stav ukládání do cloudu je vidět jako barevná tečka v hlavičce (text je v jejím popisku).
 function setStorageNote(text, tone) {
-  const tones = { neutral: 'text-slate-400', ok: 'text-emerald-600', warn: 'text-amber-600', error: 'text-red-600' };
-  const note = document.getElementById('storage-note');
-  if (note) {
-    note.textContent = text;
-    Object.values(tones).forEach((cls) => note.classList.remove(cls));
-    note.classList.add(tones[tone] || tones.neutral);
-  }
   const dot = document.getElementById('sync-dot');
-  if (dot) {
-    const dots = { ok: 'bg-emerald-500', warn: 'bg-amber-400', error: 'bg-red-500', neutral: 'bg-slate-300' };
-    Object.values(dots).forEach((cls) => dot.classList.remove(cls));
-    dot.classList.add(dots[tone] || dots.neutral);
-    dot.title = text;
-    dot.classList.toggle('hidden', !window.authState.signedIn);
-  }
+  if (!dot) return;
+  dot.dataset.tone = tone || 'neutral';
+  dot.title = text;
+  dot.setAttribute('aria-label', text);
+  dot.classList.toggle('hidden', !window.authState.signedIn);
 }
 
 // Pruh "nejsi přihlášen(a)" - ukáže se, jen když by se přišlo o nějaká data.
@@ -429,34 +653,34 @@ function wireLeaveGuard() {
 
 function init() {
   loadState();
+  wireTheme();
+  wireRipples();
   wireLeaveGuard();
   wireTabs();
   wireForms();
   wireBackup();
-  wireLienToggle();
   wireOverviewControls();
-  wireOverviewRealControls();
   wireSettingsInputs();
   wireZeroClearsOnFocus();
-  populateBankList();
   wireFormattedInputs();
   wireNumberSteppers();
-  syncLienFieldsVisibility();
-  resetEventForm();
-  wireScenarioDetailToggle();
-  wireFreedomControls();
+  document.querySelectorAll('[data-combo="bank"]').forEach((input) => makeCombobox(input, bankOptions));
+  wirePropertyFormUi();
+  wireLoanFormUi();
+  wireEventFormUi();
+  wireScenarioTable();
   wireKpiFormulaToggles();
   wirePdfExportButtons();
-  document.getElementById('event-type').addEventListener('change', updateEventValueLabel);
   document.getElementById('scenario-horizon').addEventListener('input', (e) => {
     state.scenario.horizonYears = Math.max(1, Number(e.target.value) || 1);
     saveState();
     renderScenario();
     renderOverview();
-    renderOverviewReal();
-    renderFreedom();
   });
   document.getElementById('scenario-horizon').addEventListener('blur', () => renderScenario());
+  resetPropertyForm();
+  resetLoanForm();
+  resetEventForm();
   renderAll();
 }
 
@@ -467,15 +691,27 @@ function renderAll() {
   renderEvents();
   renderScenario();
   renderOverview();
-  renderOverviewReal();
-  renderFreedom();
+}
+
+/** Po změně dat, která se promítají do výpočtů (události, nemovitosti, úvěry, nastavení). */
+function renderCalculations() {
+  renderEvents();
+  renderScenario();
+  renderOverview();
 }
 
 /* ---------- Tabs ---------- */
 
+let activeTab = 'tab-overview';
+let tabBeforeSettings = 'tab-overview';
+
 function showTab(tabId) {
+  if (tabId === 'tab-settings' && activeTab !== 'tab-settings') tabBeforeSettings = activeTab;
+  activeTab = tabId;
   document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('tab-active', b.dataset.tab === tabId));
   document.querySelectorAll('.tab-panel').forEach((p) => p.classList.toggle('hidden', p.id !== tabId));
+  const gear = document.getElementById('btn-settings');
+  if (gear) gear.setAttribute('aria-pressed', String(tabId === 'tab-settings'));
   window.scrollTo({ top: 0 });
 }
 
@@ -483,129 +719,233 @@ function wireTabs() {
   document.querySelectorAll('.tab-btn').forEach((btn) => {
     btn.addEventListener('click', () => showTab(btn.dataset.tab));
   });
-  // Nastavení nemá záložku v liště - otevírá se z hlavičky (ozubené kolo / menu profilu).
-  document.getElementById('btn-settings').addEventListener('click', () => showTab('tab-settings'));
+  // Nastavení nemá záložku v liště - otevírá se ozubeným kolem v hlavičce (druhé kliknutí vrátí zpět).
+  document.getElementById('btn-settings').addEventListener('click', () => {
+    showTab(activeTab === 'tab-settings' ? tabBeforeSettings : 'tab-settings');
+  });
 }
 
-/* ---------- Banky (číselník) ---------- */
+/* ---------- Pomocné pro nemovitosti a úvěry ---------- */
 
-function populateBankList() {
-  const dl = document.getElementById('bank-list');
-  for (const bank of CZ_BANKS) {
-    const opt = document.createElement('option');
-    opt.value = bank;
-    dl.appendChild(opt);
+/** Hodnota nemovitosti uvolněná nad zástavou (0, pokud je zastavená i jako dodatečná jistota u úvěru). */
+function freedValue(p, crossBank) {
+  const marketValue = Number(p.market_value) || 0;
+  if (p.has_lien) return Math.max(0, marketValue - (Number(p.lien_value) || 0));
+  return crossBank ? 0 : marketValue;
+}
+
+/** Banky úvěrů, u kterých je nemovitost zastavená jako dodatečná jistota. */
+function crossCollateralBanks() {
+  const map = {};
+  for (const l of state.loans) {
+    for (const pid of l.additional_collateral_ids || []) {
+      map[pid] = map[pid] ? `${map[pid]}, ${l.bank}` : l.bank;
+    }
   }
+  return map;
 }
 
-/* ---------- Zástava - podmíněné zobrazení polí ---------- */
-
-function wireLienToggle() {
-  document.getElementById('property-has-lien').addEventListener('change', syncLienFieldsVisibility);
+function ownerBadge(p) {
+  return calc.isPO(p) ? '<span class="badge badge-po">PO</span>' : '<span class="badge badge-fo">FO</span>';
 }
 
-function syncLienFieldsVisibility() {
-  const checked = document.getElementById('property-has-lien').checked;
-  document.getElementById('lien-bank-label').classList.toggle('hidden', !checked);
-  document.getElementById('lien-value-label').classList.toggle('hidden', !checked);
+function propertyName(id) {
+  const p = state.properties.find((x) => x.id === id);
+  return p ? p.name : '';
 }
 
 /* ---------- MOJE NEMOVITOSTI ---------- */
 
 function renderProperties() {
   const tbody = document.getElementById('properties-tbody');
+  const tfoot = document.getElementById('properties-tfoot');
   tbody.innerHTML = '';
-  // Nemovitost může být zastavená i BEZ vlastní zástavy (has_lien) - jako
-  // dodatečná jistota u úvěru na jinou nemovitost (viz "Dodatečná zástava"
-  // v Moje úvěry, typicky nákup bez hotovosti). Sestavíme si předem, které
-  // nemovitosti tohle potkalo a u kterého úvěru.
-  const crossCollateralBanks = {};
-  for (const l of state.loans) {
-    for (const pid of l.additional_collateral_ids || []) {
-      crossCollateralBanks[pid] = crossCollateralBanks[pid] ? `${crossCollateralBanks[pid]}, ${l.bank}` : l.bank;
-    }
-  }
+  const crossBanks = crossCollateralBanks();
+  const totals = { rent: 0, payment: 0, value: 0, lien: 0, freed: 0, appreciated: 0, growthWeighted: 0 };
+
   for (const p of state.properties) {
     const av = calc.appreciatedValue(Number(p.market_value), Number(p.growth_rate));
-    const tt = p.acquisition_date
-      ? calc.timeTestRemaining(new Date(p.acquisition_date), p.tax_exempt_years || 10)
-      : null;
+    const tt = calc.timeTestInfo(p);
     const marketValue = Number(p.market_value) || 0;
-    const lienValue = Number(p.lien_value) || 0;
-    const crossBank = crossCollateralBanks[p.id];
+    const lienValue = p.has_lien ? Number(p.lien_value) || 0 : 0;
+    const crossBank = crossBanks[p.id];
+    const freed = freedValue(p, crossBank);
     const lienCell = p.has_lien
-      ? `${escapeHtml(p.lien_bank || '?')}<br><span class="text-xs text-slate-500">${fmtMoney(lienValue)}</span>`
+      ? `${escapeHtml(p.lien_bank || '?')}<br><span class="text-xs t-muted num">${fmtMoney(lienValue)}</span>`
       : crossBank
-      ? `Dodatečná zástava<br><span class="text-xs text-slate-500">pro úvěr: ${escapeHtml(crossBank)}</span>`
-      : '<span class="text-slate-400">Bez zástavy</span>';
-    const freedCell = p.has_lien
-      ? fmtMoney(Math.max(0, marketValue - lienValue))
-      : crossBank
-      ? fmtMoney(0)
-      : `${fmtMoney(marketValue)}<br><span class="text-xs text-slate-500">celá hodnota, bez zástavy</span>`;
+      ? `Zástava<br><span class="text-xs t-muted">${escapeHtml(crossBank)}</span>`
+      : '<span class="t-faint">—</span>';
+
+    totals.rent += Number(p.rent) || 0;
+    totals.payment += Number(p.payment) || 0;
+    totals.value += marketValue;
+    totals.lien += lienValue;
+    totals.freed += freed;
+    totals.appreciated += av;
+    totals.growthWeighted += marketValue * (Number(p.growth_rate) || 0);
+
     const tr = document.createElement('tr');
-    tr.className = 'border-b border-slate-200 dark:border-slate-700';
     tr.innerHTML = `
-      <td class="py-2 pr-3 font-medium">${escapeHtml(p.name)}</td>
-      <td class="py-2 pr-3 text-right rent-positive">+${fmtMoney(p.rent)}</td>
-      <td class="py-2 pr-3 text-right payment-negative">-${fmtMoney(p.payment)}</td>
-      <td class="py-2 pr-3 text-right">${fmtMoney(marketValue)}</td>
-      <td class="py-2 pr-3 text-right">${lienCell}</td>
-      <td class="py-2 pr-3 text-right">${freedCell}</td>
-      <td class="py-2 pr-3 text-right">${fmtPercent(p.growth_rate)}</td>
-      <td class="py-2 pr-3 text-right">${fmtMoney(av)}</td>
-      <td class="py-2 pr-3">${tt ? tt.text : '—'}</td>
-      <td class="py-2 pr-3 whitespace-nowrap">
-        <button class="text-blue-600 hover:underline mr-2" data-edit-property="${p.id}">Upravit</button>
-        <button class="text-red-600 hover:underline" data-delete-property="${p.id}">Smazat</button>
+      <td class="font-medium">${escapeHtml(p.name)} ${ownerBadge(p)}</td>
+      <td class="text-right num ${p.rent ? 'rent-positive' : 't-faint'}">${p.rent ? '+' + fmtMoney(p.rent) : '—'}</td>
+      <td class="text-right num ${p.payment ? 'payment-negative' : 't-faint'}">${p.payment ? '-' + fmtMoney(p.payment) : '—'}</td>
+      <td class="text-right num">${fmtMoney(marketValue)}</td>
+      <td class="text-right">${lienCell}</td>
+      <td class="text-right num">${fmtMoney(freed)}</td>
+      <td class="text-right num">${fmtPercent(p.growth_rate)}</td>
+      <td class="text-right num">${fmtMoney(av)}</td>
+      <td>${tt.never ? '<span class="t-muted">Bez testu</span>' : escapeHtml(tt.text)}</td>
+      <td class="whitespace-nowrap text-right">
+        <button class="link-btn link-edit" data-edit-property="${p.id}">Upravit</button>
+        <button class="link-btn link-delete" data-delete-property="${p.id}">Smazat</button>
       </td>`;
     tbody.appendChild(tr);
   }
+
+  if (!state.properties.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="10">Zatím žádné nemovitosti</td></tr>';
+    tfoot.innerHTML = '';
+  } else {
+    const avgGrowth = totals.value > 0 ? totals.growthWeighted / totals.value : 0;
+    tfoot.innerHTML = `<tr>
+      <td>Celkem</td>
+      <td class="text-right num">${fmtMoney(totals.rent)}</td>
+      <td class="text-right num">${fmtMoney(totals.payment)}</td>
+      <td class="text-right num">${fmtMoney(totals.value)}</td>
+      <td class="text-right num">${fmtMoney(totals.lien)}</td>
+      <td class="text-right num">${fmtMoney(totals.freed)}</td>
+      <td class="text-right num">${fmtPercent(avgGrowth)}</td>
+      <td class="text-right num">${fmtMoney(totals.appreciated)}</td>
+      <td></td><td></td>
+    </tr>`;
+  }
+
   tbody.querySelectorAll('[data-edit-property]').forEach((btn) =>
     btn.addEventListener('click', () => fillPropertyForm(btn.dataset.editProperty))
   );
   tbody.querySelectorAll('[data-delete-property]').forEach((btn) =>
     btn.addEventListener('click', () => deleteProperty(btn.dataset.deleteProperty))
   );
+  renderLoanPropertySelect();
+  renderEventTargets();
+}
+
+function propertyForm() {
+  return document.getElementById('property-form');
+}
+
+function setLienFieldsVisible(visible) {
+  document.getElementById('lien-fields').classList.toggle('hidden', !visible);
+}
+
+function setTimeTestEnabled(enabled) {
+  document.getElementById('time-test-seg').classList.toggle('is-off', !enabled);
+}
+
+function updatePropertyBadges() {
+  const f = propertyForm();
+  const hasLien = f.elements['has_lien'].checked;
+  const lienBank = f.elements['lien_bank'].value.trim();
+  const lienValue = parseFormNumber(f.elements['lien_value'].value);
+  document.getElementById('property-pledge-badge').textContent = hasLien
+    ? [lienBank || 'Zastaveno', lienValue ? fmtMoney(lienValue) : ''].filter(Boolean).join(' · ')
+    : 'Bez zástavy';
+
+  const occRaw = f.elements['occupancy'].value.trim();
+  const occupancy = occRaw ? parseFormNumber(occRaw) : 100;
+  const costs = parseFormNumber(f.elements['monthly_costs'].value);
+  const rentGrowth = f.elements['rent_growth_rate'].value.trim();
+  document.getElementById('property-operation-badge').textContent = [
+    occupancy < 100 ? `Obsazenost ${fmtNumber(occupancy)} %` : '',
+    costs ? `Náklady ${fmtMoney(costs)}` : '',
+    rentGrowth ? `Nájem ${fmtNumber(parseFormNumber(rentGrowth))} %` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  const payment = parseFormNumber(f.elements['payment'].value);
+  const debt = parseFormNumber(f.elements['debt_invested'].value);
+  document.getElementById('property-financing-badge').textContent = [payment ? `Splátka ${fmtMoney(payment)}` : '', debt ? `Úvěr ${fmtMoney(debt)}` : '']
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function wirePropertyFormUi() {
+  const f = propertyForm();
+  f.elements['has_lien'].addEventListener('change', () => setLienFieldsVisible(f.elements['has_lien'].checked));
+  f.querySelectorAll('input[name="owner_type"]').forEach((radio) =>
+    radio.addEventListener('change', () => setTimeTestEnabled(f.elements['owner_type'].value !== 'po'))
+  );
+  f.addEventListener('input', updatePropertyBadges);
+  f.addEventListener('change', updatePropertyBadges);
 }
 
 function fillPropertyForm(id) {
   const p = state.properties.find((x) => x.id === id);
   if (!p) return;
-  const f = document.getElementById('property-form');
+  const f = propertyForm();
+  f.reset();
   f.elements['id'].value = p.id;
   f.elements['name'].value = p.name;
   setFormattedValue(f.elements['rent'], p.rent);
-  setFormattedValue(f.elements['payment'], p.payment);
+  setFormattedValue(f.elements['payment'], p.payment || '');
   setFormattedValue(f.elements['market_value'], p.market_value);
   setFormattedValue(f.elements['acquisition_price'], p.acquisition_price);
-  setFormattedValue(f.elements['growth_rate'], p.growth_rate * 100);
+  setFormattedValue(f.elements['growth_rate'], (Number(p.growth_rate) || 0) * 100);
   f.elements['acquisition_date'].value = p.acquisition_date || '';
-  f.elements['tax_exempt_years'].value = p.tax_exempt_years || 10;
+  f.elements['owner_type'].value = calc.isPO(p) ? 'po' : 'fo';
+  const years = calc.taxExemptYears(p);
+  f.elements['tax_exempt_years'].value = String([0, 5, 10].includes(years) ? years : 10);
   setFormattedValue(f.elements['equity_invested'], p.equity_invested || '');
   setFormattedValue(f.elements['debt_invested'], p.debt_invested || '');
   f.elements['has_lien'].checked = !!p.has_lien;
   f.elements['lien_bank'].value = p.lien_bank || '';
   setFormattedValue(f.elements['lien_value'], p.lien_value || '');
-  setFormattedValue(f.elements['vacancy_rate'], (p.vacancy_rate || 0) * 100);
-  setFormattedValue(f.elements['monthly_costs'], p.monthly_costs || 0);
-  setFormattedValue(f.elements['rent_growth_rate'], p.rent_growth_rate != null ? p.rent_growth_rate * 100 : '');
-  syncLienFieldsVisibility();
+  const vacancy = Number(p.vacancy_rate) || 0;
+  setFormattedValue(f.elements['occupancy'], vacancy > 0 ? +((1 - vacancy) * 100).toFixed(4) : '');
+  setFormattedValue(f.elements['monthly_costs'], p.monthly_costs || '');
+  setFormattedValue(f.elements['rent_growth_rate'], p.rent_growth_rate != null ? +(p.rent_growth_rate * 100).toFixed(4) : '');
+  setLienFieldsVisible(!!p.has_lien);
+  setTimeTestEnabled(!calc.isPO(p));
+  document.getElementById('property-acc-pledge').open = !!p.has_lien;
+  f.querySelectorAll('details.acc:not(.acc-pledge)').forEach((acc) => {
+    acc.open = false;
+  });
+  const opAcc = document.getElementById('property-rent-growth').closest('details');
+  opAcc.open = vacancy > 0 || !!p.monthly_costs || p.rent_growth_rate != null;
+  const finAcc = f.elements['payment'].closest('details');
+  finAcc.open = !!(p.payment || p.equity_invested || p.debt_invested);
   document.getElementById('property-form-title').textContent = 'Upravit nemovitost';
+  document.getElementById('property-submit-label').textContent = 'Uložit změny';
+  document.getElementById('property-form-card').classList.add('is-editing');
+  updatePropertyBadges();
+  revealForm('property-form-card');
 }
 
 function resetPropertyForm() {
-  const f = document.getElementById('property-form');
+  const f = propertyForm();
   f.reset();
   f.elements['id'].value = '';
-  f.elements['tax_exempt_years'].value = '10';
-  syncLienFieldsVisibility();
+  setLienFieldsVisible(false);
+  setTimeTestEnabled(true);
+  f.querySelectorAll('details.acc').forEach((acc) => {
+    acc.open = false;
+  });
   document.getElementById('property-form-title').textContent = 'Přidat nemovitost';
+  document.getElementById('property-submit-label').textContent = 'Přidat nemovitost';
+  document.getElementById('property-form-card').classList.remove('is-editing');
+  updatePropertyBadges();
 }
 
 async function deleteProperty(id) {
   if (!(await customConfirm('Opravdu smazat tuto nemovitost?', 'Smazat'))) return;
   state.properties = state.properties.filter((p) => p.id !== id);
+  // ať po nemovitosti nezůstávají viset odkazy z úvěrů a událostí
+  state.loans.forEach((l) => {
+    if (l.property_id === id) l.property_id = null;
+    if (l.additional_collateral_ids) l.additional_collateral_ids = l.additional_collateral_ids.filter((x) => x !== id);
+  });
+  pruneEventTargets(id, 'property');
   saveState();
   renderAll();
 }
@@ -615,6 +955,9 @@ function submitPropertyForm(e) {
   const f = e.target;
   const id = f.elements['id'].value;
   const rentGrowthRaw = f.elements['rent_growth_rate'].value.trim();
+  const occupancyRaw = f.elements['occupancy'].value.trim();
+  const occupancy = occupancyRaw ? Math.min(100, Math.max(0, parseFormNumber(occupancyRaw))) : 100;
+  const years = Number(f.elements['tax_exempt_years'].value);
   const payload = {
     id: id || uid(),
     name: f.elements['name'].value.trim(),
@@ -624,13 +967,14 @@ function submitPropertyForm(e) {
     acquisition_price: parseFormNumber(f.elements['acquisition_price'].value),
     growth_rate: parseFormNumber(f.elements['growth_rate'].value) / 100,
     acquisition_date: f.elements['acquisition_date'].value || null,
-    tax_exempt_years: Number(f.elements['tax_exempt_years'].value) || 10,
+    owner_type: f.elements['owner_type'].value === 'po' ? 'po' : 'fo',
+    tax_exempt_years: [0, 5, 10].includes(years) ? years : 10,
     equity_invested: f.elements['equity_invested'].value.trim() ? parseFormNumber(f.elements['equity_invested'].value) : null,
     debt_invested: f.elements['debt_invested'].value.trim() ? parseFormNumber(f.elements['debt_invested'].value) : null,
     has_lien: f.elements['has_lien'].checked,
     lien_bank: f.elements['has_lien'].checked ? f.elements['lien_bank'].value.trim() || null : null,
     lien_value: f.elements['has_lien'].checked && f.elements['lien_value'].value.trim() ? parseFormNumber(f.elements['lien_value'].value) : null,
-    vacancy_rate: parseFormNumber(f.elements['vacancy_rate'].value) / 100,
+    vacancy_rate: (100 - occupancy) / 100,
     monthly_costs: parseFormNumber(f.elements['monthly_costs'].value),
     rent_growth_rate: rentGrowthRaw ? parseFormNumber(rentGrowthRaw) / 100 : null,
   };
@@ -657,53 +1001,155 @@ function ltvInfo(loan) {
   return { text: `${ltvPct}/${100 - ltvPct}`, ownAmount: Math.max(0, propValue - amount) };
 }
 
-/** Zaškrtávátka "která další nemovitost je dodatečně zastavená pro tento úvěr"
- * - přebuduje se z aktuálního seznamu nemovitostí, zaškrtnuté podle úvěru,
- * který se právě upravuje (nebo prázdné, pokud se přidává nový). */
+function loanForm() {
+  return document.getElementById('loan-form');
+}
+
+/** Rozbalovací seznam "Zástava": které nemovitosti jsou zastavené pro tento úvěr, s hodnotou zástavy. */
 function renderLoanCollateralChecklist() {
   const container = document.getElementById('loan-collateral-checklist');
   if (!container) return;
-  const editId = document.getElementById('loan-form').elements['id'].value;
+  const editId = loanForm().elements['id'].value;
   const editingLoan = editId ? state.loans.find((l) => l.id === editId) : null;
   const selected = (editingLoan && editingLoan.additional_collateral_ids) || [];
   if (!state.properties.length) {
-    container.innerHTML = '<p class="text-xs text-slate-400">Zatím žádné nemovitosti k výběru.</p>';
+    container.innerHTML = '<p class="text-sm t-faint">Zatím žádné nemovitosti</p>';
+    updateLoanBadges();
     return;
   }
   container.innerHTML = state.properties
     .map(
-      (p) => `<label class="flex items-center gap-2">
-        <input type="checkbox" class="loan-collateral-checkbox w-4 h-4" value="${p.id}" ${selected.includes(p.id) ? 'checked' : ''} />
-        ${escapeHtml(p.name)}
+      (p) => `<label class="chip" style="display:block">
+        <input type="checkbox" class="loan-collateral-checkbox" value="${p.id}" ${selected.includes(p.id) ? 'checked' : ''} />
+        <span style="display:flex;justify-content:space-between;gap:1rem;border-radius:0.7rem;padding:0.55rem 0.9rem">
+          <strong style="font-weight:600">${escapeHtml(p.name)}</strong>
+          <span class="num">${fmtMoney(freedValue(p, false))}</span>
+        </span>
       </label>`
     )
     .join('');
+  updateLoanBadges();
+}
+
+function renderLoanPropertySelect() {
+  const select = document.getElementById('loan-property-select');
+  if (!select) return;
+  const previous = select.value;
+  select.innerHTML =
+    '<option value="">—</option>' + state.properties.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  select.value = state.properties.some((p) => p.id === previous) ? previous : '';
+}
+
+function updateLoanBadges() {
+  const f = loanForm();
+  const checked = Array.from(f.querySelectorAll('.loan-collateral-checkbox:checked'));
+  const sum = checked.reduce((s, el) => {
+    const p = state.properties.find((x) => x.id === el.value);
+    return s + (p ? freedValue(p, false) : 0);
+  }, 0);
+  document.getElementById('loan-pledge-badge').textContent = checked.length ? `${checked.length}× · ${fmtMoney(sum)}` : 'Bez zástavy';
+
+  const start = f.elements['start_date'].value;
+  const end = f.elements['fixation_end'].value;
+  const years = f.elements['fixation_years'].value;
+  document.getElementById('loan-fixation-badge').textContent =
+    start && end ? `${fmtDate(start)} → ${fmtDate(end)}` : end ? `do ${fmtDate(end)}` : years !== '' ? `${years} let` : '';
+
+  const after = f.elements['rate_after_fixation'].value.trim();
+  const linked = f.elements['property_id'].value;
+  document.getElementById('loan-details-badge').textContent = [after ? `Po fixaci ${fmtNumber(parseFormNumber(after))} %` : '', linked ? propertyName(linked) : '']
+    .filter(Boolean)
+    .join(' · ');
+}
+
+const toInputDate = (date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+/** Fixace od / doba / do: změna kteréhokoli pole dopočítá ostatní. */
+function wireFixationFields() {
+  const f = loanForm();
+  const start = f.elements['start_date'];
+  const years = f.elements['fixation_years'];
+  const end = f.elements['fixation_end'];
+
+  const endFromYears = () => {
+    if (!start.value || years.value === '') return;
+    const d = new Date(start.value);
+    if (isNaN(d)) return;
+    end.value = toInputDate(calc.addYears(d, Math.round(Number(years.value) || 0)));
+  };
+  const yearsFromEnd = () => {
+    if (!start.value || !end.value) return;
+    const a = new Date(start.value);
+    const b = new Date(end.value);
+    if (isNaN(a) || isNaN(b) || b < a) return;
+    const diff = calc.calendarDiff(a, b);
+    years.value = +(diff.years + diff.months / 12).toFixed(1);
+  };
+
+  years.addEventListener('change', endFromYears);
+  start.addEventListener('change', () => {
+    if (years.value !== '') endFromYears();
+    else yearsFromEnd();
+  });
+  end.addEventListener('change', yearsFromEnd);
+}
+
+function wireLoanFormUi() {
+  const f = loanForm();
+  f.elements['fixation_years'].step = 'any';
+  wireFixationFields();
+  f.addEventListener('input', updateLoanBadges);
+  f.addEventListener('change', updateLoanBadges);
 }
 
 function renderLoans() {
   const tbody = document.getElementById('loans-tbody');
+  const tfoot = document.getElementById('loans-tfoot');
   tbody.innerHTML = '';
+  const totals = { amount: 0, payment: 0, own: 0 };
   for (const l of state.loans) {
-    const fx = l.start_date ? calc.fixationRemaining(new Date(l.start_date), l.fixation_years) : null;
+    const end = calc.fixationEndDate(l);
+    const fx = end ? calc.fixationRemainingUntil(end) : null;
     const ltv = ltvInfo(l);
+    totals.amount += Number(l.amount) || 0;
+    totals.payment += Number(l.monthly_payment) || 0;
+    if (ltv) totals.own += ltv.ownAmount;
+    const years = l.fixation_years != null && l.fixation_years !== '' ? `${fmtNumber(l.fixation_years, 1)} let` : '';
+    const fixCell = end
+      ? `<span class="num">${fmtDate(end.toISOString())}</span>${years ? `<br><span class="text-xs t-muted">${years}</span>` : ''}`
+      : years || '<span class="t-faint">—</span>';
+    const linked = l.property_id ? propertyName(l.property_id) : '';
     const tr = document.createElement('tr');
-    tr.className = 'border-b border-slate-200 dark:border-slate-700';
     tr.innerHTML = `
-      <td class="py-2 pr-3 font-medium">${escapeHtml(l.bank)}</td>
-      <td class="py-2 pr-3 text-right">${fmtMoney(l.amount)}</td>
-      <td class="py-2 pr-3 text-right">${fmtPercent(l.interest_rate)}</td>
-      <td class="py-2 pr-3 text-right">${fmtMoney(l.monthly_payment)}</td>
-      <td class="py-2 pr-3 text-right">${l.fixation_years} let</td>
-      <td class="py-2 pr-3">${l.start_date || '—'}</td>
-      <td class="py-2 pr-3">${fx ? fx.text : '—'}</td>
-      <td class="py-2 pr-3">${ltv ? ltv.text : '—'}</td>
-      <td class="py-2 pr-3 text-right">${ltv ? fmtMoney(ltv.ownAmount) : '—'}</td>
-      <td class="py-2 pr-3">${escapeHtml(l.note || '')}</td>
-      <td class="py-2 pr-3 whitespace-nowrap">
-        <button class="text-blue-600 hover:underline mr-2" data-edit-loan="${l.id}">Upravit</button>
-        <button class="text-red-600 hover:underline" data-delete-loan="${l.id}">Smazat</button>
+      <td class="font-medium">${escapeHtml(l.bank)}${l.note ? `<br><span class="text-xs t-muted">${escapeHtml(l.note)}</span>` : ''}</td>
+      <td class="text-right num">${fmtMoney(l.amount)}</td>
+      <td class="text-right num">${fmtPercent(l.interest_rate)}</td>
+      <td class="text-right num">${fmtMoney(l.monthly_payment)}</td>
+      <td>${fixCell}</td>
+      <td>${fx ? escapeHtml(fx.text) : '<span class="t-faint">—</span>'}</td>
+      <td>${ltv ? ltv.text : '<span class="t-faint">—</span>'}</td>
+      <td class="text-right num">${ltv ? fmtMoney(ltv.ownAmount) : '<span class="t-faint">—</span>'}</td>
+      <td>${linked ? escapeHtml(linked) : '<span class="t-faint">—</span>'}</td>
+      <td class="whitespace-nowrap text-right">
+        <button class="link-btn link-edit" data-edit-loan="${l.id}">Upravit</button>
+        <button class="link-btn link-delete" data-delete-loan="${l.id}">Smazat</button>
       </td>`;
     tbody.appendChild(tr);
+  }
+  if (!state.loans.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="10">Zatím žádné úvěry</td></tr>';
+    tfoot.innerHTML = '';
+  } else {
+    tfoot.innerHTML = `<tr>
+      <td>Celkem</td>
+      <td class="text-right num">${fmtMoney(totals.amount)}</td>
+      <td></td>
+      <td class="text-right num">${fmtMoney(totals.payment)}</td>
+      <td></td><td></td><td></td>
+      <td class="text-right num">${totals.own ? fmtMoney(totals.own) : ''}</td>
+      <td></td><td></td>
+    </tr>`;
   }
   tbody.querySelectorAll('[data-edit-loan]').forEach((btn) =>
     btn.addEventListener('click', () => fillLoanForm(btn.dataset.editLoan))
@@ -712,37 +1158,59 @@ function renderLoans() {
     btn.addEventListener('click', () => deleteLoan(btn.dataset.deleteLoan))
   );
   renderLoanCollateralChecklist();
+  renderLoanPropertySelect();
+  renderEventTargets();
 }
 
 function fillLoanForm(id) {
   const l = state.loans.find((x) => x.id === id);
   if (!l) return;
-  const f = document.getElementById('loan-form');
+  const f = loanForm();
+  f.reset();
   f.elements['id'].value = l.id;
   f.elements['bank'].value = l.bank;
   setFormattedValue(f.elements['amount'], l.amount);
-  setFormattedValue(f.elements['interest_rate'], l.interest_rate * 100);
+  setFormattedValue(f.elements['interest_rate'], +(l.interest_rate * 100).toFixed(4));
   setFormattedValue(f.elements['monthly_payment'], l.monthly_payment || '');
-  f.elements['fixation_years'].value = l.fixation_years;
   f.elements['start_date'].value = l.start_date || '';
+  f.elements['fixation_years'].value = l.fixation_years != null && l.fixation_years !== '' ? l.fixation_years : '';
+  const end = calc.fixationEndDate(l);
+  f.elements['fixation_end'].value = end ? toInputDate(end) : '';
   f.elements['note'].value = l.note || '';
   setFormattedValue(f.elements['rate_after_fixation'], l.rate_after_fixation != null ? l.rate_after_fixation : '');
   setFormattedValue(f.elements['property_value_at_origination'], l.property_value_at_origination || '');
-  document.getElementById('loan-form-title').textContent = 'Upravit úvěr';
+  renderLoanPropertySelect();
+  f.elements['property_id'].value = l.property_id || '';
   renderLoanCollateralChecklist();
+  document.getElementById('loan-acc-pledge').open = !!(l.additional_collateral_ids && l.additional_collateral_ids.length);
+  const [fixationAcc, detailsAcc] = Array.from(f.querySelectorAll('details.acc:not(.acc-pledge)'));
+  fixationAcc.open = !!(l.start_date || end || l.fixation_years != null);
+  detailsAcc.open = !!(l.rate_after_fixation != null || l.property_value_at_origination || l.property_id || l.note);
+  document.getElementById('loan-form-title').textContent = 'Upravit úvěr';
+  document.getElementById('loan-submit-label').textContent = 'Uložit změny';
+  document.getElementById('loan-form-card').classList.add('is-editing');
+  updateLoanBadges();
+  revealForm('loan-form-card');
 }
 
 function resetLoanForm() {
-  const f = document.getElementById('loan-form');
+  const f = loanForm();
   f.reset();
   f.elements['id'].value = '';
+  f.querySelectorAll('details.acc').forEach((acc) => {
+    acc.open = false;
+  });
   document.getElementById('loan-form-title').textContent = 'Přidat úvěr';
+  document.getElementById('loan-submit-label').textContent = 'Přidat úvěr';
+  document.getElementById('loan-form-card').classList.remove('is-editing');
   renderLoanCollateralChecklist();
+  renderLoanPropertySelect();
 }
 
 async function deleteLoan(id) {
   if (!(await customConfirm('Opravdu smazat tento úvěr?', 'Smazat'))) return;
   state.loans = state.loans.filter((l) => l.id !== id);
+  pruneEventTargets(id, 'loan');
   saveState();
   renderAll();
 }
@@ -753,17 +1221,22 @@ function submitLoanForm(e) {
   const id = f.elements['id'].value;
   const rateAfterRaw = f.elements['rate_after_fixation'].value.trim();
   const propValueRaw = f.elements['property_value_at_origination'].value.trim();
+  const yearsRaw = f.elements['fixation_years'].value.trim();
+  const startDate = f.elements['start_date'].value || null;
+  const fixationEnd = f.elements['fixation_end'].value || null;
   const payload = {
     id: id || uid(),
     bank: f.elements['bank'].value.trim(),
     amount: parseFormNumber(f.elements['amount'].value),
     interest_rate: parseFormNumber(f.elements['interest_rate'].value) / 100,
     monthly_payment: parseFormNumber(f.elements['monthly_payment'].value),
-    fixation_years: Number(f.elements['fixation_years'].value) || 5,
-    start_date: f.elements['start_date'].value || null,
+    fixation_years: yearsRaw === '' ? null : Math.max(0, Number(yearsRaw) || 0),
+    start_date: startDate,
+    fixation_end: fixationEnd,
     note: f.elements['note'].value.trim() || null,
     rate_after_fixation: rateAfterRaw ? parseFormNumber(rateAfterRaw) : null,
     property_value_at_origination: propValueRaw ? parseFormNumber(propValueRaw) : null,
+    property_id: f.elements['property_id'].value || null,
     additional_collateral_ids: Array.from(f.querySelectorAll('.loan-collateral-checkbox:checked')).map((el) => el.value),
   };
   if (id) {
@@ -781,101 +1254,256 @@ function submitLoanForm(e) {
 /* ---------- NASTAVENÍ ---------- */
 
 function renderSettings() {
-  setFormattedValue(document.getElementById('inflation-input'), (state.settings.inflation_rate * 100).toFixed(2));
-  setFormattedValue(document.getElementById('capgains-tax-input'), state.settings.capital_gains_tax_rate);
-  document.getElementById('auto-sell-enabled-input').checked = state.settings.auto_sell_enabled !== false;
-  setFormattedValue(document.getElementById('sale-trigger-input'), state.settings.sale_trigger_amount || '');
-  setFormattedValue(document.getElementById('min-portfolio-input'), state.settings.min_portfolio_value || '');
-  document.getElementById('pledge-financing-enabled-input').checked = !!state.settings.pledge_financing_enabled;
-  setFormattedValue(document.getElementById('pledge-max-ltv-input'), state.settings.pledge_max_ltv);
-  syncAutoSellOptionsVisibility();
-  syncPledgeFinancingOptionsVisibility();
+  const s = state.settings;
+  setFormattedValue(document.getElementById('inflation-input'), +(s.inflation_rate * 100).toFixed(4));
+  setFormattedValue(document.getElementById('rent-growth-input'), s.default_rent_growth != null ? +(s.default_rent_growth * 100).toFixed(4) : '');
+  setFormattedValue(document.getElementById('capgains-tax-input'), s.capital_gains_tax_rate);
+  setFormattedValue(document.getElementById('po-tax-input'), s.po_tax_rate);
+  document.getElementById('auto-sell-enabled-input').checked = s.auto_sell_enabled !== false;
+  document.getElementById('po-sell-asap-input').checked = s.po_sell_asap !== false;
+  setFormattedValue(document.getElementById('sale-trigger-input'), s.sale_trigger_amount || '');
+  setFormattedValue(document.getElementById('min-portfolio-input'), s.min_portfolio_value || '');
+  document.getElementById('pledge-financing-enabled-input').checked = !!s.pledge_financing_enabled;
+  setFormattedValue(document.getElementById('pledge-max-ltv-input'), s.pledge_max_ltv);
+  syncSettingsVisibility();
+  updateRentGrowthPlaceholders();
 }
 
-function syncAutoSellOptionsVisibility() {
-  const enabled = document.getElementById('auto-sell-enabled-input').checked;
-  document.getElementById('auto-sell-options').classList.toggle('hidden', !enabled);
+/** Prázdné pole růstu nájmu = použije se výchozí z Nastavení, jinak inflace - její hodnota je vidět jako nápověda. */
+function updateRentGrowthPlaceholders() {
+  const effective = state.settings.default_rent_growth != null ? state.settings.default_rent_growth : state.settings.inflation_rate;
+  const text = fmtNumber(effective * 100);
+  document.getElementById('property-rent-growth').placeholder = text;
+  document.getElementById('rent-growth-input').placeholder = fmtNumber(state.settings.inflation_rate * 100);
 }
 
-function syncPledgeFinancingOptionsVisibility() {
-  const enabled = document.getElementById('pledge-financing-enabled-input').checked;
-  document.getElementById('pledge-financing-options').classList.toggle('hidden', !enabled);
+function syncSettingsVisibility() {
+  document.getElementById('auto-sell-options').classList.toggle('hidden', !document.getElementById('auto-sell-enabled-input').checked);
+  document.getElementById('pledge-financing-options').classList.toggle('hidden', !document.getElementById('pledge-financing-enabled-input').checked);
 }
 
 function wireSettingsInputs() {
-  const inflationEl = document.getElementById('inflation-input');
-  const capGainsEl = document.getElementById('capgains-tax-input');
-  const autoSellEnabledEl = document.getElementById('auto-sell-enabled-input');
-  const saleTriggerEl = document.getElementById('sale-trigger-input');
-  const minPortfolioEl = document.getElementById('min-portfolio-input');
-  const pledgeEnabledEl = document.getElementById('pledge-financing-enabled-input');
-  const pledgeMaxLtvEl = document.getElementById('pledge-max-ltv-input');
+  const el = (id) => document.getElementById(id);
   const save = () => {
-    state.settings.inflation_rate = parseFormNumber(inflationEl.value) / 100;
-    state.settings.capital_gains_tax_rate = parseFormNumber(capGainsEl.value);
-    state.settings.auto_sell_enabled = autoSellEnabledEl.checked;
-    state.settings.sale_trigger_amount = parseFormNumber(saleTriggerEl.value);
-    state.settings.min_portfolio_value = parseFormNumber(minPortfolioEl.value);
-    state.settings.pledge_financing_enabled = pledgeEnabledEl.checked;
-    state.settings.pledge_max_ltv = parseFormNumber(pledgeMaxLtvEl.value);
+    const rentGrowthRaw = el('rent-growth-input').value.trim();
+    state.settings.inflation_rate = parseFormNumber(el('inflation-input').value) / 100;
+    state.settings.default_rent_growth = rentGrowthRaw ? parseFormNumber(rentGrowthRaw) / 100 : null;
+    state.settings.capital_gains_tax_rate = parseFormNumber(el('capgains-tax-input').value);
+    state.settings.po_tax_rate = parseFormNumber(el('po-tax-input').value);
+    state.settings.auto_sell_enabled = el('auto-sell-enabled-input').checked;
+    state.settings.po_sell_asap = el('po-sell-asap-input').checked;
+    state.settings.sale_trigger_amount = parseFormNumber(el('sale-trigger-input').value);
+    state.settings.min_portfolio_value = parseFormNumber(el('min-portfolio-input').value);
+    state.settings.pledge_financing_enabled = el('pledge-financing-enabled-input').checked;
+    state.settings.pledge_max_ltv = parseFormNumber(el('pledge-max-ltv-input').value);
     saveState();
-    syncAutoSellOptionsVisibility();
-    syncPledgeFinancingOptionsVisibility();
-    renderScenario();
-    renderOverview();
-    renderOverviewReal();
-    renderFreedom();
+    syncSettingsVisibility();
+    updateRentGrowthPlaceholders();
+    renderCalculations();
   };
-  inflationEl.addEventListener('change', save);
-  capGainsEl.addEventListener('change', save);
-  autoSellEnabledEl.addEventListener('change', save);
-  saleTriggerEl.addEventListener('change', save);
-  minPortfolioEl.addEventListener('change', save);
-  pledgeEnabledEl.addEventListener('change', save);
-  pledgeMaxLtvEl.addEventListener('change', save);
+  [
+    'inflation-input',
+    'rent-growth-input',
+    'capgains-tax-input',
+    'po-tax-input',
+    'auto-sell-enabled-input',
+    'po-sell-asap-input',
+    'sale-trigger-input',
+    'min-portfolio-input',
+    'pledge-financing-enabled-input',
+    'pledge-max-ltv-input',
+  ].forEach((id) => el(id).addEventListener('change', save));
 }
 
-/* ---------- SCÉNÁŘOVÉ UDÁLOSTI (celoportfoliové) ---------- */
+/* ---------- SCÉNÁŘOVÉ UDÁLOSTI ---------- */
 
 const EVENT_LABELS = {
   growth: 'Růst hodnoty nemovitostí',
   rent_growth: 'Růst nájmu',
-  vacancy: 'Neobsazenost',
+  vacancy: 'Obsazenost',
+  interest: 'Růst úrokových sazeb',
   inflation: 'Inflace',
   one_time: 'Jednorázový příjem/výdaj',
+  sale: 'Prodej co nejdřív',
+  rate_after_fixation: 'Sazba po fixaci',
 };
 
-function updateEventValueLabel() {
-  const type = document.getElementById('event-type').value;
-  const isMoney = type === 'one_time';
-  document.getElementById('event-value-label').textContent = isMoney ? 'Hodnota (Kč)' : 'Hodnota (%)';
-  setFieldUnit(document.getElementById('event-value-input'), isMoney ? 'money' : 'percent');
+const EVENT_UNITS = { growth: 'percent', rent_growth: 'percent', vacancy: 'percent', inflation: 'percent', interest: 'pp', one_time: 'money' };
+const EVENT_VALUE_LABELS = {
+  growth: 'Růst',
+  rent_growth: 'Růst',
+  vacancy: 'Obsazenost',
+  interest: 'Změna sazby',
+  inflation: 'Inflace',
+  one_time: 'Částka',
+};
+
+let eventTargets = []; // vybrané nemovitosti/úvěry ve formuláři události (prázdné = všechny)
+
+function eventTargetKind(type) {
+  if (type === 'interest') return 'loan';
+  return ['growth', 'rent_growth', 'vacancy'].includes(type) ? 'property' : null;
+}
+
+/** Po smazání nemovitosti/úvěru ho odebere z cílů událostí; událost, která by tím ztratila všechny cíle, zmizí. */
+function pruneEventTargets(removedId, kind) {
+  state.events = state.events.filter((ev) => {
+    if (!ev.target_ids || !ev.target_ids.length || eventTargetKind(ev.type) !== kind) return true;
+    ev.target_ids = ev.target_ids.filter((x) => x !== removedId);
+    return ev.target_ids.length > 0;
+  });
+}
+
+function currentEventType() {
+  return document.getElementById('event-type').value;
+}
+
+function updateEventFormUi() {
+  const type = currentEventType();
+  const unit = EVENT_UNITS[type];
+  document.getElementById('event-value-label').textContent = EVENT_VALUE_LABELS[type];
+  setFieldUnit(document.getElementById('event-value-input'), unit);
+  const oneTime = type === 'one_time';
+  document.getElementById('event-year-to-wrap').classList.toggle('hidden', oneTime);
+  document.getElementById('event-year-from-label').textContent = oneTime ? 'Rok' : 'Od roku';
+  renderEventTargets();
+}
+
+function renderEventTargets() {
+  const container = document.getElementById('event-targets');
+  if (!container) return;
+  const kind = eventTargetKind(currentEventType());
+  document.getElementById('event-targets-wrap').classList.toggle('hidden', !kind);
+  if (!kind) return;
+  const items =
+    kind === 'loan'
+      ? state.loans.map((l) => ({ id: l.id, label: l.bank || 'Úvěr' }))
+      : state.properties.map((p) => ({ id: p.id, label: p.name }));
+  eventTargets = eventTargets.filter((id) => items.some((i) => i.id === id));
+  container.innerHTML =
+    `<label class="chip"><input type="checkbox" data-all ${eventTargets.length ? '' : 'checked'} /><span>Všechny</span></label>` +
+    items
+      .map(
+        (i) => `<label class="chip"><input type="checkbox" value="${i.id}" ${eventTargets.includes(i.id) ? 'checked' : ''} /><span>${escapeHtml(i.label)}</span></label>`
+      )
+      .join('');
+}
+
+function wireEventFormUi() {
+  document.getElementById('event-type').addEventListener('change', () => {
+    eventTargets = [];
+    updateEventFormUi();
+  });
+  document.getElementById('event-targets').addEventListener('change', (e) => {
+    if (e.target.hasAttribute('data-all')) eventTargets = [];
+    else eventTargets = Array.from(document.querySelectorAll('#event-targets input[value]:checked')).map((el) => el.value);
+    renderEventTargets();
+  });
+}
+
+function eventTargetNames(ev) {
+  if (!ev.target_ids || !ev.target_ids.length) return 'Všechny';
+  const pool = ev.type === 'interest' ? state.loans.map((l) => [l.id, l.bank]) : state.properties.map((p) => [p.id, p.name]);
+  const map = new Map(pool);
+  const names = ev.target_ids.map((id) => map.get(id)).filter(Boolean);
+  return names.length ? names.join(', ') : '—';
+}
+
+function eventPeriod(ev) {
+  if (ev.type === 'one_time' || (ev.year_to && Number(ev.year_to) === Number(ev.year_from))) return `${ev.year_from}`;
+  return ev.year_to ? `${ev.year_from}–${ev.year_to}` : `${ev.year_from} →`;
+}
+
+function eventValueText(ev) {
+  const v = Number(ev.value) || 0;
+  switch (ev.type) {
+    case 'one_time':
+      return fmtMoney(v);
+    case 'interest':
+      return `${v > 0 ? '+' : ''}${fmtNumber(v)} p. b.`;
+    case 'vacancy':
+      return `${fmtNumber(100 - v)} %`;
+    default:
+      return `${fmtNumber(v)} %`;
+  }
+}
+
+/**
+ * Události, které vznikají přímo z karet nemovitostí a úvěrů (obsazenost, vlastní růst nájmu,
+ * prodej PO, sazba po fixaci). Počítá je engine už z polí nemovitostí a úvěrů, tady se jen
+ * ukazují ve Scénářích - upravují se v kartě, ze které pocházejí.
+ */
+function derivedEvents() {
+  const out = [];
+  const autoSell = state.settings.auto_sell_enabled !== false && state.settings.po_sell_asap !== false;
+  for (const p of state.properties) {
+    const vacancy = Number(p.vacancy_rate) || 0;
+    const base = { derived: true, targets: p.name, source: { kind: 'property', id: p.id }, from: p.name };
+    if (vacancy > 0) out.push({ ...base, type: 'vacancy', period: 'trvale', value: `${fmtNumber((1 - vacancy) * 100)} %` });
+    if (p.rent_growth_rate != null) out.push({ ...base, type: 'rent_growth', period: 'trvale', value: `${fmtNumber(p.rent_growth_rate * 100)} %` });
+    if (calc.isPO(p) && autoSell) out.push({ ...base, type: 'sale', period: `${CURRENT_YEAR}`, value: '—' });
+  }
+  for (const l of state.loans) {
+    if (l.rate_after_fixation == null) continue;
+    const end = calc.fixationEndDate(l);
+    out.push({
+      derived: true,
+      type: 'rate_after_fixation',
+      targets: l.bank,
+      period: end ? `od ${end.getFullYear()}` : '—',
+      value: `${fmtNumber(l.rate_after_fixation)} %`,
+      source: { kind: 'loan', id: l.id },
+      from: l.bank,
+    });
+  }
+  return out;
 }
 
 function renderEvents() {
   const tbody = document.getElementById('events-tbody');
+  const derived = derivedEvents();
+  document.getElementById('events-card').classList.toggle('hidden', !state.events.length && !derived.length);
   tbody.innerHTML = '';
   for (const ev of state.events) {
-    const period = ev.year_to && ev.year_to !== ev.year_from ? `${ev.year_from}–${ev.year_to}` : `${ev.year_from}`;
-    const valueLabel = ev.type === 'one_time' ? fmtMoney(ev.value) : `${ev.value} %`;
     const tr = document.createElement('tr');
-    tr.className = 'border-b border-slate-200';
     tr.innerHTML = `
-      <td class="py-2 pr-3">${EVENT_LABELS[ev.type] || ev.type}</td>
-      <td class="py-2 pr-3">${period}</td>
-      <td class="py-2 pr-3 text-right">${valueLabel}</td>
-      <td class="py-2 pr-3">${escapeHtml(ev.note || '')}</td>
-      <td class="py-2 pr-3 whitespace-nowrap">
-        <button class="text-blue-600 hover:underline mr-2" data-edit-event="${ev.id}">Upravit</button>
-        <button class="text-red-600 hover:underline" data-delete-event="${ev.id}">Smazat</button>
+      <td class="font-medium">${EVENT_LABELS[ev.type] || ev.type}</td>
+      <td>${escapeHtml(eventTargetNames(ev))}</td>
+      <td class="num">${eventPeriod(ev)}</td>
+      <td class="text-right num">${eventValueText(ev)}</td>
+      <td>${escapeHtml(ev.note || '')}</td>
+      <td class="whitespace-nowrap text-right">
+        <button class="link-btn link-edit" data-edit-event="${ev.id}">Upravit</button>
+        <button class="link-btn link-delete" data-delete-event="${ev.id}">Smazat</button>
       </td>`;
     tbody.appendChild(tr);
   }
-  tbody.querySelectorAll('[data-edit-event]').forEach((btn) =>
-    btn.addEventListener('click', () => fillEventForm(btn.dataset.editEvent))
-  );
-  tbody.querySelectorAll('[data-delete-event]').forEach((btn) =>
-    btn.addEventListener('click', () => deleteEvent(btn.dataset.deleteEvent))
+  for (const d of derived) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="font-medium">${EVENT_LABELS[d.type]} <span class="badge badge-linked">${d.source.kind === 'property' ? 'z nemovitosti' : 'z úvěru'}</span></td>
+      <td>${escapeHtml(d.targets)}</td>
+      <td class="num">${d.period}</td>
+      <td class="text-right num">${d.value}</td>
+      <td></td>
+      <td class="whitespace-nowrap text-right">
+        <button class="link-btn link-edit" data-edit-source="${d.source.kind}:${d.source.id}">Upravit</button>
+      </td>`;
+    tbody.appendChild(tr);
+  }
+  tbody.querySelectorAll('[data-edit-event]').forEach((btn) => btn.addEventListener('click', () => fillEventForm(btn.dataset.editEvent)));
+  tbody.querySelectorAll('[data-delete-event]').forEach((btn) => btn.addEventListener('click', () => deleteEvent(btn.dataset.deleteEvent)));
+  tbody.querySelectorAll('[data-edit-source]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const [kind, id] = btn.dataset.editSource.split(':');
+      if (kind === 'property') {
+        showTab('tab-properties');
+        fillPropertyForm(id);
+      } else {
+        showTab('tab-loans');
+        fillLoanForm(id);
+      }
+    })
   );
 }
 
@@ -885,12 +1513,17 @@ function fillEventForm(id) {
   const f = document.getElementById('event-form');
   f.elements['id'].value = ev.id;
   f.elements['type'].value = ev.type;
+  eventTargets = (ev.target_ids || []).slice();
   f.elements['year_from'].value = ev.year_from;
-  f.elements['year_to'].value = ev.year_to && ev.year_to !== ev.year_from ? ev.year_to : '';
-  updateEventValueLabel();
-  setFormattedValue(f.elements['value'], ev.value);
+  f.elements['year_to'].value = ev.year_to && Number(ev.year_to) !== Number(ev.year_from) ? ev.year_to : '';
+  updateEventFormUi();
+  const v = Number(ev.value) || 0;
+  setFormattedValue(f.elements['value'], ev.type === 'vacancy' ? +(100 - v).toFixed(4) : v);
   f.elements['note'].value = ev.note || '';
   document.getElementById('event-form-title').textContent = 'Upravit scénářovou událost';
+  document.getElementById('event-submit-label').textContent = 'Uložit změny';
+  document.getElementById('event-form-card').classList.add('is-editing');
+  revealForm('event-form-card');
 }
 
 function resetEventForm() {
@@ -898,35 +1531,40 @@ function resetEventForm() {
   f.reset();
   f.elements['id'].value = '';
   f.elements['year_from'].value = CURRENT_YEAR;
-  updateEventValueLabel();
+  eventTargets = [];
+  updateEventFormUi();
   document.getElementById('event-form-title').textContent = 'Přidat scénářovou událost';
+  document.getElementById('event-submit-label').textContent = 'Přidat událost';
+  document.getElementById('event-form-card').classList.remove('is-editing');
 }
 
 async function deleteEvent(id) {
   if (!(await customConfirm('Smazat tuto scénářovou událost?', 'Smazat'))) return;
   state.events = state.events.filter((e) => e.id !== id);
   saveState();
-  renderEvents();
-  renderScenario();
-  renderOverview();
-  renderOverviewReal();
-  renderFreedom();
+  renderCalculations();
 }
 
 function submitEventForm(e) {
   e.preventDefault();
   const f = e.target;
   const id = f.elements['id'].value;
+  const type = f.elements['type'].value;
   const yearFrom = Number(f.elements['year_from'].value);
   const yearToRaw = f.elements['year_to'].value;
+  let yearTo = type === 'one_time' ? yearFrom : yearToRaw ? Number(yearToRaw) : null;
+  if (yearTo != null && yearTo < yearFrom) yearTo = yearFrom;
+  const input = parseFormNumber(f.elements['value'].value);
   const payload = {
     id: id || uid(),
-    type: f.elements['type'].value,
+    type,
     year_from: yearFrom,
-    year_to: yearToRaw ? Number(yearToRaw) : yearFrom,
-    value: parseFormNumber(f.elements['value'].value),
+    year_to: yearTo,
+    // obsazenost se zadává jako obsazenost, uložená je neobsazenost (stejně jako u nemovitosti)
+    value: type === 'vacancy' ? 100 - input : input,
     note: f.elements['note'].value.trim() || null,
   };
+  if (eventTargetKind(type)) payload.target_ids = eventTargets.slice();
   if (id) {
     const idx = state.events.findIndex((ev) => ev.id === id);
     if (idx !== -1) state.events[idx] = payload;
@@ -935,94 +1573,194 @@ function submitEventForm(e) {
   }
   saveState();
   resetEventForm();
-  renderEvents();
-  renderScenario();
-  renderOverview();
-  renderOverviewReal();
-  renderFreedom();
+  renderCalculations();
   showSuccessToast(id ? 'Událost upravena' : 'Událost přidána');
 }
 
 /* ---------- SCÉNÁŘE (predikce) ---------- */
 
+function runProjection(horizonYears, properties, loans, startYear) {
+  return calc.projectPortfolio({
+    properties: properties || state.properties,
+    loans: loans || state.loans,
+    settings: state.settings,
+    events: state.events,
+    horizonYears,
+    startYear: startYear || CURRENT_YEAR,
+  });
+}
+
+let scenarioRows = [];
+
+function shortEventLabel(ev) {
+  const base = EVENT_LABELS[ev.type] || ev.type;
+  return `${base} ${eventValueText(ev)}`;
+}
+
+function saleChipText(s) {
+  const tax = s.taxExempt ? 'bez daně' : `daň ${fmtMoney(s.estimatedSaleTax)}`;
+  return `Prodej: ${escapeHtml(s.propertyName)}${s.owner === 'po' ? ' (PO)' : ''} · ${fmtMoney(s.saleProceeds)} (${tax})`;
+}
+
 function renderScenario() {
   const horizon = state.scenario.horizonYears;
   setValueIfNotFocused(document.getElementById('scenario-horizon'), horizon);
   document.getElementById('sc-kpi-end-equity-label').textContent = `Vlastní kapitál za ${horizon} let`;
-  document.getElementById('sc-kpi-end-debt-label').textContent = `Cizí kapitál za ${horizon} let`;
+  document.getElementById('sc-kpi-end-debt-label').textContent = `Dluh za ${horizon} let`;
 
-  const result = calc.projectPortfolio({
-    properties: state.properties,
-    loans: state.loans,
-    settings: state.settings,
-    events: state.events,
-    horizonYears: horizon,
-    startYear: CURRENT_YEAR,
-  });
-
+  const result = runProjection(horizon);
   const { rows, summary } = result;
-  const first = rows[0];
+  scenarioRows = rows;
   const last = rows[rows.length - 1];
 
   document.getElementById('sc-kpi-end-equity').textContent = fmtMoney(summary.endEquity);
   document.getElementById('sc-kpi-end-debt').textContent = fmtMoney(last.totalDebt);
   document.getElementById('sc-kpi-cagr-assets').textContent = fmtPercent(summary.cagrAssets);
 
-  setFormula('sc-kpi-end-equity-formula', `Majetek za ${horizon} let (${fmtMoney(last.totalValue)}) − dluh za ${horizon} let (${fmtMoney(last.totalDebt)}) = ${fmtMoney(last.equity)}`);
-  setFormula('sc-kpi-end-debt-formula', `Součet zbývající jistiny všech úvěrů za ${horizon} let = ${fmtMoney(last.totalDebt)}. "Cizí kapitál" = peníze v nemovitostech, které ještě nejsou tvoje - jsou zastavené bance, dokud se úvěr nesplatí.`);
-  setFormula(
-    'sc-kpi-cagr-assets-formula',
-    `Složený průměr ročního zhodnocení nemovitostí za všech ${horizon} let (stejná sazba jako "Průměrné zhodnocení" na Přehledu, jen za celý horizont) = ${fmtPercent(summary.cagrAssets)}. Počítá se ze skutečné roční sazby zhodnocení, NE z porovnání celkové hodnoty portfolia na začátku a na konci - takže když si během horizontu koupíš další nemovitost, ten nákup se sem nepočítá jako "zhodnocení" (je to nový vklad, ne zisk).`
-  );
+  setFormula('sc-kpi-end-equity-formula', `Majetek ${fmtMoney(last.totalValue)} − dluh ${fmtMoney(last.totalDebt)}`);
+  setFormula('sc-kpi-end-debt-formula', 'Zbývající jistina všech úvěrů');
+  setFormula('sc-kpi-cagr-assets-formula', `Složený roční růst hodnoty nemovitostí za ${horizon} let`);
 
-  const chartEl = document.getElementById('scenario-chart');
-  chartEl.innerHTML = buildLineChartSVG([
-    { label: 'Majetek', color: '#2563eb', points: rows.map((r) => ({ x: r.year, y: r.totalValue })) },
-    { label: 'Dluh', color: '#dc2626', points: rows.map((r) => ({ x: r.year, y: r.totalDebt })) },
-    { label: 'Vlastní kapitál', color: '#16a34a', points: rows.map((r) => ({ x: r.year, y: r.equity })) },
+  document.getElementById('scenario-chart').innerHTML = buildLineChartSVG([
+    { cls: 'chart-line-assets', points: rows.map((r) => ({ x: r.year, y: r.totalValue })) },
+    { cls: 'chart-line-debt', points: rows.map((r) => ({ x: r.year, y: r.totalDebt })) },
+    { cls: 'chart-line-equity', points: rows.map((r) => ({ x: r.year, y: r.equity })) },
   ]);
 
-  const detailCell = (v, colorClass) =>
-    `<td class="py-1.5 pr-3 text-right scenario-detail-col ${scenarioShowDetail ? '' : 'hidden'} ${colorClass || ''}">${v == null ? '—' : fmtMoney(v)}</td>`;
-
-  const saleEventCell = (r) => {
-    if (!r.soldThisYear) return '<td class="py-1.5 pr-3 text-xs text-slate-400"></td>';
-    const s = r.soldThisYear;
-    const taxNote = s.taxExempt ? 'bez daně - časový test splněn' : `po dani ${fmtMoney(s.estimatedSaleTax)}`;
-    const growthNote = s.acquisitionPrice > 0 ? `koupeno za ${fmtMoney(s.acquisitionPrice)} → zhodnoceno na ${fmtMoney(s.marketValue)} ke dni prodeje` : `tržní cena ke dni prodeje ${fmtMoney(s.marketValue)}`;
-    return `<td class="py-1.5 pr-3 text-xs">
-      <span class="font-medium text-blue-700">Prodej: ${escapeHtml(s.propertyName)}</span><br>
-      <span class="text-slate-500">${growthNote}, výtěžek ${fmtMoney(s.saleProceeds)} (${taxNote}) - spuštěno tím, že nastřádané zhodnocení portfolia dosáhlo ${fmtMoney(s.triggeredByGain)}, ${s.loanFullyCleared ? 'tím byl celý zbývající dluh splacen' : 'použito na částečné splacení dluhu'}</span>
-    </td>`;
-  };
-
-  const tbody = document.getElementById('scenario-tbody');
-  tbody.innerHTML = '';
-  for (const r of rows) {
-    const debtService = r.totalInterest == null ? null : r.totalInterest + r.totalPrincipal;
-    const tr = document.createElement('tr');
-    tr.className = 'border-b border-slate-200' + (r.soldThisYear ? ' bg-blue-50' : '');
-    tr.innerHTML = `
-      <td class="py-1.5 pr-3">${r.year}</td>
-      <td class="py-1.5 pr-3 text-right">${fmtMoney(r.totalValue)}</td>
-      <td class="py-1.5 pr-3 text-right">${fmtMoney(r.totalDebt)}</td>
-      <td class="py-1.5 pr-3 text-right font-medium">${fmtMoney(r.equity)}</td>
-      ${detailCell(r.totalRent, 'figure-positive')}
-      ${detailCell(r.totalCosts, 'figure-negative')}
-      ${detailCell(debtService, 'figure-negative')}
-      ${detailCell(r.cumulativeGain)}
-      <td class="py-1.5 pr-3 text-right font-medium ${r.cashflow == null ? '' : r.cashflow < 0 ? 'figure-negative' : 'figure-positive'}">${r.cashflow === null ? '—' : fmtMoney(r.cashflow)}</td>
-      ${saleEventCell(r)}`;
-    tbody.appendChild(tr);
-  }
+  renderScenarioTable();
 }
 
-function wireScenarioDetailToggle() {
+function renderScenarioTable() {
+  const rows = scenarioRows;
+  const colspan = scenarioShowDetail ? 10 : 6;
+  const detailCell = (v, colorClass) =>
+    `<td class="text-right num scenario-detail-col ${scenarioShowDetail ? '' : 'hidden'} ${colorClass || ''}">${v == null ? '—' : fmtMoney(v)}</td>`;
+
+  const html = rows
+    .map((r) => {
+      const expanded = expandedYears.has(r.year);
+      const debtService = r.totalInterest == null ? null : r.totalInterest + r.totalPrincipal;
+      const starting = state.events.filter((ev) => Number(ev.year_from) === r.year);
+      const chips =
+        r.sales.map((s) => `<span class="event-chip event-chip-sale">${saleChipText(s)}</span>`).join('') +
+        starting.map((ev) => `<span class="event-chip">${escapeHtml(shortEventLabel(ev))}</span>`).join('');
+      const main = `<tr class="year-row" data-year="${r.year}">
+        <td><button type="button" class="year-pill" aria-expanded="${expanded}" aria-label="Rok ${r.year} - detail po nemovitostech"><span class="year-chevron"></span>${r.year}</button></td>
+        <td class="text-right num">${fmtMoney(r.totalValue)}</td>
+        <td class="text-right num">${fmtMoney(r.totalDebt)}</td>
+        <td class="text-right num font-medium">${fmtMoney(r.equity)}</td>
+        ${detailCell(r.totalRent, 'figure-positive')}
+        ${detailCell(r.totalCosts, 'figure-negative')}
+        ${detailCell(debtService, 'figure-negative')}
+        ${detailCell(r.cumulativeGain)}
+        <td class="text-right num font-medium ${r.cashflow == null ? '' : r.cashflow < 0 ? 'figure-negative' : 'figure-positive'}">${r.cashflow === null ? '—' : fmtMoney(r.cashflow)}</td>
+        <td>${chips}</td>
+      </tr>`;
+      return expanded ? main + `<tr class="year-detail"><td colspan="${colspan}">${buildYearDetail(r)}</td></tr>` : main;
+    })
+    .join('');
+  document.getElementById('scenario-tbody').innerHTML = html;
+}
+
+/**
+ * Detail roku po nemovitostech: stejné veličiny jako v hlavním řádku, ale za jednotlivé nemovitosti.
+ * Ukazuje jen to, co jde spočítat: dluh a splátka nemovitosti se znají, jen když je k ní v úvěru
+ * přiřazená nemovitost ("Financuje nemovitost") - jinak je u ní pomlčka.
+ */
+function buildYearDetail(r) {
+  const hasFlows = r.cashflow != null;
+  const loans = r.perLoan || [];
+  const everyLoanLinked = state.loans.every((l) => l.property_id && state.properties.some((p) => p.id === l.property_id));
+  const money = (v, cls) => (v == null ? '<span class="t-faint">—</span>' : `<span class="${cls || ''}">${fmtMoney(v)}</span>`);
+
+  const propertyRows = (r.perProperty || [])
+    .map((pp) => {
+      const linked = loans.filter((l) => l.property_id === pp.id);
+      const debtKnown = linked.length > 0 || everyLoanLinked;
+      const debt = debtKnown ? linked.reduce((s, l) => s + l.balance, 0) : null;
+      const service = debtKnown && hasFlows ? linked.reduce((s, l) => s + l.payment, 0) : null;
+      const equity = debt == null ? null : pp.value - debt;
+      const cash = service == null ? null : pp.cashflow - service;
+      return `<tr>
+        <td class="font-medium">${escapeHtml(pp.name)} ${pp.owner === 'po' ? '<span class="badge badge-po">PO</span>' : ''}${pp.sold ? ' <span class="badge badge-linked">prodáno</span>' : ''}</td>
+        <td>${money(pp.value)}</td>
+        <td>${money(debt, 'figure-negative')}</td>
+        <td>${money(equity)}</td>
+        <td>${hasFlows ? money(pp.rent, 'figure-positive') : money(null)}</td>
+        <td>${hasFlows ? money(pp.costs, 'figure-negative') : money(null)}</td>
+        <td>${money(service, 'figure-negative')}</td>
+        <td>${hasFlows ? money(pp.appreciation) : money(null)}</td>
+        <td>${money(cash, cash == null ? '' : cash < 0 ? 'figure-negative' : 'figure-positive')}</td>
+      </tr>`;
+    })
+    .join('');
+
+  const loanRows = loans
+    .map(
+      (l) => `<tr>
+        <td class="font-medium">${escapeHtml(l.bank)}</td>
+        <td>${l.property_id ? escapeHtml(propertyName(l.property_id)) : '<span class="t-faint">—</span>'}</td>
+        <td>${money(l.balance, 'figure-negative')}</td>
+        <td>${hasFlows ? fmtPercent(l.rate) : '—'}</td>
+        <td>${hasFlows ? money(l.interest, 'figure-negative') : '—'}</td>
+        <td>${hasFlows ? money(l.principal) : '—'}</td>
+        <td>${hasFlows ? money(l.payment, 'figure-negative') : '—'}</td>
+      </tr>`
+    )
+    .join('');
+
+  const active = state.events.filter((ev) => calc.eventAppliesInYear(ev, r.year));
+  const eventsHtml = active.length
+    ? `<div class="detail-title">Události v roce</div><div>${active
+        .map((ev) => `<span class="event-chip">${escapeHtml(shortEventLabel(ev))}${eventTargetNames(ev) !== 'Všechny' ? ' · ' + escapeHtml(eventTargetNames(ev)) : ''}</span>`)
+        .join('')}</div>`
+    : '';
+
+  const salesHtml = (r.sales || []).length
+    ? `<div class="detail-title">Prodej</div>${r.sales
+        .map((s) => {
+          const bought = s.acquisitionPrice > 0 ? `koupeno za ${fmtMoney(s.acquisitionPrice)}, prodáno za ${fmtMoney(s.marketValue)}` : `prodáno za ${fmtMoney(s.marketValue)}`;
+          const tax = s.taxExempt ? 'bez daně' : `daň ${fmtMoney(s.estimatedSaleTax)}`;
+          return `<div class="text-sm"><strong>${escapeHtml(s.propertyName)}</strong>${s.owner === 'po' ? ' (PO)' : ''}: ${bought}, ${tax}, výtěžek ${fmtMoney(s.saleProceeds)}${s.loanFullyCleared ? ' · dluh splacen' : ''}</div>`;
+        })
+        .join('')}`
+    : '';
+
+  return `<div class="detail-panel">
+    <div class="detail-title">Rok ${r.year} · podle nemovitostí</div>
+    <div class="overflow-x-auto"><table class="subtbl">
+      <thead><tr><th>Nemovitost</th><th>Majetek</th><th>Dluh</th><th>Vlastní kapitál</th><th>Nájem</th><th>Náklady</th><th>Splátka</th><th>Zhodnocení</th><th>Cashflow</th></tr></thead>
+      <tbody>${propertyRows || '<tr><td colspan="9" class="t-faint">Žádné nemovitosti</td></tr>'}</tbody>
+    </table></div>
+    ${
+      loanRows
+        ? `<div class="detail-title">Úvěry</div><div class="overflow-x-auto"><table class="subtbl">
+      <thead><tr><th>Úvěr</th><th>Nemovitost</th><th>Zůstatek</th><th>Sazba</th><th>Úrok</th><th>Jistina</th><th>Splátky</th></tr></thead>
+      <tbody>${loanRows}</tbody></table></div>`
+        : ''
+    }
+    ${eventsHtml}
+    ${salesHtml}
+  </div>`;
+}
+
+function wireScenarioTable() {
+  document.getElementById('scenario-tbody').addEventListener('click', (e) => {
+    const row = e.target.closest('tr.year-row');
+    if (!row) return;
+    const year = Number(row.dataset.year);
+    if (expandedYears.has(year)) expandedYears.delete(year);
+    else expandedYears.add(year);
+    renderScenarioTable();
+    const pill = document.querySelector(`tr.year-row[data-year="${year}"] .year-pill`);
+    if (pill && e.target.closest('.year-pill')) pill.focus({ preventScroll: true });
+  });
   const btn = document.getElementById('scenario-detail-toggle');
   btn.addEventListener('click', () => {
     scenarioShowDetail = !scenarioShowDetail;
-    btn.textContent = scenarioShowDetail ? 'Skrýt detail' : 'Zobrazit detail (nájem, náklady, splátka...)';
+    btn.textContent = scenarioShowDetail ? 'Skrýt detail' : 'Zobrazit detail';
     document.querySelectorAll('.scenario-detail-col').forEach((el) => el.classList.toggle('hidden', !scenarioShowDetail));
+    renderScenarioTable();
   });
 }
 
@@ -1036,7 +1774,7 @@ function fmtCompact(n) {
 
 function buildLineChartSVG(seriesList, { width = 900, height = 280, padding = 46 } = {}) {
   const allPoints = seriesList.flatMap((s) => s.points);
-  if (!allPoints.length) return '<p class="text-sm text-slate-400">Zatím žádná data - přidej nemovitost nebo úvěr.</p>';
+  if (!allPoints.length) return '<p class="text-sm t-faint">Zatím žádná data</p>';
 
   const xs = allPoints.map((p) => p.x);
   const ys = allPoints.map((p) => p.y);
@@ -1052,182 +1790,85 @@ function buildLineChartSVG(seriesList, { width = 900, height = 280, padding = 46
   for (let i = 0; i <= 4; i++) {
     const y = minY + (i / 4) * (maxY - minY);
     const yy = yScale(y);
-    gridSvg += `<line x1="${padding}" y1="${yy}" x2="${width - padding}" y2="${yy}" stroke="#e2e8f0" stroke-width="1" />`;
-    gridSvg += `<text x="${padding - 8}" y="${yy + 4}" font-size="11" text-anchor="end" fill="#94a3b8">${fmtCompact(y)}</text>`;
+    gridSvg += `<line class="chart-grid" x1="${padding}" y1="${yy}" x2="${width - padding}" y2="${yy}" stroke-width="1" />`;
+    gridSvg += `<text class="chart-text" x="${padding - 8}" y="${yy + 4}" font-size="11" text-anchor="end">${fmtCompact(y)}</text>`;
   }
 
   let xTicksSvg = '';
   const tickCount = Math.min(maxX - minX, 10) || 1;
   for (let i = 0; i <= tickCount; i++) {
     const x = Math.round(minX + (i / tickCount) * (maxX - minX));
-    xTicksSvg += `<text x="${xScale(x)}" y="${height - padding + 18}" font-size="11" text-anchor="middle" fill="#94a3b8">${x}</text>`;
+    xTicksSvg += `<text class="chart-text" x="${xScale(x)}" y="${height - padding + 18}" font-size="11" text-anchor="middle">${x}</text>`;
   }
 
   const pathsSvg = seriesList
     .map((s) => {
       const d = s.points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(p.x).toFixed(1)} ${yScale(p.y).toFixed(1)}`).join(' ');
-      return `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2.5" />`;
+      return `<path class="chart-line ${s.cls}" d="${d}" />`;
     })
     .join('');
 
   return `<svg viewBox="0 0 ${width} ${height}" class="w-full h-auto">
     ${gridSvg}
-    <line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="#cbd5e1" stroke-width="1" />
+    <line class="chart-axis" x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke-width="1" />
     ${pathsSvg}
     ${xTicksSvg}
   </svg>`;
 }
 
-/* ---------- OSVOBOZENÍ OD DLUHU ---------- */
+/* ---------- PŘEHLED (konkrétní rok / měsíc) ---------- */
+/* Přehled i Scénáře čerpají z JEDNÉ simulace (calc.projectPortfolio) se stejnými scénářovými
+   událostmi. Přehled si jen vybere rok; je-li dál než horizont Scénářů, simulace se prodlouží, takže
+   události (včetně těch bez konce) platí dál a nic se po horizontu nevrací ke starému počítání. */
 
-function wireFreedomControls() {
-  const horizonInput = document.getElementById('freedom-horizon');
-  horizonInput.value = state.freedom.horizonYears;
-  horizonInput.addEventListener('input', () => {
-    state.freedom.horizonYears = Math.max(1, Number(horizonInput.value) || 1);
-    saveState();
-    renderFreedom();
-  });
-  horizonInput.addEventListener('blur', () => renderFreedom());
+function pluralEvents(n) {
+  if (n === 1) return 'událost';
+  return n >= 2 && n <= 4 ? 'události' : 'událostí';
 }
 
-function pluralYears(n) {
-  if (n === 1) return 'rok';
-  if (n >= 2 && n <= 4) return 'roky';
-  return 'let';
-}
-
-function renderFreedom() {
-  const horizon = state.freedom.horizonYears;
-  setValueIfNotFocused(document.getElementById('freedom-horizon'), horizon);
-
-  const plan = calc.simulateDebtFreedomPlan({
-    properties: state.properties,
-    loans: state.loans,
-    settings: state.settings,
-    events: state.events,
-    horizonYears: horizon,
-    startYear: CURRENT_YEAR,
-  });
-
-  const banner = document.getElementById('freedom-result-banner');
-  const totalDebtToday = state.loans.reduce((s, l) => s + (Number(l.amount) || 0), 0);
-  const autoSellOff = state.settings.auto_sell_enabled === false;
-  if (autoSellOff) {
-    banner.className = 'rounded-xl border p-4 mb-6 bg-slate-50 border-slate-300';
-    banner.innerHTML = `<p class="font-semibold text-slate-700">Automatický prodej nemovitostí je v Nastavení vypnutý.</p>
-      <p class="text-sm text-slate-600 mt-1">Zapni ho v kartě "Automatický prodej nemovitostí" v Nastavení, pokud chceš vidět plán prodejů na umoření dluhu.</p>`;
-  } else if (totalDebtToday <= 0) {
-    banner.className = 'rounded-xl border p-4 mb-6 bg-emerald-50 border-emerald-300';
-    banner.innerHTML = '<p class="font-semibold text-emerald-800">Portfolio už teď nemá žádný dluh.</p>';
-  } else if (plan.debtFreeYear !== null) {
-    const yearsToFree = plan.debtFreeYear - CURRENT_YEAR;
-    const whenText = yearsToFree <= 0 ? 'hned letos' : `za ${yearsToFree} ${pluralYears(yearsToFree)}`;
-    banner.className = 'rounded-xl border p-4 mb-6 bg-emerald-50 border-emerald-300';
-    banner.innerHTML = `<p class="font-semibold text-emerald-800">Celé portfolio bez dluhu od roku ${plan.debtFreeYear} (${whenText}).</p>`;
-  } else {
-    banner.className = 'rounded-xl border p-4 mb-6 bg-amber-50 border-amber-300';
-    banner.innerHTML = `<p class="font-semibold text-amber-800">V horizontu ${horizon} let se nepodaří dluh celý splatit prodejem nemovitostí ve vlastnictví - zkus delší horizont, nebo přidej další nemovitosti.</p>`;
-  }
-
-  const eventsEl = document.getElementById('freedom-events');
-  if (autoSellOff) {
-    eventsEl.innerHTML = '<p class="text-slate-500">Automatický prodej je vypnutý - žádné prodeje se nesimulují.</p>';
-  } else if (!plan.events.length) {
-    eventsEl.innerHTML = '<p class="text-slate-500">V tomhle horizontu není potřeba nic prodávat.</p>';
-  } else {
-    eventsEl.innerHTML = plan.events
-      .map((e) => {
-        const growthNote = e.acquisitionPrice > 0
-          ? `Koupeno za ${fmtMoney(e.acquisitionPrice)}, do roku prodeje zhodnoceno na ${fmtMoney(e.marketValue)}.`
-          : `Tržní cena ke dni prodeje ${fmtMoney(e.marketValue)}.`;
-        return `
-      <div class="border-l-4 border-blue-400 pl-3">
-        <p class="font-medium text-slate-800">${e.year}: prodej "${escapeHtml(e.propertyName)}"</p>
-        <p class="text-xs text-slate-500">
-          Spuštěno tím, že zhodnocení portfolia od posledního prodeje narostlo na ${fmtMoney(e.triggeredByGain)} - dost na to, aby se prodej vyplatil.
-          ${growthNote}
-          Výtěžek ${fmtMoney(e.saleProceeds)}
-          (${e.taxExempt ? 'bez daně z příjmu - časový test splněn' : 'po odhadované dani ' + fmtMoney(e.estimatedSaleTax)}) -
-          ${e.loanFullyCleared ? 'veškerý zbývající dluh tím byl toho roku splacen.' : 'použito na částečné splacení dluhu, hotovost ' + fmtMoney(e.cashAfter) + ' zůstává na další splátky.'}
-        </p>
-      </div>`;
-      })
-      .join('');
-  }
-
-  const tbody = document.getElementById('freedom-tbody');
-  tbody.innerHTML = '';
-  for (const r of plan.rows) {
-    const tr = document.createElement('tr');
-    tr.className = 'border-b border-slate-200' + (r.soldThisYear ? ' bg-blue-50' : '');
-    tr.innerHTML = `
-      <td class="py-1.5 pr-3">${r.year}</td>
-      <td class="py-1.5 pr-3 text-right ${r.totalDebt <= 0 ? 'text-emerald-600 font-medium' : ''}">${fmtMoney(r.totalDebt)}</td>
-      <td class="py-1.5 pr-3 text-right">${fmtMoney(r.activeValue)}</td>
-      <td class="py-1.5 pr-3 text-right">${fmtMoney(r.cash)}</td>
-      <td class="py-1.5 pr-3 text-right">${fmtMoney(r.cumulativeGain)}</td>
-      <td class="py-1.5 pr-3">${r.soldThisYear ? 'Prodej: ' + escapeHtml(r.soldThisYear.propertyName) : ''}</td>`;
-    tbody.appendChild(tr);
-  }
-}
-
-/* ---------- PŘEHLED (konkrétní rok / měsíc + doporučení) ---------- */
-/* Sdílená logika i pro záložku "Přehled (reálné hodnoty)" - viz renderOverviewReal
-   níže. idPrefix odlišuje DOM prvky ('' pro hlavní Přehled, 'real-' pro kopii),
-   deflate přepočítá všechny Kč částky na dnešní kupní sílu peněz. */
-
-function wireOverviewControlsGeneric(idPrefix, overviewState, onChange) {
-  const yearInput = document.getElementById(idPrefix + 'overview-year');
+function wireOverviewControls() {
+  const overviewState = state.overview;
+  const yearInput = document.getElementById('overview-year');
   yearInput.value = overviewState.year;
   yearInput.addEventListener('input', () => {
     overviewState.year = Number(yearInput.value) || CURRENT_YEAR;
     saveState();
-    onChange();
+    renderOverview();
   });
-  yearInput.addEventListener('blur', onChange);
-  document.getElementById(idPrefix + 'overview-year-reset').addEventListener('click', () => {
-    overviewState.year = CURRENT_YEAR;
-    yearInput.value = CURRENT_YEAR;
-    saveState();
-    onChange();
-  });
-  document.getElementById(idPrefix + 'overview-period-year').addEventListener('click', () => setOverviewPeriodGeneric(idPrefix, overviewState, 'year', onChange));
-  document.getElementById(idPrefix + 'overview-period-month').addEventListener('click', () => setOverviewPeriodGeneric(idPrefix, overviewState, 'month', onChange));
-  setOverviewPeriodGeneric(idPrefix, overviewState, overviewState.period, onChange, true);
+  yearInput.addEventListener('blur', renderOverview);
+  document.getElementById('overview-period-year').addEventListener('click', () => setOverviewPeriod('year'));
+  document.getElementById('overview-period-month').addEventListener('click', () => setOverviewPeriod('month'));
+  document.getElementById('overview-scenario-chip').addEventListener('click', () => showTab('tab-scenario'));
 }
 
-function setOverviewPeriodGeneric(idPrefix, overviewState, period, onChange, skipRender) {
-  overviewState.period = period;
-  document.getElementById(idPrefix + 'overview-period-year').classList.toggle('period-toggle-active', period === 'year');
-  document.getElementById(idPrefix + 'overview-period-month').classList.toggle('period-toggle-active', period === 'month');
+function setOverviewPeriod(period) {
+  state.overview.period = period;
   saveState();
-  if (!skipRender) onChange();
+  renderOverview();
 }
 
-function wireOverviewControls() {
-  wireOverviewControlsGeneric('', state.overview, renderOverview);
-}
-
-function wireOverviewRealControls() {
-  wireOverviewControlsGeneric('real-', state.overviewReal, renderOverviewReal);
-}
-
-function renderOverviewGeneric(idPrefix, overviewState, deflate) {
-  document.getElementById(idPrefix + 'overview-period-year').classList.toggle('period-toggle-active', overviewState.period !== 'month');
-  document.getElementById(idPrefix + 'overview-period-month').classList.toggle('period-toggle-active', overviewState.period === 'month');
+function renderOverview() {
+  const overviewState = state.overview;
+  document.getElementById('overview-period-year').classList.toggle('period-toggle-active', overviewState.period !== 'month');
+  document.getElementById('overview-period-month').classList.toggle('period-toggle-active', overviewState.period === 'month');
   const selectedYear = overviewState.year || CURRENT_YEAR;
-  setValueIfNotFocused(document.getElementById(idPrefix + 'overview-year'), selectedYear);
+  setValueIfNotFocused(document.getElementById('overview-year'), selectedYear);
 
-  // Minulost appka neumí predikovat dopředu (na to je Scénáře) - zvolený
-  // minulý rok se místo toho ZREKONSTRUUJE z dnešních hodnot (obrácené
-  // zhodnocení/umoření, viz calc.rebaseToYear) a od NĖJ se pak nasimuluje
-  // jeden rok dopředu, aby šly spočítat i tokové veličiny (cashflow...).
+  const eventCount = state.events.length + derivedEvents().length;
+  const chip = document.getElementById('overview-scenario-chip');
+  chip.classList.toggle('hidden', !eventCount);
+  chip.textContent = `Scénář: ${eventCount} ${pluralEvents(eventCount)}`;
+
+  // Minulost appka neumí predikovat dopředu - zvolený minulý rok se místo toho
+  // ZREKONSTRUUJE z dnešních hodnot (obrácené zhodnocení/umoření, viz
+  // calc.rebaseToYear) a od NĚJ se pak nasimuluje jeden rok dopředu, aby šly
+  // spočítat i tokové veličiny (cashflow...).
   const isPast = selectedYear < CURRENT_YEAR;
   let baseProperties = state.properties;
   let baseLoans = state.loans;
   let startYear = CURRENT_YEAR;
   let idx = Math.max(selectedYear - CURRENT_YEAR, 0);
+  // horizont Scénářů je jen minimum - do vzdálenějšího roku se simulace prodlouží
   let horizon = Math.max(state.scenario.horizonYears, idx + 1);
 
   if (isPast) {
@@ -1239,135 +1880,53 @@ function renderOverviewGeneric(idPrefix, overviewState, deflate) {
     horizon = 1;
   }
 
-  const result = calc.projectPortfolio({
-    properties: baseProperties,
-    loans: baseLoans,
-    settings: state.settings,
-    events: state.events,
-    horizonYears: horizon,
-    startYear,
-  });
+  const result = runProjection(horizon, baseProperties, baseLoans, startYear);
   idx = Math.min(idx, result.rows.length - 1);
   const row = result.rows[idx];
-  const nextRow = result.rows[idx + 1] || row;
 
   const isMonth = overviewState.period === 'month';
   const div = isMonth ? 12 : 1;
+  const per = isMonth ? 'měsíc' : 'rok';
 
-  // Deflátor = kolikrát nominální Kč z vybraného roku "stojí míň" než dnešní Kč
-  // kvůli inflaci mezi dneškem a tím rokem. Pro budoucí rok se DĖLÍ (budoucí Kč
-  // mají nižší kupní sílu), pro minulý rok se naopak MUSÍ VYNÁSOBIT (tehdejší
-  // Kč měly VYŠŠÍ kupní sílu než dnešní) - proto dvě větve, ne jedno vzorec.
-  const inflationBase = Number(state.settings.inflation_rate) || 0;
-  let deflator = 1;
-  if (deflate) {
-    deflator = isPast
-      ? 1 / calc.inflationFactorBetween(state.events, inflationBase, selectedYear, CURRENT_YEAR)
-      : calc.inflationFactorBetween(state.events, inflationBase, CURRENT_YEAR, selectedYear);
-  }
-  const real = (nominal) => (Number(nominal) || 0) / deflator;
+  document.getElementById('kpi-assets').textContent = fmtMoney(row.totalValue);
+  document.getElementById('kpi-debt').textContent = fmtMoney(row.totalDebt);
+  document.getElementById('kpi-networth').textContent = fmtMoney(row.equity);
+  document.getElementById('kpi-debtratio').textContent = row.totalValue > 0 ? fmtPercent(row.totalDebt / row.totalValue) : '0 %';
+  document.getElementById('kpi-cashflow').textContent = fmtMoney((row.cashflow || 0) / div);
+  document.getElementById('kpi-appreciation').textContent = fmtMoney((row.appreciationGain || 0) / div);
+  document.getElementById('kpi-avg-growth').textContent = row.avgGrowthRate == null ? '—' : fmtPercent(row.avgGrowthRate);
+  document.getElementById('kpi-inflation-loss').textContent = row.inflationRate == null ? '—' : fmtPercent(row.inflationRate);
+  document.getElementById('kpi-inflation-loss-amount').textContent = row.inflationLoss == null ? '—' : fmtMoney((row.inflationLoss || 0) / div);
+  document.getElementById('kpi-real-appreciation').textContent = fmtMoney((row.realAppreciation || 0) / div);
 
-  document.getElementById(idPrefix + 'kpi-assets').textContent = fmtMoney(real(row.totalValue));
-  document.getElementById(idPrefix + 'kpi-debt').textContent = fmtMoney(real(row.totalDebt));
-  document.getElementById(idPrefix + 'kpi-networth').textContent = fmtMoney(real(row.equity));
-  document.getElementById(idPrefix + 'kpi-debtratio').textContent = row.totalValue > 0 ? fmtPercent(row.totalDebt / row.totalValue) : '0 %';
-  document.getElementById(idPrefix + 'kpi-cashflow').textContent = fmtMoney(real((row.cashflow || 0) / div));
-  document.getElementById(idPrefix + 'kpi-appreciation').textContent = fmtMoney(real((row.appreciationGain || 0) / div));
-  document.getElementById(idPrefix + 'kpi-avg-growth').textContent = row.avgGrowthRate == null ? '—' : fmtPercent(row.avgGrowthRate);
-  document.getElementById(idPrefix + 'kpi-inflation-loss').textContent = row.inflationRate == null ? '—' : fmtPercent(row.inflationRate);
-  document.getElementById(idPrefix + 'kpi-inflation-loss-amount').textContent = row.inflationLoss == null ? '—' : fmtMoney(real((row.inflationLoss || 0) / div));
-  document.getElementById(idPrefix + 'kpi-real-appreciation').textContent = fmtMoney(real((row.realAppreciation || 0) / div));
+  document.getElementById('kpi-cashflow-label').textContent = isMonth ? 'Měsíční cashflow' : 'Roční cashflow';
+  document.getElementById('kpi-appreciation-label').textContent = isMonth ? 'Měsíční zhodnocení' : 'Roční zhodnocení';
+  document.getElementById('kpi-real-appreciation-label').textContent = isMonth ? 'Zbývá po inflaci (měsíc)' : 'Zbývá po inflaci (rok)';
 
-  document.getElementById(idPrefix + 'kpi-cashflow-label').textContent = isMonth ? 'Měsíční cashflow' : 'Roční cashflow';
-  document.getElementById(idPrefix + 'kpi-appreciation-label').textContent = isMonth ? 'Měsíční zhodnocení' : 'Roční zhodnocení';
-  document.getElementById(idPrefix + 'kpi-real-appreciation-label').textContent = isMonth ? 'Zbývá po inflaci (měsíc)' : 'Zbývá po inflaci (rok)';
-
-  const realNote = deflate
-    ? isPast
-      ? ` Přepočteno na dnešní kupní sílu (× ${(1 / deflator).toFixed(3)}, kumulovaná inflace od roku ${row.year} do dneška).`
-      : ` Přepočteno na dnešní kupní sílu (÷ ${deflator.toFixed(3)}, kumulovaná inflace od dneška do roku ${row.year}).`
-    : '';
-  setFormula(idPrefix + 'kpi-assets-formula', `Hodnota nemovitostí ve vlastnictví (${fmtMoney(real(row.realEstateValue))}) + hotovost z dřívějších prodejů (${fmtMoney(real(row.cashReserve))}) = ${fmtMoney(real(row.totalValue))}.${realNote}`);
-  setFormula(idPrefix + 'kpi-debt-formula', `Součet zbývající jistiny všech úvěrů zadaných v Moje úvěry = ${fmtMoney(real(row.totalDebt))}.${realNote}`);
-  setFormula(idPrefix + 'kpi-networth-formula', `Majetek (${fmtMoney(real(row.totalValue))}) − Dluh (${fmtMoney(real(row.totalDebt))}) = ${fmtMoney(real(row.equity))}.${realNote}`);
-  setFormula(idPrefix + 'kpi-debtratio-formula', `Dluh (${fmtMoney(row.totalDebt)}) ÷ Majetek (${fmtMoney(row.totalValue)}) = ${row.totalValue > 0 ? fmtPercent(row.totalDebt / row.totalValue) : '0 %'}. Poměr se inflací nemění (dělí se stejným číslem nahoře i dole).`);
+  setFormula('kpi-assets-formula', row.cashReserve ? `Nemovitosti ${fmtMoney(row.realEstateValue)} + hotovost ${fmtMoney(row.cashReserve)}` : `Součet tržních hodnot nemovitostí`);
+  setFormula('kpi-debt-formula', 'Zbývající jistina všech úvěrů');
+  setFormula('kpi-networth-formula', `Majetek ${fmtMoney(row.totalValue)} − dluh ${fmtMoney(row.totalDebt)}`);
+  setFormula('kpi-debtratio-formula', `Dluh ÷ majetek`);
   if (row.totalRent != null) {
-    const d = div;
+    const oneTime = row.oneTime ? ` ${row.oneTime > 0 ? '+' : '−'} jednorázově ${fmtMoney(Math.abs(row.oneTime / div))}` : '';
     setFormula(
-      idPrefix + 'kpi-cashflow-formula',
-      `Nájem +${fmtMoney(real(row.totalRent / d))} − náklady ${fmtMoney(real(row.totalCosts / d))} − úrok ${fmtMoney(real(row.totalInterest / d))} − jistina ${fmtMoney(real(row.totalPrincipal / d))} = ${fmtMoney(real(row.cashflow / d))}. Úrok a jistina se počítají ze skutečné splátky úvěru v Moje úvěry, ne z pole "Splátka" u nemovitosti.${realNote}`
+      'kpi-cashflow-formula',
+      `Nájem ${fmtMoney(row.totalRent / div)} − náklady ${fmtMoney(row.totalCosts / div)} − úrok ${fmtMoney(row.totalInterest / div)} − jistina ${fmtMoney(row.totalPrincipal / div)}${oneTime}`
     );
-    setFormula(idPrefix + 'kpi-appreciation-formula', `Hodnota nemovitostí příští rok − hodnota dnes, součet za všechny nemovitosti podle jejich zadaného růstu = ${fmtMoney(real(row.appreciationGain / d))}.${realNote}`);
-    setFormula(idPrefix + 'kpi-avg-growth-formula', `Roční zhodnocení (${fmtMoney(row.appreciationGain)}) ÷ hodnota nemovitostí (${fmtMoney(row.realEstateValue)}) = ${fmtPercent(row.avgGrowthRate)}. Vážený průměr růstu jednotlivých nemovitostí (podle jejich hodnoty), včetně případných scénářových událostí. Toto je poměr dvou nominálních čísel, inflace se v podílu vyruší.`);
-    setFormula(idPrefix + 'kpi-inflation-loss-formula', `Míra inflace použitá pro přechod do roku ${nextRow.year} (ze Scénářů/Nastavení, případně přepsaná scénářovou událostí) = ${fmtPercent(row.inflationRate)}. Snižuje hodnotu nemovitostí o ${fmtMoney(real(row.inflationLoss / d))} ${isMonth ? 'měsíčně' : 'ročně'}.${realNote}`);
-    setFormula(idPrefix + 'kpi-real-appreciation-formula', `Roční zhodnocení (${fmtMoney(real(row.appreciationGain / d))}) − ztráta inflací (${fmtMoney(real(row.inflationLoss / d))}) = ${fmtMoney(real(row.realAppreciation / d))}.${realNote}`);
+    setFormula('kpi-appreciation-formula', `Růst hodnoty nemovitostí za ${per}`);
+    setFormula('kpi-avg-growth-formula', `Zhodnocení ${fmtMoney(row.appreciationGain)} ÷ hodnota nemovitostí ${fmtMoney(row.realEstateValue)}`);
+    setFormula('kpi-inflation-loss-formula', `Inflace v roce ${row.year}`);
+    setFormula('kpi-real-appreciation-formula', `Zhodnocení − ztráta inflací ${fmtMoney((row.inflationLoss || 0) / div)}`);
   }
 
-  const cashflowEl = document.getElementById(idPrefix + 'kpi-cashflow');
-  cashflowEl.classList.toggle('text-red-600', (row.cashflow || 0) < 0);
-  cashflowEl.classList.toggle('text-emerald-600', (row.cashflow || 0) >= 0);
-  const realAppEl = document.getElementById(idPrefix + 'kpi-real-appreciation');
-  realAppEl.classList.toggle('text-red-600', (row.realAppreciation || 0) < 0);
-  realAppEl.classList.toggle('text-emerald-600', (row.realAppreciation || 0) >= 0);
+  const cashflowEl = document.getElementById('kpi-cashflow');
+  cashflowEl.classList.toggle('t-neg', (row.cashflow || 0) < 0);
+  cashflowEl.classList.toggle('t-pos', (row.cashflow || 0) >= 0);
+  const realAppEl = document.getElementById('kpi-real-appreciation');
+  realAppEl.classList.toggle('t-neg', (row.realAppreciation || 0) < 0);
+  realAppEl.classList.toggle('t-pos', (row.realAppreciation || 0) >= 0);
 
-  if (!deflate) {
-    renderRecommendation(row, selectedYear);
-    renderPledgeCapacity(row, selectedYear);
-  }
-}
-
-function renderOverview() {
-  renderOverviewGeneric('', state.overview, false);
-}
-
-function renderOverviewReal() {
-  renderOverviewGeneric('real-', state.overviewReal, true);
-}
-
-function renderRecommendation(row, selectedYear) {
-  // Nemovitosti/úvěry se přebírají PODLE ZVOLENÉHO ROKU (tržní hodnota z
-  // projekce, zbývající jistina úvěru dopočítaná dopředu/zpětně) - jinak by
-  // "Doporučení" vždycky mluvilo o dnešku, i když si díváš na jiný rok.
-  const asOfDate = selectedYear === CURRENT_YEAR ? new Date() : new Date(selectedYear, 0, 1);
-  const projectedProperties = (row.perProperty || []).map((rp) => {
-    const original = state.properties.find((p) => p.id === rp.id) || {};
-    return { ...original, market_value: rp.value };
-  });
-  const projectedLoans = state.loans
-    .map((l) => {
-      const amount = calc.projectLoanAmount(l, selectedYear, CURRENT_YEAR);
-      if (amount == null) return null;
-      const loanStartYear = calc.yearOf(l.start_date, CURRENT_YEAR);
-      return { ...l, amount, interest_rate: calc.loanRateForYear(l, loanStartYear, selectedYear) };
-    })
-    .filter(Boolean);
-  const rec = calc.recommendActions(projectedProperties, projectedLoans, state.settings, asOfDate);
-  const el = document.getElementById('recommendation-content');
-  if (!rec) {
-    el.innerHTML = '<p>Zatím nemáš dost dat (přidej nemovitosti a úvěry) pro doporučení.</p>';
-    return;
-  }
-  let html = '';
-  if (rec.bestProperty) {
-    const bp = rec.bestProperty;
-    html += `<div>
-      <p class="font-medium text-slate-800">Nejvhodnější k prodeji: ${escapeHtml(bp.property.name)}</p>
-      <p class="text-xs text-slate-500">Zhodnocení ${fmtPercent(bp.gainPct)} (${fmtMoney(bp.gain)}), časový test už splněn — prodej by byl bez daně z příjmu, provozní výnos ${fmtPercent(bp.yieldPct)} ročně z tržní hodnoty.</p>
-    </div>`;
-  } else if (rec.hasProperties) {
-    html += `<div>
-      <p class="font-medium text-slate-800">Zatím žádná nemovitost nesplňuje časový test</p>
-      <p class="text-xs text-slate-500">Doporučení k prodeji se ukáže, až u některé nemovitosti uplyne časový test (5 nebo 10 let od pořízení) - do té doby by prodej navíc podléhal dani z příjmu.</p>
-    </div>`;
-  }
-  if (rec.worstLoan) {
-    const wl = rec.worstLoan;
-    html += `<div>
-      <p class="font-medium text-slate-800">Nejnevýhodnější úvěr ke splacení: ${escapeHtml(wl.loan.bank)}</p>
-      <p class="text-xs text-slate-500">Úrok ${fmtPercent(wl.rate)} - nejvyšší ze všech úvěrů, zbývající jistina ${fmtMoney(wl.loan.amount)}.</p>
-    </div>`;
-  }
-  el.innerHTML = html || '<p>Zatím nemáš dost dat pro doporučení.</p>';
+  renderPledgeCapacity(row, selectedYear);
 }
 
 function renderPledgeCapacity(row, selectedYear) {
@@ -1378,15 +1937,14 @@ function renderPledgeCapacity(row, selectedYear) {
   const maxLtv = (Number(state.settings.pledge_max_ltv) || 0) / 100;
   // Zástava je pevná Kč částka (banka ji nezmenšuje jen proto, že hodnota
   // nemovitosti mezitím vzrostla) - proto se pro vybraný rok přebírá jen
-  // PROJEKTOVANÁ tržní hodnota (row.perProperty, zohledňuje zvolený rok
-  // v Přehledu), zatímco has_lien/lien_value zůstává tak, jak je zadané
-  // u nemovitosti dnes.
+  // PROJEKTOVANÁ tržní hodnota (row.perProperty), zatímco has_lien/lien_value
+  // zůstává tak, jak je zadané u nemovitosti dnes.
   const projectedProperties = (row.perProperty || []).map((rp) => {
     const original = state.properties.find((p) => p.id === rp.id) || {};
     return { id: rp.id, market_value: rp.value, has_lien: original.has_lien, lien_value: original.lien_value };
   });
   // Úvěr, který ještě v tom roce nebyl sjednaný, ještě nemohl "spotřebovat"
-  // dodatečnou zástavu žádné jiné nemovitosti.
+  // zástavu žádné jiné nemovitosti.
   const activeLoans = state.loans.filter((l) => calc.yearOf(l.start_date, CURRENT_YEAR) <= selectedYear);
   const { freeCollateral, maxPurchasePrice } = calc.pledgePurchaseCapacity(projectedProperties, maxLtv, activeLoans);
   document.getElementById('pledge-free-collateral').textContent = fmtMoney(freeCollateral);
@@ -1424,8 +1982,11 @@ function importBackup(e) {
       if (!(await customConfirm('Nahrání zálohy přepíše aktuální data. Pokračovat?', 'Nahrát a přepsat'))) return;
       setState(parsed);
       saveState();
+      resetPropertyForm();
+      resetLoanForm();
+      resetEventForm();
       renderAll();
-      alert('Záloha byla úspěšně nahrána.');
+      showSuccessToast('Záloha nahrána');
     } catch (err) {
       alert('Soubor se nepodařilo přečíst - není to platná záloha.');
     } finally {
@@ -1446,6 +2007,9 @@ async function clearAllData() {
   setState(defaultState());
   clearLegacyLocalCopy();
   saveState();
+  resetPropertyForm();
+  resetLoanForm();
+  resetEventForm();
   renderAll();
 }
 
@@ -1473,8 +2037,7 @@ function wireKpiFormulaToggles() {
  * rozumný výchozí název souboru.
  *
  * ZÁMĚRNĚ JEN NA POČÍTAČI. Mobilní tisk/PDF se ukázal být přes CSS i přes
- * dočasnou změnu viewportu nespolehlivý napříč prohlížeči (různě rozbité
- * zarovnání, na Chromu na Androidu se stránka dokonce zaseknout) - tlačítka
+ * dočasnou změnu viewportu nespolehlivý napříč prohlížeči - tlačítka
  * jsou proto v HTML schovaná pod `md:` (viz index.html, `hidden md:inline-flex`)
  * a tahle kontrola je jen druhá pojistka pro případ, že by je zprostředkovaně
  * spustilo něco jiného.
@@ -1495,13 +2058,7 @@ function wirePdfExportButtons() {
   });
 }
 
-/* ---------- Pomocné ---------- */
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str ?? '';
-  return div.innerHTML;
-}
+/* ---------- Formuláře ---------- */
 
 function wireForms() {
   const forms = [

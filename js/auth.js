@@ -44,13 +44,12 @@ function profileDisplayName(user) {
   return user.fullName || user.username || email || 'Profil';
 }
 
-/** Přepne hlavičku mezi odhlášeným stavem (tlačítka + ozubené kolo) a přihlášeným (menu profilu). */
+/** Přepne hlavičku mezi odhlášeným stavem (tlačítka přihlášení) a přihlášeným (menu profilu). Ozubené kolo zůstává pořád na stejném místě. */
 function applyAuthState(user) {
   const signedIn = !!user;
   const byId = (id) => document.getElementById(id);
   byId('btn-sign-in').classList.toggle('hidden', signedIn);
   byId('btn-sign-up').classList.toggle('hidden', signedIn);
-  byId('btn-settings').classList.toggle('hidden', signedIn);
   byId('profile-menu').classList.toggle('hidden', !signedIn);
   byId('profile-dropdown').classList.add('hidden');
   if (!signedIn) return;
@@ -110,10 +109,6 @@ function wireProfileMenu(clerk) {
   });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') close();
-  });
-  document.getElementById('menu-settings').addEventListener('click', () => {
-    close();
-    showTab('tab-settings');
   });
   document.getElementById('menu-account').addEventListener('click', () => {
     close();

@@ -36,8 +36,7 @@ window.cloudSync = (() => {
     const status = byId('cloud-status');
     if (!status) return;
     status.textContent = text;
-    status.classList.toggle('text-red-600', tone === 'error');
-    status.classList.toggle('text-slate-500', tone !== 'error');
+    status.dataset.tone = tone;
   }
 
   function setUi(active) {
@@ -80,7 +79,9 @@ window.cloudSync = (() => {
   // Porovnává se jen to podstatné (ne třeba vybraný rok v Přehledu)
   function fingerprint(snapshot) {
     const { properties = [], loans = [], events = [], settings = {} } = snapshot || {};
-    return JSON.stringify(canonical(JSON.parse(JSON.stringify({ properties, loans, events, settings }))));
+    // chybějící nastavení se doplní výchozími, ať starší záznam v účtu nevypadá jako "jiná data"
+    const fullSettings = { ...DEFAULT_SETTINGS, ...settings };
+    return JSON.stringify(canonical(JSON.parse(JSON.stringify({ properties, loans, events, settings: fullSettings }))));
   }
 
   function hasData(snapshot) {

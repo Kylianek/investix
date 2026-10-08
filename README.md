@@ -5,7 +5,7 @@ Webová verze osobní kalkulačky z `INVESTIČNÍ KALKULAČKA 1.xlsx` — přehl
 
 Aplikace je čistá statická stránka (HTML/CSS/JS, žádný build krok). Přihlášený uživatel má data
 v databázi, nepřihlášenému se data nikam neukládají a po zavření stránky zmizí - jediná cesta,
-jak je zachovat, je záloha do souboru (Nastavení → Záloha dat).
+jak je zachovat, je záloha do souboru (Nastavení → Data).
 
 ## Jak vzorce odpovídají originálnímu Excelu
 
@@ -15,7 +15,7 @@ jak je zachovat, je záloha do souboru (Nastavení → Záloha dat).
 | NEMOVITOSTI!H = F*růst+F | hodnota po zhodnocení | sloupec "Po zhodnocení" |
 | FIXACE | banka, částka, úrok, doba fixace, od | záložka **Úvěry / fixace** |
 | FIXACE!G (DATEDIF měsíce+dny) | zbývá do konce fixace | sloupec "Zbývá fixace" |
-| ČASOVÝ TEST A ZÁSTAVA | datum pořízení, časový test 5/10 let, zástava | součást formuláře nemovitosti (pole "Datum pořízení", "Časový test", "Zástava") |
+| ČASOVÝ TEST A ZÁSTAVA | datum pořízení, časový test 5/10 let, zástava | součást formuláře nemovitosti (pole "Datum pořízení", "Časový test", rozbalovací "Zástava") |
 | ČASOVÝ TEST!E (DATEDIF roky/měsíce/dny) | zbývá do konce časového testu | sloupec "Časový test - zbývá" |
 | PŘEHLED!D5 majetek | `SUM(tržní hodnoty)` | KPI "Majetek" |
 | PŘEHLED!D6 dluh | `SUM(úvěry)` | KPI "Dluh" |
@@ -33,47 +33,42 @@ Všechny vzorce jsou v [js/calc.js](js/calc.js) jako čisté funkce (ověřené 
 
 ## Záložka Přehled - libovolný rok i měsíc
 
-Přehled si vybírá jeden konkrétní rok ze stejné víceleté simulace jako záložka Scénáře
-(výchozí je aktuální rok = přesně dnešní stav). Přepínač **Rok / Měsíc** mění jen
-tokové (za období) veličiny — cashflow, zhodnocení, ztrátu inflací — na jejich
-měsíční ekvivalent; stavové veličiny (majetek, dluh, vlastní kapitál, poměr
-zadlužení) se s přepínačem nemění, protože jsou k danému okamžiku, ne za období.
+Přehled i Scénáře čerpají z **jedné simulace** (`projectPortfolio` v [js/calc.js](js/calc.js)) se stejnými
+scénářovými událostmi - co zapíšeš ve Scénářích, se hned promítne i do Přehledu. Přehled si vybere
+jeden konkrétní rok (výchozí je aktuální rok = přesně dnešní stav); je-li dál než horizont Scénářů,
+simulace se prodlouží, takže události (včetně těch bez konce) platí dál a po horizontu se nic nevrací
+ke starému počítání. Zvolený minulý rok se zrekonstruuje z dnešních hodnot (obrácené zhodnocení a umoření).
 
-Na Přehledu je i karta **Doporučení** — transparentně obodovaná (ne černá skříňka)
-tipuje, kterou nemovitost má smysl zvážit k prodeji (vysoké zhodnocení, ideálně po
-časovém testu, slabý provozní výnos) a který úvěr splatit přednostně (nejvyšší úrok).
+Přepínač **Rok / Měsíc** mění jen tokové veličiny (cashflow, zhodnocení, ztrátu inflací) na měsíční
+ekvivalent; stavové veličiny (majetek, dluh, vlastní kapitál, poměr zadlužení) se nemění.
 
 ## Záložka Scénáře (predikce na X let dopředu)
 
-Nad rámec originálního Excelu přidává aplikace záložku **Scénáře**, která simuluje vývoj
-portfolia rok po roce, ne jen jeden rok dopředu:
+Simulace vývoje portfolia rok po roce:
 
-- Hodnota nemovitosti a nájem rostou **skládaně** (rok po roce), ne jen jednorázově.
-- Úvěry se **reálně umořují** za celé portfolio (agregovaně) — anuitní splátka se
-  každý rok rozpadá na úrok a jistinu podle zbývající jistiny, sazby a doby splatnosti
-  (nastavuje se v pokročilé sekci formuláře úvěru). Po konci fixace se použije zadaná
-  "sazba po fixaci".
-- Každá nemovitost může mít **neobsazenost (%)**, **provozní náklady (Kč/měs)** a
-  vlastní **růst nájmu** — to všechno snižuje reálný cashflow, ne jen nominální nájem.
-- Nemovitost může mít nastavený **plánovaný rok prodeje**. Simulace k tomu roku spočítá
-  čistý výnos z prodeje (cena − daň z prodeje, pokud ještě neuplynul časový test) a
-  částkou zadanou v poli **"Cizí kapitál (úvěr) vložený"** přednostně splatí úvěr s
-  nejvyšší aktuální sazbou (a až pak další) — stejná logika jako doporučuje karta
-  Doporučení. Zbytek jde do hotovostní rezervy portfolia.
-- **Scénářové události** dočasně přepíšou libovolnou sazbu pro celé portfolio na určité
-  období (žádné cílení na konkrétní nemovitost/úvěr - jednoduše celé portfolio), např.:
-  - *"rok 2029: neobsazenost 50 %"* (výpadek nájemníka na půl roku)
-  - *"roky 2027-2029: nižší růst hodnoty nemovitostí (recese)"*
-  - *"rok 2030: jednorázový výdaj -500 000 Kč"* (rekonstrukce)
+- Hodnota nemovitosti a nájem rostou **skládaně**; úvěry se **reálně umořují** podle zadané skutečné
+  měsíční splátky (po konci fixace se použije "sazba po fixaci"; konec fixace jde zadat datem).
+- Každá nemovitost má **obsazenost**, **provozní náklady** a vlastní **růst nájmu** (výchozí je v Nastavení).
+- **FO / PO**: nemovitost pořízená na právnickou osobu nemá časový test a daň z prodeje se platí vždy,
+  proto se při zapnutém automatickém prodeji prodá co nejdřív (první rok simulace). FO nemovitost se
+  automaticky neprodá, dokud neuplyne časový test.
+- **Scénářové události** (rok = rok, ve kterém se dějí; prázdné "do roku" = trvale):
+  růst hodnoty, růst nájmu, obsazenost, **růst úrokových sazeb** (o p. b.; banka přepočítá splátku na
+  zbývající dobu), inflace a jednorázový příjem/výdaj. Událost jde zacílit na **jednu, více nebo všechny
+  nemovitosti** (u sazeb na vybrané úvěry); konkrétní cíl má přednost před celoportfoliovou událostí.
+- Co zadáš v kartě nemovitosti nebo úvěru (obsazenost, vlastní růst nájmu, prodej PO, sazba po fixaci),
+  se ve Scénářích objeví jako událost s odkazem zpět na kartu.
+- Kliknutím na **rok** v tabulce se rozbalí stejné veličiny po jednotlivých nemovitostech a úvěrech.
+  Dluh a splátka nemovitosti se znají, jen když je u úvěru vyplněné "Financuje nemovitost".
 
-  Budoucí změnu úrokové sazby konkrétního úvěru (např. po konci fixace) nastavíš přímo
-  v jeho poli "Sazba po konci fixace", ne přes událost.
-- Výstup: graf a tabulka vývoje majetku/dluhu/vlastního kapitálu po letech, plus
-  souhrnné KPI (vlastní kapitál za zvolený počet let, kumulovaný cashflow, CAGR).
+V **Nastavení** je inflace, výchozí růst nájmu, daň z prodeje (FO / PO), automatický prodej,
+financování zástavou a záloha dat. Daň je zjednodušení pro účely predikce, ne daňové poradenství;
+daň z příjmu z pronájmu a odpisy appka nepočítá.
 
-V **Nastavení** lze nastavit i orientační daň z prodeje nemovitosti (uplatní se jen při
-prodeji před koncem časového testu) — jde o zjednodušení pro účely predikce, ne o daňové
-poradenství. Daň z příjmu z pronájmu a daňové odpisy appka nepočítá.
+## Vzhled
+
+Světlý, tmavý a barevný motiv (ikona v hlavičce nebo Nastavení). Volba motivu je jen vzhled, drží se
+v prohlížeči (`localStorage`), nejsou to data účtu.
 
 ## Lokální vyzkoušení
 
