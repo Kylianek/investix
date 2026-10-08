@@ -1,7 +1,7 @@
 /* Přihlášení přes Clerk (stejný systém jako v CRM) - bez build kroku, přes Clerk JS SDK.
    Dokud je klíč prázdný, přihlášení se v appce vůbec nenabídne a zbytek funguje beze změny.
    Klíč: Clerk dashboard -> Configure -> API Keys -> "Publishable key" (veřejný, smí být v repu). */
-const CLERK_PUBLISHABLE_KEY = '';
+const CLERK_PUBLISHABLE_KEY = 'pk_test_dHJ1ZS1yZWRmaXNoLTI4MDkuY2xlcmsuYWNjb3VudHMuZGV2JA';
 
 const CLERK_LOCALIZATION_URL = 'https://cdn.jsdelivr.net/npm/@clerk/localizations@4/dist/cs-CZ.mjs';
 
