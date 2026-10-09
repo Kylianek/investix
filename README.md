@@ -46,8 +46,8 @@ ekvivalent; stavové veličiny (majetek, dluh, vlastní kapitál, poměr zadluž
 
 Simulace vývoje portfolia rok po roce:
 
-- Hodnota nemovitosti a nájem rostou **skládaně**; úvěry se **reálně umořují** podle zadané skutečné
-  měsíční splátky (po konci fixace se použije "sazba po fixaci"; konec fixace jde zadat datem).
+- Hodnota nemovitosti a nájem rostou **skládaně**; úvěry se splácejí **po měsících jako anuita** (viz
+  Úvěry a splácení níže).
 - Každá nemovitost má **obsazenost**, **provozní náklady** a vlastní **růst nájmu** (výchozí je v Nastavení).
 - **FO / PO**: nemovitost pořízená na právnickou osobu nemá časový test a daň z prodeje se platí vždy,
   proto se při zapnutém automatickém prodeji prodá co nejdřív (první rok simulace). FO nemovitost se
@@ -64,6 +64,30 @@ Simulace vývoje portfolia rok po roce:
 V **Nastavení** je inflace, výchozí růst nájmu, daň z prodeje (FO / PO), automatický prodej,
 financování zástavou a záloha dat. Daň je zjednodušení pro účely predikce, ne daňové poradenství;
 daň z příjmu z pronájmu a odpisy appka nepočítá.
+
+## Úvěry a splácení
+
+Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 5 mil. Kč, 4,39 %, 30 let = úrok
+217 858 Kč a jistina 82 244 Kč v 1. roce, shoda do koruny za všech 30 let):
+
+- Každý měsíc je **úrok = zbývající jistina × sazba / 12**, zbytek splátky je **jistina**. Splátka je po celou
+  dobu stejná, proto je v prvních letech většina splátky úrok a podíl jistiny postupně roste. Dluh je vždy jen
+  zbývající jistina.
+- Splátku zadáváš z banky. Když ji nezadáš, ale znáš **splatnost**, dopočítá se anuitním vzorcem. Prázdná
+  splátka bez splatnosti = úvěr "jen úrok".
+- **Konec fixace**: od měsíce konce fixace platí "sazba po fixaci" a banka **přepočítá splátku** na zbývající
+  dobu (nebo platí zadaná "splátka po fixaci"). Bez zadané sazby se nic nemění.
+- **Refinancování** (datum, nová sazba, nová doba): ze zbývající jistiny se spočítá nová anuita - "kolo od
+  začátku", takže se zase platí hlavně úrok, i když úvěr předtím už běžel.
+- Scénářová událost **růst úrokových sazeb** přičte procentní body a splátka se přepočte do stejné splatnosti.
+- Prodej nemovitosti splatí nejdřív úvěry vázané na ni, zbytek úvěr s nejvyšší sazbou; splátka zůstává a úvěr
+  se splatí dřív.
+- U každého úvěru jde rozbalit **splátkový kalendář** po letech (úrok, jistina, podíl úroku, zůstatek).
+- **Zástava**: u úvěru se k nemovitosti zadává částka a hlídá se, že nepřesáhne volnou hodnotu (hodnota −
+  vlastní zástava − zástavy za jiné úvěry); stejné pravidlo platí i při úpravě nemovitosti.
+- Dluh a splátka jednotlivých nemovitostí se berou z úvěrů, které se k nim vážou ("Financuje nemovitost"
+  nebo zástava podle výše částek).
+- Tabulky mají hlavní sloupce a tlačítko "Více sloupců"; na telefonu jsou ve výchozím stavu kompaktní.
 
 ## Vzhled
 

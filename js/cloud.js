@@ -78,7 +78,8 @@ window.cloudSync = (() => {
 
   // Porovnává se jen to podstatné (ne třeba vybraný rok v Přehledu)
   function fingerprint(snapshot) {
-    const { properties = [], loans = [], events = [], settings = {} } = snapshot || {};
+    // starší záznamy (např. zástavy bez částek) se před porovnáním převedou na dnešní podobu
+    const { properties = [], loans = [], events = [], settings = {} } = typeof normalizeSnapshot === 'function' ? normalizeSnapshot(snapshot) : snapshot || {};
     // chybějící nastavení se doplní výchozími, ať starší záznam v účtu nevypadá jako "jiná data"
     const fullSettings = { ...DEFAULT_SETTINGS, ...settings };
     return JSON.stringify(canonical(JSON.parse(JSON.stringify({ properties, loans, events, settings: fullSettings }))));

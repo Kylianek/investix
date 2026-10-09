@@ -13,7 +13,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Investix</title>
-<link rel="icon" type="image/png" href="assets/logo.png?v=1791491260" />
+<link rel="icon" type="image/png" href="assets/logo.png?v=1791536364" />
 <script>
   /* Motiv se nastaví ještě před vykreslením, ať stránka neprobliká (volba motivu je jen vzhled, ne data). */
   try {
@@ -27,7 +27,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="css/style.css?v=1791491260" />
+<link rel="stylesheet" href="css/style.css?v=1791536364" />
 </head>
 <body class="min-h-screen">
 
@@ -35,7 +35,7 @@
     <header class="app-header">
       <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
         <h1 class="flex items-center gap-2">
-          <img src="assets/logo.png?v=1791491260" alt="" width="32" height="32" class="shrink-0" />
+          <img src="assets/logo.png?v=1791536364" alt="" width="32" height="32" class="shrink-0" />
           <span class="brand-name">Investix</span>
         </h1>
         <div class="flex items-center gap-2 ml-auto" id="header-controls">
@@ -63,10 +63,10 @@
           </button>
         </div>
       </div>
-      <nav class="max-w-6xl mx-auto px-4 flex flex-wrap gap-1">
+      <nav class="app-nav max-w-6xl mx-auto px-2 sm:px-4 flex flex-nowrap gap-0 sm:gap-1">
         <button class="tab-btn tab-active" data-tab="tab-overview">Přehled</button>
-        <button class="tab-btn" data-tab="tab-properties">Moje nemovitosti</button>
-        <button class="tab-btn" data-tab="tab-loans">Moje úvěry</button>
+        <button class="tab-btn" data-tab="tab-properties"><span class="sm:hidden">Nemovitosti</span><span class="hidden sm:inline">Moje nemovitosti</span></button>
+        <button class="tab-btn" data-tab="tab-loans"><span class="sm:hidden">Úvěry</span><span class="hidden sm:inline">Moje úvěry</span></button>
         <button class="tab-btn" data-tab="tab-scenario">Scénáře</button>
       </nav>
     </header>
@@ -248,6 +248,7 @@
                       <input name="lien_value" data-unit="money" class="input" />
                     </label>
                   </div>
+                  <p id="property-free-pledge" class="pledge-readout"></p>
                 </div>
               </details>
 
@@ -274,29 +275,9 @@
                 </div>
               </details>
 
-              <details class="acc">
-                <summary>
-                  <span class="acc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/><path d="M7 15h3"/></svg></span>
-                  <span class="acc-title">Financování</span>
-                  <span class="acc-badge" id="property-financing-badge"></span>
-                  <span class="acc-chevron"></span>
-                </summary>
-                <div class="acc-body grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <label class="flex flex-col gap-1">
-                    <span class="label">Splátka</span>
-                    <input name="payment" data-unit="money" class="input" />
-                  </label>
-                  <label class="flex flex-col gap-1">
-                    <span class="label">Vlastní zdroje vložené</span>
-                    <input name="equity_invested" data-unit="money" class="input" />
-                  </label>
-                  <label class="flex flex-col gap-1">
-                    <span class="label">Cizí kapitál vložený</span>
-                    <input name="debt_invested" data-unit="money" class="input" />
-                  </label>
-                </div>
-              </details>
             </div>
+
+            <p id="property-form-error" class="form-error hidden" role="alert"></p>
 
             <div class="flex flex-wrap gap-2">
               <button type="submit" class="btn-primary">
@@ -308,28 +289,19 @@
           </form>
         </div>
 
-        <div class="card overflow-x-auto">
-          <div class="flex justify-end mb-3">
+        <div class="card tbl-card" data-table-card="properties">
+          <div class="flex flex-wrap justify-end gap-2 mb-3">
+            <button type="button" class="btn-secondary btn-sm tbl-toggle" data-table-toggle="properties" aria-pressed="false" title="Zobrazit víc / méně sloupců">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="w-4 h-4"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>
+              <span class="tbl-toggle-label">Více sloupců</span>
+            </button>
             <button type="button" class="btn-secondary btn-sm btn-pdf-export hidden md:inline-flex" data-pdf-title="Moje nemovitosti">Stáhnout PDF</button>
           </div>
-          <table class="tbl">
-            <thead>
-              <tr>
-                <th>Nemovitost</th>
-                <th class="text-right">Nájem</th>
-                <th class="text-right">Splátka</th>
-                <th class="text-right">Tržní hodnota</th>
-                <th class="text-right">Zástava</th>
-                <th class="text-right">Uvolněno nad zástavu</th>
-                <th class="text-right">Růst %</th>
-                <th class="text-right">Po zhodnocení</th>
-                <th>Časový test - zbývá</th>
-                <th></th>
-              </tr>
-            </thead>
+          <div class="tbl-scroll"><table class="tbl">
+            <thead id="properties-thead"></thead>
             <tbody id="properties-tbody"></tbody>
             <tfoot id="properties-tfoot"></tfoot>
-          </table>
+          </table></div>
         </div>
       </section>
 
@@ -377,7 +349,7 @@
               <details class="acc">
                 <summary>
                   <span class="acc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg></span>
-                  <span class="acc-title">Fixace</span>
+                  <span class="acc-title">Fixace a splatnost</span>
                   <span class="acc-badge" id="loan-fixation-badge"></span>
                   <span class="acc-chevron"></span>
                 </summary>
@@ -394,6 +366,41 @@
                     <span class="label">Fixace do</span>
                     <input name="fixation_end" type="date" class="input" />
                   </label>
+                  <label class="flex flex-col gap-1">
+                    <span class="label">Sazba po fixaci</span>
+                    <input name="rate_after_fixation" data-unit="percent" class="input" />
+                  </label>
+                  <label class="flex flex-col gap-1">
+                    <span class="label">Splátka po fixaci</span>
+                    <input name="payment_after_fixation" data-unit="money" class="input" />
+                  </label>
+                  <label class="flex flex-col gap-1">
+                    <span class="label">Splatnost do</span>
+                    <input name="maturity_date" type="date" class="input" />
+                  </label>
+                </div>
+              </details>
+
+              <details class="acc">
+                <summary>
+                  <span class="acc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></svg></span>
+                  <span class="acc-title">Refinancování</span>
+                  <span class="acc-badge" id="loan-refinance-badge"></span>
+                  <span class="acc-chevron"></span>
+                </summary>
+                <div class="acc-body grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <label class="flex flex-col gap-1">
+                    <span class="label">Datum refinancování</span>
+                    <input name="refinance_date" type="date" class="input" />
+                  </label>
+                  <label class="flex flex-col gap-1">
+                    <span class="label">Nová sazba</span>
+                    <input name="refinance_rate" data-unit="percent" class="input" />
+                  </label>
+                  <label class="flex flex-col gap-1">
+                    <span class="label">Nová doba (roky)</span>
+                    <input name="refinance_years" type="number" step="1" min="0" class="input" />
+                  </label>
                 </div>
               </details>
 
@@ -404,18 +411,14 @@
                   <span class="acc-badge" id="loan-details-badge"></span>
                   <span class="acc-chevron"></span>
                 </summary>
-                <div class="acc-body grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div class="acc-body grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <label class="flex flex-col gap-1">
-                    <span class="label">Sazba po konci fixace</span>
-                    <input name="rate_after_fixation" data-unit="percent" class="input" />
+                    <span class="label">Financuje nemovitost</span>
+                    <select name="property_id" id="loan-property-select" class="input"></select>
                   </label>
                   <label class="flex flex-col gap-1">
                     <span class="label">Hodnota nemovitosti při sjednání</span>
                     <input name="property_value_at_origination" data-unit="money" class="input" />
-                  </label>
-                  <label class="flex flex-col gap-1">
-                    <span class="label">Financuje nemovitost</span>
-                    <select name="property_id" id="loan-property-select" class="input"></select>
                   </label>
                   <label class="flex flex-col gap-1">
                     <span class="label">Poznámka</span>
@@ -424,6 +427,8 @@
                 </div>
               </details>
             </div>
+
+            <p id="loan-form-error" class="form-error hidden" role="alert"></p>
 
             <div class="flex flex-wrap gap-2">
               <button type="submit" class="btn-primary">
@@ -435,28 +440,19 @@
           </form>
         </div>
 
-        <div class="card overflow-x-auto">
-          <div class="flex justify-end mb-3">
+        <div class="card tbl-card" data-table-card="loans">
+          <div class="flex flex-wrap justify-end gap-2 mb-3">
+            <button type="button" class="btn-secondary btn-sm tbl-toggle" data-table-toggle="loans" aria-pressed="false" title="Zobrazit víc / méně sloupců">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="w-4 h-4"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>
+              <span class="tbl-toggle-label">Více sloupců</span>
+            </button>
             <button type="button" class="btn-secondary btn-sm btn-pdf-export hidden md:inline-flex" data-pdf-title="Moje úvěry">Stáhnout PDF</button>
           </div>
-          <table class="tbl">
-            <thead>
-              <tr>
-                <th>Banka</th>
-                <th class="text-right">Výše úvěru</th>
-                <th class="text-right">Úrok</th>
-                <th class="text-right">Splátka</th>
-                <th>Fixace</th>
-                <th>Zbývá fixace</th>
-                <th>Poměr LTV</th>
-                <th class="text-right">Vlastní vklad</th>
-                <th>Nemovitost</th>
-                <th></th>
-              </tr>
-            </thead>
+          <div class="tbl-scroll"><table class="tbl">
+            <thead id="loans-thead"></thead>
             <tbody id="loans-tbody"></tbody>
             <tfoot id="loans-tfoot"></tfoot>
-          </table>
+          </table></div>
         </div>
       </section>
 
@@ -470,7 +466,7 @@
           <button type="button" class="btn-secondary btn-pdf-export ml-auto hidden md:inline-flex" data-pdf-title="Scénáře">Stáhnout PDF</button>
         </div>
 
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div class="kpi-card kpi-card-equity kpi-clickable">
             <div class="kpi-label" id="sc-kpi-end-equity-label">Vlastní kapitál za 20 let</div>
             <div id="sc-kpi-end-equity" class="kpi-value">—</div>
@@ -488,6 +484,12 @@
             <div id="sc-kpi-cagr-assets" class="kpi-value">—</div>
             <div class="kpi-formula-hint">Jak to počítám? ▸</div>
             <div id="sc-kpi-cagr-assets-formula" class="kpi-formula hidden"></div>
+          </div>
+          <div class="kpi-card kpi-clickable">
+            <div class="kpi-label" id="sc-kpi-cumcf-label">Cashflow za 20 let</div>
+            <div id="sc-kpi-cumcf" class="kpi-value">—</div>
+            <div class="kpi-formula-hint">Jak to počítám? ▸</div>
+            <div id="sc-kpi-cumcf-formula" class="kpi-formula hidden"></div>
           </div>
         </div>
 
@@ -553,44 +555,31 @@
           </form>
         </div>
 
-        <div id="events-card" class="card overflow-x-auto mb-6 hidden">
-          <table class="tbl">
-            <thead>
-              <tr>
-                <th>Typ</th>
-                <th>Platí pro</th>
-                <th>Období</th>
-                <th class="text-right">Hodnota</th>
-                <th>Poznámka</th>
-                <th></th>
-              </tr>
-            </thead>
+        <div id="events-card" class="card tbl-card mb-6 hidden" data-table-card="events">
+          <div class="flex flex-wrap justify-end gap-2 mb-3">
+            <button type="button" class="btn-secondary btn-sm tbl-toggle" data-table-toggle="events" aria-pressed="false" title="Zobrazit víc / méně sloupců">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="w-4 h-4"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>
+              <span class="tbl-toggle-label">Více sloupců</span>
+            </button>
+          </div>
+          <div class="tbl-scroll"><table class="tbl">
+            <thead id="events-thead"></thead>
             <tbody id="events-tbody"></tbody>
-          </table>
+          </table></div>
         </div>
 
-        <div class="card overflow-x-auto">
+        <div class="card tbl-card" data-table-card="scenario">
           <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h2 class="card-title">Tabulka po letech</h2>
-            <button type="button" id="scenario-detail-toggle" class="btn-secondary btn-sm">Zobrazit detail</button>
+            <button type="button" class="btn-secondary btn-sm tbl-toggle" data-table-toggle="scenario" aria-pressed="false" title="Zobrazit víc / méně sloupců">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="w-4 h-4"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>
+              <span class="tbl-toggle-label">Více sloupců</span>
+            </button>
           </div>
-          <table class="tbl">
-            <thead>
-              <tr>
-                <th>Rok</th>
-                <th class="text-right">Majetek</th>
-                <th class="text-right">Dluh</th>
-                <th class="text-right">Vlastní kapitál</th>
-                <th class="text-right scenario-detail-col hidden">Nájem</th>
-                <th class="text-right scenario-detail-col hidden">Náklady</th>
-                <th class="text-right scenario-detail-col hidden">Splátka úvěru</th>
-                <th class="text-right scenario-detail-col hidden">Nashrom. zhodnocení</th>
-                <th class="text-right">Roční cashflow</th>
-                <th>Událost</th>
-              </tr>
-            </thead>
+          <div class="tbl-scroll"><table class="tbl">
+            <thead id="scenario-thead"></thead>
             <tbody id="scenario-tbody"></tbody>
-          </table>
+          </table></div>
         </div>
       </section>
 
@@ -656,7 +645,7 @@
                 <div class="setting-fields">
                   <label class="flex flex-col gap-1">
                     <span class="label">Práh zhodnocení</span>
-                    <input id="sale-trigger-input" data-unit="money" placeholder="cena nejlevnější" class="input" />
+                    <input id="sale-trigger-input" data-unit="money" class="input" />
                   </label>
                   <label class="flex flex-col gap-1">
                     <span class="label">Min. hodnota portfolia</span>
@@ -731,9 +720,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/calc.js?v=1791491260"></script>
-  <script src="js/app.js?v=1791491260"></script>
-  <script src="js/cloud.js?v=1791491260"></script>
-  <script src="js/auth.js?v=1791491260"></script>
+  <script src="js/calc.js?v=1791536364"></script>
+  <script src="js/app.js?v=1791536364"></script>
+  <script src="js/cloud.js?v=1791536364"></script>
+  <script src="js/auth.js?v=1791536364"></script>
 </body>
 </html>

@@ -1720,6 +1720,377 @@ input[type='date'].input {
   }
 }
 
+/* ---------- Navigace na jeden řádek ---------- */
+.app-nav {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.app-nav::-webkit-scrollbar {
+  display: none;
+}
+.tab-btn {
+  flex: 1 1 auto;
+  text-align: center;
+}
+@media (max-width: 639px) {
+  .tab-btn {
+    padding: 0.55rem 0.25rem;
+    font-size: 0.82rem;
+  }
+}
+@media (min-width: 640px) {
+  .tab-btn {
+    flex: 0 0 auto;
+  }
+}
+
+/* ---------- Tabulky: kompaktní (hlavní sloupce, krátké částky) / rozšířená ---------- */
+.tbl-scroll {
+  overflow-x: auto;
+}
+.m-short {
+  display: none;
+}
+.is-compact .m-short {
+  display: inline;
+}
+.is-compact .m-full {
+  display: none;
+}
+.tbl-card.is-compact .tbl {
+  font-size: 0.8rem;
+}
+.tbl-card.is-compact .tbl thead th {
+  padding-right: 0.4rem;
+}
+.tbl-card.is-compact .tbl tbody td,
+.tbl-card.is-compact .tbl tfoot td {
+  padding: 0.5rem 0.4rem 0.5rem 0;
+}
+.tbl-card.is-compact .link-btn .lbl {
+  display: none;
+}
+.tbl-card.is-compact .link-btn {
+  padding: 0.3rem;
+}
+.link-btn {
+  gap: 0.3rem;
+}
+.link-btn svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  flex-shrink: 0;
+}
+.tbl-toggle svg {
+  width: 1rem;
+  height: 1rem;
+}
+.subtbl tfoot td {
+  font-weight: 700;
+  background: var(--surface-3);
+  color: var(--text-strong);
+  border-bottom: 0;
+}
+.ev-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-left: 0.3rem;
+  border-radius: 999px;
+  background: #f59e0b;
+  vertical-align: middle;
+}
+
+/* Úvěr v tabulce: klik na banku rozbalí splátkový kalendář */
+.loan-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0.45rem 0.15rem 0.3rem;
+  margin-left: -0.3rem;
+  border-radius: 0.6rem;
+  text-align: left;
+  color: var(--text-strong);
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.15s ease;
+}
+.loan-toggle:hover {
+  background: var(--primary-soft);
+  color: var(--primary-text);
+  transform: translateX(2px);
+}
+.loan-toggle .year-chevron {
+  width: 0.45rem;
+  height: 0.45rem;
+  flex-shrink: 0;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.25s ease;
+}
+.loan-toggle.is-open .year-chevron {
+  transform: rotate(45deg);
+}
+.loan-detail > td {
+  padding: 0 !important;
+  background: var(--surface-2);
+}
+.loan-detail:hover {
+  background: var(--surface-2) !important;
+}
+.share-bar {
+  display: inline-block;
+  vertical-align: middle;
+  width: 3.2rem;
+  height: 0.5rem;
+  margin-right: 0.35rem;
+  border-radius: 999px;
+  background: var(--pos);
+  overflow: hidden;
+}
+.share-bar i {
+  display: block;
+  height: 100%;
+  background: var(--neg);
+}
+
+/* ---------- Datumová pole (bez nápovědy dd.mm.rrrr) ---------- */
+.date-field {
+  position: relative;
+}
+.date-field .input {
+  padding-right: 2.5rem;
+}
+.date-btn {
+  position: absolute;
+  right: 0.3rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1.9rem;
+  height: 1.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+.date-btn svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+.date-btn:hover {
+  background: var(--primary-soft);
+  color: var(--primary-text);
+  transform: translateY(-50%) scale(1.1);
+}
+.date-native {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.input.is-invalid {
+  border-color: var(--neg);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
+}
+
+/* ---------- Zástavy a hlídání volné hodnoty ---------- */
+.pledge-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.4rem 0.8rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.8rem;
+  background: var(--surface-2);
+  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.15s ease;
+}
+.pledge-row:hover {
+  border-color: var(--primary-2);
+}
+.pledge-row.is-on {
+  border-color: var(--primary-2);
+  background: var(--primary-soft);
+}
+.pledge-row.is-full:not(.is-on) {
+  border-style: dashed;
+}
+.pledge-check {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-strong);
+  min-width: 0;
+}
+.pledge-check input {
+  width: 1.15rem;
+  height: 1.15rem;
+  accent-color: var(--primary);
+  flex-shrink: 0;
+}
+.pledge-free {
+  font-size: 0.82rem;
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+}
+.pledge-free strong {
+  color: var(--text-strong);
+}
+.pledge-amount {
+  grid-column: 1 / -1;
+}
+.pledge-msg {
+  grid-column: 1 / -1;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--neg-text);
+}
+@media (min-width: 640px) {
+  .pledge-row {
+    grid-template-columns: 1fr auto 12rem;
+  }
+  .pledge-amount {
+    grid-column: auto;
+  }
+}
+.pledge-readout {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+.pledge-readout strong {
+  color: var(--text-strong);
+}
+.pledge-readout.is-over,
+.pledge-readout.is-over strong {
+  color: var(--neg-text);
+  font-weight: 600;
+}
+.form-error {
+  border: 1px solid var(--neg-border);
+  background: var(--neg-soft);
+  color: var(--neg-text);
+  border-radius: 0.7rem;
+  padding: 0.6rem 0.85rem;
+  font-size: 0.86rem;
+  font-weight: 500;
+}
+.shake {
+  animation: shake 0.35s ease;
+}
+@keyframes shake {
+  20%,
+  60% {
+    transform: translateX(-5px);
+  }
+  40%,
+  80% {
+    transform: translateX(5px);
+  }
+}
+
+/* Na úzkých obrazovkách se popisek rozbalovací karty zalomí pod název (nic se neořezává) */
+/* Detail řádku (kalendář úvěru, rozpis roku) nesmí roztahovat tabulku - posouvá se uvnitř */
+.loan-detail .detail-panel,
+.year-detail .detail-panel {
+  width: 0;
+  min-width: 100%;
+  box-sizing: border-box;
+}
+.tbl-card.is-compact .detail-panel {
+  padding: 0.7rem 0.5rem 0.9rem 0.6rem;
+}
+.tbl-card.is-compact .subtbl {
+  font-size: 0.74rem;
+}
+.tbl-card.is-compact .subtbl th,
+.tbl-card.is-compact .subtbl td {
+  padding: 0.35rem 0.3rem;
+}
+.tbl-card.is-compact .subtbl th {
+  white-space: normal;
+}
+.tbl-card.is-compact .share-bar {
+  width: 1.6rem;
+  margin-right: 0.25rem;
+}
+.tbl-card.is-compact .year-pill {
+  padding: 0.15rem 0.45rem 0.15rem 0.35rem;
+  gap: 0.25rem;
+}
+.tbl-card.is-compact .subtbl td:first-child {
+  white-space: normal;
+}
+.tbl-card.is-compact .tbl thead th {
+  white-space: normal;
+  line-height: 1.2;
+}
+/* Velmi úzké telefony (320 px) */
+@media (max-width: 359px) {
+  main.max-w-6xl {
+    padding-left: 0.6rem;
+    padding-right: 0.6rem;
+  }
+  .card,
+  .form-card,
+  .setting-card {
+    padding: 0.7rem;
+  }
+  .tbl-card.is-compact .tbl {
+    font-size: 0.74rem;
+  }
+  .tbl-card.is-compact .year-chevron {
+    display: none;
+  }
+  .tbl-card.is-compact .loan-toggle {
+    gap: 0;
+  }
+  .kpi-value {
+    font-size: 1.2rem;
+  }
+  .tbl-card.is-compact .share-bar {
+    display: none;
+  }
+}
+.tbl-card.is-compact .loan-toggle {
+  max-width: 8rem;
+}
+.acc-badge:empty {
+  display: none;
+}
+@media (max-width: 639px) {
+  .acc > summary {
+    flex-wrap: wrap;
+  }
+  .acc-title {
+    flex: 1;
+  }
+  .acc-badge {
+    order: 5;
+    flex-basis: 100%;
+    max-width: 100%;
+    margin-left: 2.55rem;
+    white-space: normal;
+    text-align: left;
+  }
+  .acc-pledge .acc-badge {
+    margin-left: 3.3rem;
+  }
+  .acc-chevron {
+    order: 3;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -1759,6 +2130,7 @@ input[type='date'].input {
   #confirm-modal,
   .number-stepper-buttons,
   .btn-pdf-export,
+  .tbl-toggle,
   .kpi-formula-hint,
   .add-form-card,
   .scenario-chip,
@@ -1818,8 +2190,18 @@ input[type='date'].input {
     margin-top: 0.35rem !important;
   }
 
-  .overflow-x-auto {
+  .overflow-x-auto,
+  .tbl-scroll {
     overflow: visible !important;
+  }
+  .m-short {
+    display: none !important;
+  }
+  .m-full {
+    display: inline !important;
+  }
+  .loan-toggle .year-chevron {
+    display: none;
   }
   .tbl thead th {
     position: static;

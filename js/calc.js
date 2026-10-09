@@ -36,6 +36,18 @@ function addYears(date, years) {
   return new Date(date.getFullYear() + years, date.getMonth(), date.getDate());
 }
 
+/** Přidá k datu daný počet měsíců. */
+function addMonths(date, months) {
+  return new Date(date.getFullYear(), date.getMonth() + months, date.getDate());
+}
+
+/** Datum z textu "RRRR-MM-DD" (nebo jiného formátu) jako místní datum - bez posunu o časové pásmo. */
+function toDate(value) {
+  if (value instanceof Date) return value;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ''));
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(value);
+}
+
 /**
  * ČASOVÝ TEST - zbývající čas do konce daňového časového testu.
  * Excel: "y let " & "ym měs. a " & "md dní", nebo "0 let 0 měs. 0 dní" pokud test už uplynul.
@@ -70,12 +82,12 @@ function fixationRemaining(startDate, fixationYears, today = new Date()) {
  */
 function fixationEndDate(loan) {
   if (loan.fixation_end) {
-    const d = new Date(loan.fixation_end);
+    const d = toDate(loan.fixation_end);
     if (!isNaN(d)) return d;
   }
   if (loan.start_date && loan.fixation_years != null && loan.fixation_years !== '') {
-    const start = new Date(loan.start_date);
-    if (!isNaN(start)) return addYears(start, Number(loan.fixation_years) || 0);
+    const start = toDate(loan.start_date);
+    if (!isNaN(start)) return addMonths(start, Math.round((Number(loan.fixation_years) || 0) * 12));
   }
   return null;
 }
@@ -103,7 +115,7 @@ function timeTestInfo(property, today = new Date()) {
   if (isPO(property)) return { done: false, never: true, text: 'Bez časového testu' };
   const years = taxExemptYears(property);
   if (!property.acquisition_date || years <= 0) return { done: true, never: false, none: true, text: '—' };
-  const tt = timeTestRemaining(new Date(property.acquisition_date), years, today);
+  const tt = timeTestRemaining(toDate(property.acquisition_date), years, today);
   return { done: tt.done, never: false, text: tt.text };
 }
 
@@ -116,7 +128,7 @@ function timeTestInfo(property, today = new Date()) {
 
 function yearOf(dateStr, fallbackYear) {
   if (!dateStr) return fallbackYear;
-  const d = new Date(dateStr);
+  const d = toDate(dateStr);
   return isNaN(d) ? fallbackYear : d.getFullYear();
 }
 
@@ -240,21 +252,61 @@ function projectLoanAmount(loan, targetYear, currentYear, events) {
   return Math.max(0, principal);
 }
 
-/** Rok, od kterého úvěr přechází na sazbu po fixaci (zadané datum konce, jinak počátek + doba). */
-function fixationEndYear(loan, loanStartYear) {
-  if (loan.fixation_end) {
-    const y = yearOf(loan.fixation_end, null);
-    if (y != null) return y;
-  }
-  return loanStartYear + (Number(loan.fixation_years) || 0);
+/* =========================================================================
+ * ÚVĚRY - měsíční splátkový kalendář (anuita, stejná metodika jako bankovní kalkulačka)
+ *
+ * Každý měsíc: úrok = zbývající jistina × roční sazba / 12, jistina = splátka − úrok.
+ * Splátka je po celou dobu stejná, proto je v prvních letech většina splátky úrok a
+ * podíl jistiny roste. Splátku zná uživatel z banky (monthly_payment); nezadá-li ji, ale
+ * zná splatnost (maturity_date), dopočítá se anuitním vzorcem. Prázdná splátka bez
+ * splatnosti = úvěr "jen úrok" (jistina se nesplácí).
+ *
+ * Co se s úvěrem může stát:
+ * - Konec fixace (od měsíce konce fixace): nová sazba (rate_after_fixation); banka
+ *   přepočítá splátku na zbývající dobu (nebo platí zadaná payment_after_fixation).
+ * - Refinancování (refinance_date): "kolo od začátku" - ze zbývající jistiny se podle nové
+ *   sazby a nové doby (refinance_years) spočítá nová anuita, takže se zase platí hlavně úrok.
+ * - Scénářová událost "růst úrokových sazeb": přičte procentní body, banka přepočítá splátku
+ *   tak, aby se úvěr splatil ve stejném termínu.
+ * - Předčasné splacení (prodej nemovitosti): splátka zůstává, úvěr se splatí dřív.
+ * ========================================================================= */
+
+const monthIndex = (date) => date.getFullYear() * 12 + date.getMonth();
+
+/** Měsíc (absolutně), od kterého platí nové podmínky po datu; od 16. dne až následující měsíc. */
+function monthAfter(date) {
+  return monthIndex(date) + (date.getDate() > 15 ? 1 : 0);
 }
 
-/** Efektivní roční úroková sazba úvěru pro daný rok (desetinný zlomek), bez scénářových událostí. */
+/**
+ * Měsíc, od kterého platí podmínky po fixaci. null = konec fixace není znám (pak se nic nemění).
+ * Bez data počátku se fixace počítá od ledna roku sjednání/dneška.
+ */
+function fixationChangeMonth(loan, loanStartYear) {
+  if (loan.fixation_end) {
+    const d = toDate(loan.fixation_end);
+    if (!isNaN(d)) return monthAfter(d);
+  }
+  if (loan.fixation_years == null || loan.fixation_years === '') return null;
+  const months = Math.round((Number(loan.fixation_years) || 0) * 12);
+  if (loan.start_date) {
+    const start = toDate(loan.start_date);
+    if (!isNaN(start)) return monthAfter(addMonths(start, months));
+  }
+  return loanStartYear * 12 + months;
+}
+
+/** Rok, od kterého úvěr přechází na sazbu po fixaci (Infinity = neznámo). */
+function fixationEndYear(loan, loanStartYear) {
+  const month = fixationChangeMonth(loan, loanStartYear);
+  return month == null ? Infinity : Math.floor(month / 12);
+}
+
+/** Základní roční úroková sazba úvěru pro daný rok (zlomek), bez událostí a refinancování. */
 function loanRateForYear(loan, loanStartYear, year) {
+  const hasAfter = loan.rate_after_fixation != null && loan.rate_after_fixation !== '';
   const ratePct =
-    year < fixationEndYear(loan, loanStartYear)
-      ? Number(loan.interest_rate) * 100
-      : Number(loan.rate_after_fixation ?? Number(loan.interest_rate) * 100);
+    hasAfter && year >= fixationEndYear(loan, loanStartYear) ? Number(loan.rate_after_fixation) : Number(loan.interest_rate) * 100;
   return ratePct / 100;
 }
 
@@ -277,58 +329,167 @@ function remainingTermMonths(principal, payment, annualRate) {
   return -Math.log(x) / Math.log(1 + r);
 }
 
+/** Počáteční stav úvěru v prvním simulovaném roce (splátka, zbývající doba, plánované změny). */
+function initLoanState(loan, ls, firstYear) {
+  const firstAbs = firstYear * 12;
+  const balance = ls.remainingPrincipal;
+  const hasNumber = (v) => v != null && v !== '' && !isNaN(Number(v));
+  ls.afterRate = hasNumber(loan.rate_after_fixation) ? Number(loan.rate_after_fixation) / 100 : null;
+  ls.afterPay = Number(loan.payment_after_fixation) > 0 ? Number(loan.payment_after_fixation) : null;
+  ls.fixAbs = fixationChangeMonth(loan, ls.startYear);
+  const refDate = loan.refinance_date ? toDate(loan.refinance_date) : null;
+  ls.refAbs = refDate && !isNaN(refDate) ? monthAfter(refDate) : null;
+  ls.refRate = hasNumber(loan.refinance_rate) ? Number(loan.refinance_rate) / 100 : null;
+  ls.refTerm = Number(loan.refinance_years) > 0 ? Number(loan.refinance_years) * 12 : null;
+
+  let rate = Number(loan.interest_rate) || 0;
+  let pay = Number(loan.monthly_payment) || 0;
+  // fixace už skončila (nebo končí hned): zadaná splátka je už ta aktuální, jen se použije nová sazba
+  const fixationOver = ls.fixAbs != null && ls.fixAbs <= firstAbs;
+  if (fixationOver) {
+    if (ls.afterRate != null) rate = ls.afterRate;
+    if (ls.afterPay != null) pay = ls.afterPay;
+    ls.fixAbs = null;
+  }
+  if (ls.refAbs != null && ls.refAbs < firstAbs) ls.refAbs = null;
+
+  let term = null;
+  if (loan.maturity_date) {
+    const d = toDate(loan.maturity_date);
+    const months = isNaN(d) ? 0 : monthIndex(d) - firstAbs + 1;
+    if (months >= 1) term = months;
+  }
+  if (pay <= 0 && term != null) pay = annuityPayment(balance, rate, term);
+  if (term == null) term = remainingTermMonths(balance, pay, rate);
+
+  ls.rate = rate;
+  ls.pay = pay;
+  ls.term = term;
+  ls.delta = 0;
+  ls.firstAbs = firstAbs;
+  ls.init = true;
+}
+
 /**
- * Umoří jeden úvěr o jeden rok (rok `stateYear`). Mutuje `ls.remainingPrincipal`.
- * Vrací { interest, principal, rate, payment } za ten rok (payment = splátky za rok celkem).
- *
- * Měsíční splátka se NEDOPOČÍTÁVÁ z doby splatnosti - zadává ji přímo uživatel
- * (loan.monthly_payment), protože tu skutečnou hodnotu zná z bankovního
- * výpisu přesněji, než by ji uhodl libovolný anuitní vzorec. Z ní se pak
- * každý měsíc odvodí úrok (zbývající jistina × měsíční sazba) a jistina
- * (splátka − úrok); pokud splátka nepokryje ani úrok, jistina se toho měsíce
- * nehýbe (žádné záporné umořování).
- *
- * `rateDelta` = zvýšení sazby ze scénářové události (zlomek). Když se změní,
- * banka přepočítá splátku tak, aby se úvěr splatil ve stejném termínu - splátka
- * se proto přepočítá anuitním vzorcem na zbývající dobu (ls.termMonths).
+ * Umoří jeden úvěr o jeden rok (rok `stateYear`). Mutuje stav úvěru `ls`
+ * (remainingPrincipal, splátka, zbývající doba...). Vrací za ten rok
+ * { interest, principal, rate, payment, monthlyPayment } (payment = zaplaceno za rok celkem).
+ * `rateDelta` = zvýšení sazby ze scénářových událostí (zlomek).
  */
 function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0) {
+  if (!(ls.remainingPrincipal > 0 && stateYear >= ls.startYear)) {
+    return { interest: 0, principal: 0, rate: 0, payment: 0, monthlyPayment: 0 };
+  }
+  if (!ls.init) initLoanState(loan, ls, stateYear);
+
   let interest = 0;
   let principal = 0;
-  let rate = 0;
-  let paymentYear = 0;
-  if (ls.remainingPrincipal > 0 && stateYear >= ls.startYear) {
-    const baseRate = loanRateForYear(loan, ls.startYear, stateYear);
-    if (ls.payment === undefined) ls.payment = Number(loan.monthly_payment) || 0;
-    if (ls.termMonths === undefined) {
-      ls.termMonths = remainingTermMonths(ls.remainingPrincipal, ls.payment, baseRate);
-      ls.delta = 0;
-    }
-    rate = Math.max(0, baseRate + rateDelta);
-    if (rateDelta !== ls.delta) {
-      if (Number.isFinite(ls.termMonths) && ls.termMonths > 0) {
-        ls.payment = annuityPayment(ls.remainingPrincipal, rate, ls.termMonths);
+  for (let m = 0; m < 12; m++) {
+    if (ls.remainingPrincipal <= 0) break;
+    const abs = stateYear * 12 + m;
+    let recompute = false;
+    let forceAnnuity = false;
+    let payFixed = false;
+    if (ls.refAbs === abs) {
+      // refinancování: nová anuita ze zbývající jistiny (nová sazba, nová doba)
+      if (ls.refRate != null) ls.rate = ls.refRate;
+      if (ls.refTerm != null) {
+        ls.term = ls.refTerm;
+        forceAnnuity = true;
       }
+      ls.refAbs = null;
+      if (ls.fixAbs === abs) ls.fixAbs = null;
+      recompute = true;
+    } else if (ls.fixAbs === abs) {
+      ls.fixAbs = null;
+      if (ls.afterRate != null) {
+        ls.rate = ls.afterRate;
+        recompute = true;
+      }
+      if (ls.afterPay != null) {
+        ls.pay = ls.afterPay;
+        ls.term = remainingTermMonths(ls.remainingPrincipal, ls.pay, Math.max(0, ls.rate + ls.delta));
+        payFixed = true;
+      }
+    }
+    if (m === 0 && rateDelta !== ls.delta) {
       ls.delta = rateDelta;
+      recompute = true;
     }
-    const monthlyRate = rate / 12;
+    const rate = Math.max(0, ls.rate + ls.delta);
+    if (recompute && !payFixed && Number.isFinite(ls.term) && ls.term > 0 && (ls.pay > 0 || forceAnnuity)) {
+      ls.pay = annuityPayment(ls.remainingPrincipal, rate, Math.max(ls.term, 1));
+    }
 
-    let principalLeft = ls.remainingPrincipal;
-    for (let m = 0; m < 12; m++) {
-      if (principalLeft <= 0) break;
-      const interestM = principalLeft * monthlyRate;
-      let principalM = ls.payment - interestM;
-      if (principalM > principalLeft) principalM = principalLeft;
-      if (principalM < 0) principalM = 0;
-      principalLeft -= principalM;
-      interest += interestM;
-      principal += principalM;
-    }
-    paymentYear = interest + principal;
-    ls.remainingPrincipal = Math.max(principalLeft, 0);
-    if (Number.isFinite(ls.termMonths)) ls.termMonths = Math.max(0, ls.termMonths - 12);
+    const interestM = ls.remainingPrincipal * (rate / 12);
+    let principalM = ls.pay - interestM;
+    if (principalM > ls.remainingPrincipal) principalM = ls.remainingPrincipal;
+    if (principalM < 0) principalM = 0;
+    ls.remainingPrincipal -= principalM;
+    interest += interestM;
+    principal += principalM;
+    if (Number.isFinite(ls.term)) ls.term = Math.max(0, ls.term - 1);
   }
-  return { interest, principal, rate, payment: paymentYear };
+  ls.remainingPrincipal = Math.max(ls.remainingPrincipal, 0);
+  return {
+    interest,
+    principal,
+    rate: Math.max(0, ls.rate + ls.delta),
+    payment: interest + principal,
+    monthlyPayment: ls.pay,
+  };
+}
+
+/**
+ * Splátka, zbývající doba a rok doplacení úvěru podle zadaných údajů (bez scénářových událostí).
+ * auto = splátka není zadaná a dopočítala se ze splatnosti.
+ */
+function loanTerms(loan, firstYear) {
+  firstYear = firstYear || new Date().getFullYear();
+  const amount = Number(loan.amount) || 0;
+  const ls = { remainingPrincipal: amount, startYear: Math.max(yearOf(loan.start_date, firstYear), firstYear) };
+  if (amount <= 0) return { payment: 0, termMonths: 0, payoffYear: null, payoffMonth: null, auto: false };
+  initLoanState(loan, ls, ls.startYear);
+  const payoffAbs = Number.isFinite(ls.term) ? ls.firstAbs + Math.ceil(ls.term) - 1 : null;
+  return {
+    payment: ls.pay,
+    termMonths: ls.term,
+    payoffYear: payoffAbs == null ? null : Math.floor(payoffAbs / 12),
+    payoffMonth: payoffAbs == null ? null : (payoffAbs % 12) + 1,
+    auto: !(Number(loan.monthly_payment) > 0) && ls.pay > 0,
+  };
+}
+
+/**
+ * Splátkový kalendář úvěru po letech (jako list "Roky" v bankovní kalkulačce): úrok, jistina,
+ * podíl úroku ve splátkách a zůstatek. Zahrnuje fixaci, refinancování i scénářové události.
+ */
+function loanSchedule(loan, { events = [], startYear, maxYears = 40 } = {}) {
+  startYear = startYear || new Date().getFullYear();
+  const ls = { remainingPrincipal: Number(loan.amount) || 0, startYear: yearOf(loan.start_date, startYear) };
+  const rows = [];
+  let year = Math.max(startYear, ls.startYear);
+  for (let i = 0; i < maxYears && ls.remainingPrincipal > 0.5; i++, year++) {
+    const balanceStart = ls.remainingPrincipal;
+    const r = amortizeLoanForYear(loan, ls, year, startYear, loanRateDelta(events, loan.id, year));
+    rows.push({
+      year,
+      balanceStart,
+      interest: r.interest,
+      principal: r.principal,
+      payment: r.payment,
+      interestShare: r.payment > 0 ? r.interest / r.payment : 0,
+      balanceEnd: ls.remainingPrincipal,
+      rate: r.rate,
+      monthlyPayment: r.monthlyPayment,
+    });
+  }
+  return {
+    rows,
+    totalInterest: rows.reduce((s, r) => s + r.interest, 0),
+    totalPrincipal: rows.reduce((s, r) => s + r.principal, 0),
+    paidOff: ls.remainingPrincipal <= 0.5,
+  };
 }
 
 /**
@@ -374,8 +535,10 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
   const saleTriggerAmount = Number(settings.sale_trigger_amount) || 0;
 
   const loanState = {};
+  const loanShares = {};
   for (const l of loans) {
     loanState[l.id] = { remainingPrincipal: Number(l.amount) || 0, startYear: yearOf(l.start_date, startYear) };
+    loanShares[l.id] = loanPropertyShares(l, properties);
   }
 
   const curValue = {};
@@ -431,7 +594,7 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
         perProperty: activeProps.map((p) => ({ id: p.id, name: p.name, owner: isPO(p) ? 'po' : 'fo', value: curValue[p.id] })),
         perLoan: activeLoans
           .filter((l) => loanState[l.id].remainingPrincipal > 0.005)
-          .map((l) => ({ id: l.id, bank: l.bank, property_id: l.property_id || null, balance: loanState[l.id].remainingPrincipal })),
+          .map((l) => ({ id: l.id, bank: l.bank, property_id: l.property_id || null, shares: loanShares[l.id], balance: loanState[l.id].remainingPrincipal })),
       });
       break;
     }
@@ -491,12 +654,23 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
       const ls = loanState[l.id];
       const balance = ls.remainingPrincipal;
       const active = stateYear >= ls.startYear;
-      const { interest, principal, rate, payment } = amortizeLoanForYear(l, ls, stateYear, startYear, loanRateDelta(events, l.id, stateYear));
+      const { interest, principal, rate, payment, monthlyPayment } = amortizeLoanForYear(l, ls, stateYear, startYear, loanRateDelta(events, l.id, stateYear));
       totalInterest += interest;
       totalPrincipal += principal;
       // splacený úvěr už v přehledu úvěrů nefiguruje
       if (active && balance > 0.005) {
-        perLoan.push({ id: l.id, bank: l.bank, property_id: l.property_id || null, balance, rate, interest, principal, payment });
+        perLoan.push({
+          id: l.id,
+          bank: l.bank,
+          property_id: l.property_id || null,
+          shares: loanShares[l.id],
+          balance,
+          rate,
+          interest,
+          principal,
+          payment,
+          monthlyPayment,
+        });
       }
     }
 
@@ -523,7 +697,9 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
       soldProperties.add(candidate.property.id);
       const sold = perProperty.find((pp) => pp.id === candidate.property.id);
       if (sold) sold.sold = true;
-      cashReserve = payDownDebtWithCash(activeLoans, loanState, stateYear, cashReserve);
+      const preferred = {};
+      for (const l of activeLoans) preferred[l.id] = loanShares[l.id][candidate.property.id] || 0;
+      cashReserve = payDownDebtWithCash(activeLoans, loanState, stateYear, cashReserve, preferred);
       const totalDebtAfterSale = activeLoans.reduce((s, l) => s + loanState[l.id].remainingPrincipal, 0);
       sales.push({
         saleYear: stateYear,
@@ -659,6 +835,56 @@ function scoreSaleCandidate(property, marketValue, capGainsTaxRate, today, poTax
   return { property, marketValue, gain, gainPct, taxExempt: tt.done, timeTestText: tt.text, yieldPct, estimatedSaleTax, netProceeds, score };
 }
 
+/* =========================================================================
+ * ZÁSTAVY - kolik z hodnoty nemovitosti je volné k zastavení
+ *
+ * Na nemovitosti může ležet vlastní zástava (has_lien/lien_value) a zástavy za jiné úvěry
+ * (loan.collateral = [{ property_id, amount }]). Součet nesmí přesáhnout tržní hodnotu.
+ * ========================================================================= */
+
+/** Zástavy zadané u úvěru: [{ property_id, amount }]. Starší záznam jen s ID = zastaveno celé (amount Infinity). */
+function loanCollateral(loan) {
+  if (Array.isArray(loan.collateral)) {
+    return loan.collateral.filter((c) => c && c.property_id).map((c) => ({ property_id: c.property_id, amount: Number(c.amount) || 0 }));
+  }
+  return (loan.additional_collateral_ids || []).map((id) => ({ property_id: id, amount: Infinity }));
+}
+
+/** Vlastní zástava nemovitosti (Kč). */
+function ownLienValue(property) {
+  return property.has_lien ? Number(property.lien_value) || 0 : 0;
+}
+
+/** Kolik z nemovitosti je zastaveno za úvěry (bez úvěru \`excludeLoanId\`, např. toho, který se právě upravuje). */
+function pledgedByLoans(propertyId, loans, excludeLoanId) {
+  let sum = 0;
+  for (const l of loans || []) {
+    if (excludeLoanId && l.id === excludeLoanId) continue;
+    for (const c of loanCollateral(l)) if (c.property_id === propertyId) sum += c.amount;
+  }
+  return sum;
+}
+
+/** Volná hodnota k zastavení = tržní hodnota − vlastní zástava − zástavy za úvěry (nikdy záporná). */
+function freePledgeValue(property, loans, excludeLoanId) {
+  const marketValue = Number(property.market_value) || 0;
+  return Math.max(0, marketValue - ownLienValue(property) - pledgedByLoans(property.id, loans, excludeLoanId));
+}
+
+/**
+ * Jak se dluh úvěru dělí mezi nemovitosti: vybraná "financovaná nemovitost" nese celý úvěr,
+ * jinak se dělí podle výše zástav. Prázdný objekt = vazbu na nemovitost neznáme.
+ */
+function loanPropertyShares(loan, properties) {
+  const exists = (id) => properties.some((p) => p.id === id);
+  if (loan.property_id && exists(loan.property_id)) return { [loan.property_id]: 1 };
+  const pledges = loanCollateral(loan).filter((c) => exists(c.property_id) && Number.isFinite(c.amount) && c.amount > 0);
+  const total = pledges.reduce((s, c) => s + c.amount, 0);
+  const shares = {};
+  if (total > 0) for (const c of pledges) shares[c.property_id] = (shares[c.property_id] || 0) + c.amount / total;
+  return shares;
+}
+
 /**
  * Kolik nejdražší nemovitost lze koupit BEZ vlastní hotovosti, když banku
  * kryješ kombinovanou zástavou - kupovaná nemovitost + volná (nezastavená)
@@ -667,41 +893,40 @@ function scoreSaleCandidate(property, marketValue, capGainsTaxRate, today, poTax
  *   maxLtv = P / (P + volnáZástava)  =>  P = volnáZástava × maxLtv / (1 − maxLtv)
  */
 function pledgePurchaseCapacity(properties, maxLtv, loans) {
-  // Nemovitost je plně zastavená (0 volné hodnoty) i tehdy, když sama nemá
-  // "svoji" zástavu (has_lien), ale je vedená jako zástava u nějakého úvěru
-  // (additional_collateral_ids) - typicky přesně ten úvěr, který díky ní
-  // financoval nákup jiné nemovitosti bez hotovosti.
-  const crossCollateralized = new Set();
-  for (const l of loans || []) {
-    for (const propertyId of l.additional_collateral_ids || []) crossCollateralized.add(propertyId);
-  }
-  const freeCollateral = properties.reduce((sum, p) => {
-    const marketValue = Number(p.market_value) || 0;
-    if (crossCollateralized.has(p.id)) return sum;
-    const lienValue = p.has_lien ? Number(p.lien_value) || 0 : 0;
-    return sum + Math.max(0, marketValue - lienValue);
-  }, 0);
+  const freeCollateral = properties.reduce((sum, p) => sum + freePledgeValue(p, loans), 0);
   const maxPurchasePrice = maxLtv > 0 && maxLtv < 1 ? (freeCollateral * maxLtv) / (1 - maxLtv) : 0;
   return { freeCollateral, maxPurchasePrice };
 }
 
 /**
- * Splatí co nejvíc zbývajícího dluhu z dostupné hotovosti, vždy nejdřív ten
- * úvěr s nejvyšší aktuální sazbou (a případný zbytek hotovosti přeteče do
- * dalšího v pořadí). Mutuje loanState. Vrací hotovost, která po splacení
- * všeho dostupného dluhu ještě zbyla (0, pokud dluh >= hotovost).
+ * Splatí co nejvíc zbývajícího dluhu z dostupné hotovosti: nejdřív úvěry vázané na prodanou
+ * nemovitost (\`preferred\` = podíl úvěru na ní), pak vždy ten s nejvyšší aktuální sazbou. Úvěr
+ * zůstává se stejnou splátkou, jen se splatí dřív. Mutuje loanState. Vrací hotovost, která
+ * po splacení všeho dostupného dluhu ještě zbyla.
  */
-function payDownDebtWithCash(loans, loanState, stateYear, cashAvailable) {
+function payDownDebtWithCash(loans, loanState, stateYear, cashAvailable, preferred = {}) {
   let cash = cashAvailable;
-  const targets = loans
-    .filter((l) => loanState[l.id].remainingPrincipal > 0.01)
-    .sort((a, b) => loanRateForYear(b, loanState[b.id].startYear, stateYear) - loanRateForYear(a, loanState[a.id].startYear, stateYear));
-  for (const l of targets) {
-    if (cash <= 0) break;
+  const reduce = (l, maxAmount) => {
     const ls = loanState[l.id];
-    const pay = Math.min(ls.remainingPrincipal, cash);
+    const pay = Math.min(ls.remainingPrincipal, cash, maxAmount);
+    if (!(pay > 0)) return;
     ls.remainingPrincipal -= pay;
     cash -= pay;
+    if (ls.remainingPrincipal < 0.01) ls.remainingPrincipal = 0;
+    if (ls.init && ls.pay > 0) ls.term = remainingTermMonths(ls.remainingPrincipal, ls.pay, Math.max(0, ls.rate + ls.delta));
+  };
+  for (const l of loans) {
+    const share = preferred[l.id];
+    if (share > 0 && loanState[l.id].remainingPrincipal > 0.01) reduce(l, loanState[l.id].remainingPrincipal * share);
+  }
+  const rateOf = (l) => {
+    const ls = loanState[l.id];
+    return ls.init ? ls.rate + ls.delta : loanRateForYear(l, ls.startYear, stateYear);
+  };
+  const targets = loans.filter((l) => loanState[l.id].remainingPrincipal > 0.01).sort((a, b) => rateOf(b) - rateOf(a));
+  for (const l of targets) {
+    if (cash <= 0) break;
+    reduce(l, Infinity);
   }
   return cash;
 }
@@ -727,8 +952,18 @@ window.calc = {
   rentGrowthBase,
   loanRateForYear,
   amortizeLoanForYear,
+  loanTerms,
+  loanSchedule,
+  fixationChangeMonth,
   annuityPayment,
   remainingTermMonths,
+  toDate,
+  addMonths,
+  loanCollateral,
+  ownLienValue,
+  pledgedByLoans,
+  freePledgeValue,
+  loanPropertyShares,
   scoreSaleCandidate,
   projectPortfolio,
   pledgePurchaseCapacity,
