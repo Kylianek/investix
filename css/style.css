@@ -124,6 +124,11 @@
   }
 }
 
+/* Záloha, kdyby se nenačetl Tailwind z CDN: skryté prvky (okna, překryvy, neaktivní záložky) zůstanou skryté. */
+.hidden {
+  display: none;
+}
+
 html {
   overflow-x: hidden;
   touch-action: pan-y;
@@ -2290,4 +2295,11 @@ input[type='date'].input {
   .cf-strip {
     gap: 0.4rem;
   }
+}
+
+.error-banner {
+  background: var(--neg-soft);
+  border-bottom-color: var(--neg-border);
+  color: var(--neg-text);
+  font-weight: 600;
 }

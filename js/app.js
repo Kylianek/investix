@@ -1258,20 +1258,43 @@ function init() {
   renderAll();
 }
 
+/** Chyba v aplikaci se ukáže v pruhu nahoře (místo tichého zamrznutí) a zapíše do konzole. */
+function reportError(where, error) {
+  console.error('Investix:', where, error);
+  let el = document.getElementById('error-banner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'error-banner';
+    el.className = 'notice error-banner';
+    el.setAttribute('role', 'alert');
+    document.getElementById('app-screen').prepend(el);
+  }
+  el.textContent = 'Chyba v aplikaci (' + where + '): ' + (error && error.message ? error.message : error);
+}
+
+/** Jedna chybná část nezastaví vykreslení ostatních (např. Přehled se spočítá, i když selže tabulka). */
+function guarded(where, fn) {
+  try {
+    return fn();
+  } catch (e) {
+    reportError(where, e);
+  }
+}
+
 function renderAll() {
-  renderProperties();
-  renderLoans();
-  renderSettings();
-  renderEvents();
-  renderScenario();
-  renderOverview();
+  guarded('nemovitosti', renderProperties);
+  guarded('úvěry', renderLoans);
+  guarded('nastavení', renderSettings);
+  guarded('události', renderEvents);
+  guarded('scénáře', renderScenario);
+  guarded('přehled', renderOverview);
 }
 
 /** Po změně dat, která se promítají do výpočtů (události, nemovitosti, úvěry, nastavení). */
 function renderCalculations() {
-  renderEvents();
-  renderScenario();
-  renderOverview();
+  guarded('události', renderEvents);
+  guarded('scénáře', renderScenario);
+  guarded('přehled', renderOverview);
 }
 
 /* ---------- Tabs ---------- */
@@ -2658,4 +2681,16 @@ function wireForms() {
   document.getElementById('event-form-reset').addEventListener('click', resetEventForm);
 }
 
-document.addEventListener('DOMContentLoaded', init);
+window.addEventListener('error', (e) => {
+  // jen chyby z kódu appky (ne z přihlašovacího okna a rozšíření prohlížeče)
+  if (/[/]js[/](app|calc|cloud|auth)[.]js/.test(e.filename || '')) reportError((e.filename || '').split('/').pop() + ':' + e.lineno, e.error || e.message);
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  try {
+    init();
+  } catch (e) {
+    reportError('start', e);
+    throw e;
+  }
+});
