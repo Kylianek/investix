@@ -920,7 +920,7 @@ function renderPropertiesTable() {
   const key = 'properties';
   applyTableMode(key);
   const infos = loanInfos();
-  const totals = { rent: 0, payment: 0, debt: 0, value: 0, lien: 0, freed: 0, appreciated: 0, growthWeighted: 0 };
+  const totals = { rent: 0, payment: 0, debt: 0, value: 0, lien: 0, freed: 0, appreciated: 0, growthWeighted: 0, yield: 0 };
 
   const rows = state.properties.map((p) => {
     const marketValue = Number(p.market_value) || 0;
@@ -942,6 +942,8 @@ function renderPropertiesTable() {
       tt: calc.timeTestInfo(p),
       figs: propertyLoanFigures(p, infos),
     };
+    r.yield = (Number(p.rent) || 0) * 12 * (1 - (Number(p.vacancy_rate) || 0)) - (Number(p.monthly_costs) || 0) * 12;
+    totals.yield += r.yield;
     totals.rent += Number(p.rent) || 0;
     totals.value += marketValue;
     totals.lien += own + crossSum;
@@ -961,6 +963,7 @@ function renderPropertiesTable() {
     { label: 'Nemovitost', cell: (r) => `<span class="font-medium">${escapeHtml(r.p.name)}</span> ${ownerBadge(r.p)}`, total: () => 'Celkem' },
     { label: 'Nájem', right: true, cell: (r) => (r.p.rent ? `<span class="rent-positive num">+${moneyHtml(r.p.rent)}</span>` : dash), total: () => moneyHtml(totals.rent) },
     { label: 'Tržní hodnota', right: true, cell: (r) => `<span class="num">${moneyHtml(r.marketValue)}</span>`, total: () => moneyHtml(totals.value) },
+    { label: 'Čistý výnos /rok', right: true, x: true, cell: (r) => `<span class="num ${r.yield < 0 ? 'figure-negative' : 'figure-positive'}">${moneyHtml(r.yield)}</span>`, total: () => moneyHtml(totals.yield) },
     {
       label: 'Splátka',
       right: true,
@@ -1173,7 +1176,7 @@ function renderLoansTable() {
       x: true,
       cell: (r) => {
         const years = r.l.fixation_years != null && r.l.fixation_years !== '' ? `${fmtNumber(r.l.fixation_years, 1)} let` : '';
-        return r.end ? `<span class="num">${fmtDate(r.end.toISOString())}</span>${years ? `<br><span class="text-xs t-muted">${years}</span>` : ''}` : years || dash;
+        return r.end ? `<span class="num">${fmtDate(toInputDate(r.end))}</span>${years ? `<br><span class="text-xs t-muted">${years}</span>` : ''}` : years || dash;
       },
       total: () => '',
     },
@@ -2133,6 +2136,21 @@ function renderScenario() {
   ]);
 
   renderScenarioTable();
+  renderCashflowStrips();
+}
+
+/** Pruh s cashflow za letošní rok nad tabulkami nemovitostí a úvěrů (stejná čísla jako v Přehledu). */
+function renderCashflowStrips() {
+  const row = runProjection(1).rows[0];
+  const chip = (label, value, cls) => `<span class="cf-pill ${cls || ''}"><span class="cf-label">${label}</span> <strong class="num">${fmtMoney(value)}</strong></span>`;
+  const html =
+    chip('Nájem', row.totalRent, 'cf-pos') +
+    (row.totalCosts > 0 ? chip('Náklady', -row.totalCosts, 'cf-neg') : '') +
+    chip('Splátky', -(row.totalInterest + row.totalPrincipal), 'cf-neg') +
+    chip('Cashflow /rok', row.cashflow, row.cashflow < 0 ? 'cf-neg cf-total' : 'cf-pos cf-total');
+  document.querySelectorAll('[data-cf-strip]').forEach((el) => {
+    el.innerHTML = html;
+  });
 }
 
 function renderScenarioTable() {
@@ -2186,38 +2204,84 @@ function renderScenarioTable() {
 
 /**
  * Detail roku po nemovitostech: stejné veličiny jako v hlavním řádku, ale za jednotlivé nemovitosti.
- * Ukazuje jen to, co jde spočítat: dluh a splátka nemovitosti se znají, když je úvěr přiřazený k nemovitosti
- * ("Financuje nemovitost" nebo zástava) - jinak je u ní pomlčka.
+ * Výnos (nájem − náklady) je známý vždy. Dluh, splátka a cashflow po splátkách se znají, když je úvěr přiřazený
+ * k nemovitosti ("Financuje nemovitost" nebo zástava); úvěry bez nemovitosti mají vlastní řádek, takže součet
+ * řádků vždy sedí na cashflow v hlavní tabulce (řádek Celkem).
  */
 function buildYearDetail(r) {
   const expanded = isExpanded('scenario');
   const hasFlows = r.cashflow != null;
   const loans = r.perLoan || [];
+  const unassigned = loans.filter((l) => !l.shares || Object.keys(l.shares).length === 0);
   const everyLoanLinked = state.loans.every((l) => Object.keys(calc.loanPropertyShares(l, state.properties)).length > 0);
   const money = (v, cls) => (v == null ? '<span class="t-faint">—</span>' : `<span class="${cls || ''}">${moneyHtml(v)}</span>`);
+  const sign = (v) => (v == null ? '' : v < 0 ? 'figure-negative' : 'figure-positive');
+  const label = (full, short) => `<span class="m-full">${full}</span><span class="m-short">${short}</span>`;
 
   const propertyCols = [
-    { label: 'Nemovitost', f: (x) => `<span class="font-medium">${escapeHtml(x.pp.name)}</span> ${x.pp.owner === 'po' ? '<span class="badge badge-po">PO</span>' : ''}${x.pp.sold ? ' <span class="badge badge-linked">prodáno</span>' : ''}` },
-    { label: 'Majetek', f: (x) => money(x.pp.value) },
-    { label: 'Dluh', f: (x) => money(x.debt, 'figure-negative') },
+    { label: 'Nemovitost', f: (x) => x.name },
+    { label: 'Majetek', f: (x) => money(x.value) },
+    { label: 'Dluh', xcol: true, f: (x) => money(x.debt, 'figure-negative') },
     { label: 'Vlastní kapitál', xcol: true, f: (x) => money(x.equity) },
-    { label: 'Nájem', xcol: true, f: (x) => (hasFlows ? money(x.pp.rent, 'figure-positive') : money(null)) },
-    { label: 'Náklady', xcol: true, f: (x) => (hasFlows ? money(x.pp.costs, 'figure-negative') : money(null)) },
+    { label: 'Nájem', xcol: true, f: (x) => money(x.rent, 'figure-positive') },
+    { label: 'Náklady', xcol: true, f: (x) => money(x.costs, 'figure-negative') },
+    { label: 'Zhodnocení', xcol: true, f: (x) => money(x.appreciation) },
+    { label: label('Výnos (nájem − náklady)', 'Výnos'), f: (x) => money(x.yield, sign(x.yield)) },
     { label: 'Splátka', xcol: true, f: (x) => money(x.service, 'figure-negative') },
-    { label: 'Zhodnocení', xcol: true, f: (x) => (hasFlows ? money(x.pp.appreciation) : money(null)) },
-    { label: 'Cashflow', f: (x) => money(x.cash, x.cash == null ? '' : x.cash < 0 ? 'figure-negative' : 'figure-positive') },
+    { label: label('Cashflow po splátkách', 'Cashflow'), f: (x) => money(x.cash, sign(x.cash)) },
   ].filter((c) => expanded || !c.xcol);
 
-  const propertyRows = (r.perProperty || [])
-    .map((pp) => {
-      const linked = loans.filter((l) => (l.shares && l.shares[pp.id]) > 0);
-      const debtKnown = linked.length > 0 || everyLoanLinked;
-      const debt = debtKnown ? linked.reduce((s, l) => s + l.balance * l.shares[pp.id], 0) : null;
-      const service = debtKnown && hasFlows ? linked.reduce((s, l) => s + l.payment * l.shares[pp.id], 0) : null;
-      const x = { pp, debt, service, equity: debt == null ? null : pp.value - debt, cash: service == null ? null : pp.cashflow - service };
-      return `<tr>${propertyCols.map((c) => `<td>${c.f(x)}</td>`).join('')}</tr>`;
-    })
-    .join('');
+  const rowHtml = (x, cls) => `<tr class="${cls || ''}">${propertyCols.map((c) => `<td>${c.f(x)}</td>`).join('')}</tr>`;
+
+  const propertyRows = (r.perProperty || []).map((pp) => {
+    const linked = loans.filter((l) => (l.shares && l.shares[pp.id]) > 0);
+    const debtKnown = linked.length > 0 || everyLoanLinked;
+    const debt = debtKnown ? linked.reduce((s, l) => s + l.balance * l.shares[pp.id], 0) : null;
+    const service = debtKnown && hasFlows ? linked.reduce((s, l) => s + l.payment * l.shares[pp.id], 0) : null;
+    return rowHtml({
+      name: `<span class="font-medium">${escapeHtml(pp.name)}</span> ${pp.owner === 'po' ? '<span class="badge badge-po">PO</span>' : ''}${pp.sold ? ' <span class="badge badge-linked">prodáno</span>' : ''}`,
+      value: pp.value,
+      debt,
+      equity: debt == null ? null : pp.value - debt,
+      rent: hasFlows ? pp.rent : null,
+      costs: hasFlows ? pp.costs : null,
+      appreciation: hasFlows ? pp.appreciation : null,
+      yield: hasFlows ? pp.cashflow : null,
+      service,
+      cash: service == null ? null : pp.cashflow - service,
+    });
+  });
+
+  // úvěry, které se k žádné nemovitosti nedají přiřadit
+  if (unassigned.length) {
+    const debt = unassigned.reduce((s, l) => s + l.balance, 0);
+    const service = hasFlows ? unassigned.reduce((s, l) => s + l.payment, 0) : null;
+    propertyRows.push(
+      rowHtml({ name: '<span class="t-muted">Úvěry bez nemovitosti</span>', value: null, debt, equity: null, rent: null, costs: null, appreciation: null, yield: null, service, cash: service == null ? null : -service })
+    );
+  }
+  if (hasFlows && r.oneTime) {
+    propertyRows.push(rowHtml({ name: '<span class="t-muted">Jednorázově</span>', value: null, debt: null, equity: null, rent: null, costs: null, appreciation: null, yield: null, service: null, cash: r.oneTime }));
+  }
+  if ((r.perProperty || []).length) {
+    propertyRows.push(
+      rowHtml(
+        {
+          name: 'Celkem',
+          value: r.totalValue,
+          debt: r.totalDebt,
+          equity: r.equity,
+          rent: hasFlows ? r.totalRent : null,
+          costs: hasFlows ? r.totalCosts : null,
+          appreciation: hasFlows ? r.appreciationGain : null,
+          yield: hasFlows ? r.totalRent - r.totalCosts : null,
+          service: hasFlows ? r.totalInterest + r.totalPrincipal : null,
+          cash: r.cashflow,
+        },
+        'subtbl-total'
+      )
+    );
+  }
 
   const sharesText = (l) => {
     const names = Object.keys(l.shares || {}).map((id) => propertyName(id)).filter(Boolean);
@@ -2255,7 +2319,7 @@ function buildYearDetail(r) {
     <div class="detail-title">Rok ${r.year} · podle nemovitostí</div>
     <div class="overflow-x-auto"><table class="subtbl">
       <thead><tr>${propertyCols.map((c) => `<th>${c.label}</th>`).join('')}</tr></thead>
-      <tbody>${propertyRows || `<tr><td colspan="${propertyCols.length}" class="t-faint">Žádné nemovitosti</td></tr>`}</tbody>
+      <tbody>${propertyRows.join('') || `<tr><td colspan="${propertyCols.length}" class="t-faint">Žádné nemovitosti</td></tr>`}</tbody>
     </table></div>
     ${
       loanRows

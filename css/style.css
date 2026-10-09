@@ -2227,3 +2227,67 @@ input[type='date'].input {
     widows: 3;
   }
 }
+
+/* Řádek Celkem v rozpisu roku po nemovitostech */
+.subtbl tr.subtbl-total td {
+  font-weight: 700;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  border-top: 2px solid var(--border-strong);
+}
+
+/* Pruh s cashflow nad tabulkami */
+.cf-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.8rem;
+}
+.cf-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.cf-pill strong {
+  color: var(--text-strong);
+}
+.cf-pill.cf-pos strong {
+  color: var(--pos-text);
+}
+.cf-pill.cf-neg strong {
+  color: var(--neg-text);
+}
+.cf-pill.cf-total {
+  border-width: 2px;
+  font-weight: 600;
+}
+.cf-pill.cf-total.cf-neg {
+  background: var(--neg-soft);
+  border-color: var(--neg-border);
+}
+.cf-pill.cf-total.cf-pos {
+  background: var(--pos-soft);
+  border-color: var(--pos-border);
+}
+@media print {
+  .cf-strip {
+    margin-bottom: 0.3rem;
+  }
+}
+
+@media (max-width: 639px) {
+  .cf-pill {
+    font-size: 0.76rem;
+    padding: 0.25rem 0.6rem;
+    gap: 0.3rem;
+  }
+  .cf-strip {
+    gap: 0.4rem;
+  }
+}
