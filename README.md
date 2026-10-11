@@ -75,8 +75,9 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
   zbývající jistina.
 - Splátku zadáváš z banky a **zadaná splátka má přednost**. Když ji nezadáš, ale znáš **splatnost**, dopočítá se
   anuitním vzorcem. Prázdná splátka bez splatnosti = úvěr "jen úrok".
-- **Konec fixace**: od měsíce konce fixace platí "sazba po fixaci" a banka **přepočítá splátku** na zbývající
-  dobu (nebo platí zadaná "splátka po fixaci"). Bez zadané sazby se nic nemění.
+- **Konec fixace**: od měsíce konce fixace platí "sazba po fixaci". Splátka výchozně **zůstává** (jen se posune konec
+  splácení); volbou "Přepočítat splátku" ji banka přepočítá na zbývající dobu, nebo platí zadaná "splátka po fixaci".
+  Bez zadané sazby se nic nemění. V Přehledu je u cashflow vidět, kdy a o kolik se splátka změnila.
 - **Refinancování** (datum, nová sazba, nová doba): ze zbývající jistiny se spočítá nová anuita - "kolo od
   začátku", takže se zase platí hlavně úrok, i když úvěr předtím už běžel.
 - Scénářová událost **růst úrokových sazeb** přičte procentní body a splátka se přepočte do stejné splatnosti.

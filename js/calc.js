@@ -262,8 +262,9 @@ function projectLoanAmount(loan, targetYear, currentYear, events) {
  * splatnosti = úvěr "jen úrok" (jistina se nesplácí).
  *
  * Co se s úvěrem může stát:
- * - Konec fixace (od měsíce konce fixace): nová sazba (rate_after_fixation); banka
- *   přepočítá splátku na zbývající dobu (nebo platí zadaná payment_after_fixation).
+ * - Konec fixace (od měsíce konce fixace): nová sazba (rate_after_fixation). Splátka zůstává a jen se
+ *   posune konec splácení; volitelně ji banka přepočte na zbývající dobu (keep_payment_after_fixation=false)
+ *   nebo platí zadaná payment_after_fixation.
  * - Refinancování (refinance_date): "kolo od začátku" - ze zbývající jistiny se podle nové
  *   sazby a nové doby (refinance_years) spočítá nová anuita, takže se zase platí hlavně úrok.
  * - Scénářová událost "růst úrokových sazeb": přičte procentní body, banka přepočítá splátku
@@ -336,6 +337,8 @@ function initLoanState(loan, ls, firstYear) {
   const hasNumber = (v) => v != null && v !== '' && !isNaN(Number(v));
   ls.afterRate = hasNumber(loan.rate_after_fixation) ? Number(loan.rate_after_fixation) / 100 : null;
   ls.afterPay = Number(loan.payment_after_fixation) > 0 ? Number(loan.payment_after_fixation) : null;
+  // po konci fixace splátka výchozně zůstává (jako dosud); keep_payment_after_fixation === false = banka ji přepočte na zbývající dobu
+  ls.keepPay = loan.keep_payment_after_fixation !== false;
   ls.fixAbs = fixationChangeMonth(loan, ls.startYear);
   const refDate = loan.refinance_date ? toDate(loan.refinance_date) : null;
   ls.refAbs = refDate && !isNaN(refDate) ? monthAfter(refDate) : null;
@@ -386,9 +389,13 @@ function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0) {
 
   let interest = 0;
   let principal = 0;
+  let payChange = null; // změna měsíční splátky během roku (měsíc 1-12, původní a nová splátka)
+  const rateStart = Math.max(0, ls.rate + ls.delta);
+  const payStart = ls.pay;
   for (let m = 0; m < 12; m++) {
     if (ls.remainingPrincipal <= 0) break;
     const abs = stateYear * 12 + m;
+    const payBefore = ls.pay;
     let recompute = false;
     let forceAnnuity = false;
     let payFixed = false;
@@ -412,6 +419,10 @@ function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0) {
         ls.pay = ls.afterPay;
         ls.term = remainingTermMonths(ls.remainingPrincipal, ls.pay, Math.max(0, ls.rate + ls.delta));
         payFixed = true;
+      } else if (ls.keepPay) {
+        // splátka zůstává, při nové sazbě se jen posune konec splácení
+        ls.term = remainingTermMonths(ls.remainingPrincipal, ls.pay, Math.max(0, ls.rate + ls.delta));
+        payFixed = true;
       }
     }
     if (m === 0 && rateDelta !== ls.delta) {
@@ -422,6 +433,7 @@ function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0) {
     if (recompute && !payFixed && Number.isFinite(ls.term) && ls.term > 0 && (ls.pay > 0 || forceAnnuity)) {
       ls.pay = annuityPayment(ls.remainingPrincipal, rate, Math.max(ls.term, 1));
     }
+    if (Math.abs(ls.pay - payBefore) > 0.5) payChange = { month: m + 1, from: payBefore, to: ls.pay };
 
     const interestM = ls.remainingPrincipal * (rate / 12);
     let principalM = ls.pay - interestM;
@@ -437,8 +449,11 @@ function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0) {
     interest,
     principal,
     rate: Math.max(0, ls.rate + ls.delta),
+    rateStart,
     payment: interest + principal,
     monthlyPayment: ls.pay,
+    monthlyPaymentStart: payStart,
+    payChange,
   };
 }
 
@@ -656,7 +671,7 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
       const ls = loanState[l.id];
       const balance = ls.remainingPrincipal;
       const active = stateYear >= ls.startYear;
-      const { interest, principal, rate, payment, monthlyPayment } = amortizeLoanForYear(l, ls, stateYear, startYear, loanRateDelta(events, l.id, stateYear));
+      const { interest, principal, rate, payment, monthlyPayment, payChange } = amortizeLoanForYear(l, ls, stateYear, startYear, loanRateDelta(events, l.id, stateYear));
       totalInterest += interest;
       totalPrincipal += principal;
       // splacený úvěr už v přehledu úvěrů nefiguruje
@@ -672,6 +687,7 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
           principal,
           payment,
           monthlyPayment,
+          payChange,
         });
       }
     }

@@ -1586,6 +1586,7 @@ function updateLoanBadges() {
     start && end ? `${fmtDate(start)} → ${fmtDate(end)}` : end ? `do ${fmtDate(end)}` : years !== '' ? `${years} let` : '',
     f.elements['rate_after_fixation'].value.trim() ? `po fixaci ${fmtNumber(parseFormNumber(f.elements['rate_after_fixation'].value))} %` : '',
     maturity ? `splatnost ${fmtDate(maturity)}` : '',
+    f.elements['payment_mode_after_fixation'].value === 'recalc' ? 'splátka se přepočte' : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -1669,6 +1670,7 @@ function fillLoanForm(id) {
   setFormattedValue(f.elements['rate_after_fixation'], l.rate_after_fixation != null ? l.rate_after_fixation : '');
   setFormattedValue(f.elements['payment_after_fixation'], l.payment_after_fixation || '');
   f.elements['maturity_date'].value = l.maturity_date || '';
+  f.elements['payment_mode_after_fixation'].value = l.keep_payment_after_fixation === false ? 'recalc' : 'keep';
   f.elements['refinance_date'].value = l.refinance_date || '';
   setFormattedValue(f.elements['refinance_rate'], l.refinance_rate != null ? l.refinance_rate : '');
   f.elements['refinance_years'].value = l.refinance_years != null ? l.refinance_years : '';
@@ -1680,7 +1682,7 @@ function fillLoanForm(id) {
   document.getElementById('loan-acc-pledge').open = calc.loanCollateral(l).length > 0;
   const accordions = Array.from(f.querySelectorAll('details.acc:not(.acc-pledge)'));
   const [fixationAcc, refinanceAcc, detailsAcc] = accordions;
-  fixationAcc.open = !!(l.start_date || end || l.fixation_years != null || l.rate_after_fixation != null || l.maturity_date || l.payment_after_fixation);
+  fixationAcc.open = !!(l.start_date || end || l.fixation_years != null || l.rate_after_fixation != null || l.maturity_date || l.payment_after_fixation || l.keep_payment_after_fixation === false);
   refinanceAcc.open = !!(l.refinance_date || l.refinance_rate != null || l.refinance_years);
   detailsAcc.open = !!(l.property_value_at_origination || l.property_id || l.note);
   document.getElementById('loan-form-title').textContent = 'Upravit úvěr';
@@ -1756,6 +1758,7 @@ function submitLoanForm(e) {
     rate_after_fixation: num('rate_after_fixation'),
     payment_after_fixation: num('payment_after_fixation'),
     maturity_date: f.elements['maturity_date'].value || null,
+    keep_payment_after_fixation: f.elements['payment_mode_after_fixation'].value !== 'recalc',
     refinance_date: f.elements['refinance_date'].value || null,
     refinance_rate: num('refinance_rate'),
     refinance_years: f.elements['refinance_years'].value.trim() ? Math.max(0, Number(f.elements['refinance_years'].value) || 0) : null,
@@ -2514,9 +2517,14 @@ function renderOverview() {
   setFormula('kpi-debtratio-formula', `Dluh ÷ majetek`);
   if (row.totalRent != null) {
     const oneTime = row.oneTime ? ` ${row.oneTime > 0 ? '+' : '−'} jednorázově ${fmtMoney(Math.abs(row.oneTime / div))}` : '';
+    // změna měsíční splátky během roku (konec fixace, refinancování, růst sazeb) - ať je vidět, proč se cashflow mění
+    const monthName = ['', 'leden', 'únor', 'březen', 'duben', 'květen', 'červen', 'červenec', 'srpen', 'září', 'říjen', 'listopad', 'prosinec'];
+    const changes = (row.perLoan || [])
+      .filter((l) => l.payChange)
+      .map((l) => `splátka ${l.bank}: ${fmtMoney(l.payChange.from)} → ${fmtMoney(l.payChange.to)} měsíčně od měsíce ${l.payChange.month} (${monthName[l.payChange.month]}), sazba ${fmtPercent(l.rate)}`);
     setFormula(
       'kpi-cashflow-formula',
-      `Nájem ${fmtMoney(row.totalRent / div)} − náklady ${fmtMoney(row.totalCosts / div)} − úrok ${fmtMoney(row.totalInterest / div)} − jistina ${fmtMoney(row.totalPrincipal / div)}${oneTime}`
+      `Nájem ${fmtMoney(row.totalRent / div)} − náklady ${fmtMoney(row.totalCosts / div)} − úrok ${fmtMoney(row.totalInterest / div)} − jistina ${fmtMoney(row.totalPrincipal / div)}${oneTime}${changes.length ? '. ' + changes.join('; ') : ''}`
     );
     setFormula('kpi-appreciation-formula', `Růst hodnoty nemovitostí za ${per}`);
     setFormula('kpi-avg-growth-formula', `Zhodnocení ${fmtMoney(row.appreciationGain)} ÷ hodnota nemovitostí ${fmtMoney(row.realEstateValue)}`);
