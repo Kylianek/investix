@@ -73,8 +73,8 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
 - Každý měsíc je **úrok = zbývající jistina × sazba / 12**, zbytek splátky je **jistina**. Splátka je po celou
   dobu stejná, proto je v prvních letech většina splátky úrok a podíl jistiny postupně roste. Dluh je vždy jen
   zbývající jistina.
-- Splátku zadáváš z banky. Když ji nezadáš, ale znáš **splatnost**, dopočítá se anuitním vzorcem. Prázdná
-  splátka bez splatnosti = úvěr "jen úrok".
+- Splátku zadáváš z banky a **zadaná splátka má přednost**. Když ji nezadáš, ale znáš **splatnost**, dopočítá se
+  anuitním vzorcem. Prázdná splátka bez splatnosti = úvěr "jen úrok".
 - **Konec fixace**: od měsíce konce fixace platí "sazba po fixaci" a banka **přepočítá splátku** na zbývající
   dobu (nebo platí zadaná "splátka po fixaci"). Bez zadané sazby se nic nemění.
 - **Refinancování** (datum, nová sazba, nová doba): ze zbývající jistiny se spočítá nová anuita - "kolo od

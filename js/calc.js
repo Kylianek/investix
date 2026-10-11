@@ -353,8 +353,10 @@ function initLoanState(loan, ls, firstYear) {
   }
   if (ls.refAbs != null && ls.refAbs < firstAbs) ls.refAbs = null;
 
+  // Zadaná splátka má přednost: splatnost se bere jen tehdy, když splátka není zadaná (jinak by si zadaná splátka a splatnost
+  // odporovaly a po konci fixace by splátka klesla, i když sazba roste).
   let term = null;
-  if (loan.maturity_date) {
+  if (loan.maturity_date && pay <= 0) {
     const d = toDate(loan.maturity_date);
     const months = isNaN(d) ? 0 : monthIndex(d) - firstAbs + 1;
     if (months >= 1) term = months;
