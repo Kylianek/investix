@@ -78,9 +78,10 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
 - **Konec fixace**: od měsíce konce fixace platí "sazba po fixaci" a banka **přepočítá splátku** na zbývající dobu
   (nebo platí zadaná "splátka po fixaci"). Bez zadané sazby se nic nemění. V Přehledu je u cashflow vidět, kdy a o
   kolik se splátka změnila.
-- Model počítá po 12měsíčních "letech" od dneška (řádek 2029 = stav za tři roky od dneška, stejně jako hodnota a nájem).
-  Konkrétní data (konec fixace, refinancování, splatnost) se proto přepočítají na měsíce od dneška, takže zůstatek
-  i nová splátka odpovídají skutečnému kalendáři.
+- Řádky Scénářů a Přehled jsou **kalendářní roky** (leden až prosinec). Letošní řádek začíná dneškem, takže obsahuje jen zbývající
+  měsíce roku (od října 3 měsíce, označeno "říj–pro"); zhodnocení v něm se počítá poměrně. Nájem a náklady se indexují 1. ledna.
+  Konec fixace, refinancování i splatnost připadnou přímo na svůj měsíc. Měsíční zobrazení dělí počtem měsíců řádku, pruhy nad
+  tabulkami ukazují běžnou roční hodnotu.
 - **Refinancování** (datum, nová sazba, nová doba): ze zbývající jistiny se spočítá nová anuita - "kolo od
   začátku", takže se zase platí hlavně úrok, i když úvěr předtím už běžel.
 - Scénářová událost **změna úrokové sazby** přepíše sazbu vybraných (nebo všech) úvěrů na zadanou hodnotu (nahoru i dolů)

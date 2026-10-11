@@ -218,13 +218,16 @@ function rentGrowthBase(property, settings) {
  * Nemovitosti/úvěry, které v cílovém roce ještě neexistovaly (podle data
  * pořízení/sjednání), se vynechají.
  */
-function rebaseToYear(properties, loans, settings, events, targetYear, currentYear) {
+function rebaseToYear(properties, loans, settings, events, targetYear, currentYear, startMonth) {
   const rebasedProperties = [];
   for (const p of properties) {
     if (yearOf(p.acquisition_date, currentYear) > targetYear) continue;
     let value = Number(p.market_value) || 0;
     let rent = Number(p.rent) || 0;
     const rentBase = rentGrowthBase(p, settings);
+    // dnešek je uprostřed letošního roku: nejdřív zpět na 1. 1. letošního roku (poměrná část zhodnocení)
+    const monthsDone = startMonth == null ? defaultStartMonth(currentYear) : startMonth;
+    value /= Math.pow(1 + resolvePortfolioRate(events, 'growth', currentYear, Number(p.growth_rate) || 0, p.id), monthsDone / 12);
     for (let y = currentYear; y > targetYear; y--) {
       // hodnota na začátku roku y vznikla zhodnocením během roku y-1, nájem roku y je navýšený v roce y
       value /= 1 + resolvePortfolioRate(events, 'growth', y - 1, Number(p.growth_rate) || 0, p.id);
@@ -235,7 +238,7 @@ function rebaseToYear(properties, loans, settings, events, targetYear, currentYe
 
   const rebasedLoans = [];
   for (const l of loans) {
-    const amount = projectLoanAmount(l, targetYear, currentYear, events);
+    const amount = projectLoanAmount(l, targetYear, currentYear, events, startMonth);
     if (amount == null) continue;
     rebasedLoans.push({ ...l, amount });
   }
@@ -244,28 +247,31 @@ function rebaseToYear(properties, loans, settings, events, targetYear, currentYe
 }
 
 /**
- * Zbývající jistina úvěru na začátku libovolného roku (minulého i budoucího) - pro
+ * Zbývající jistina úvěru k 1. 1. libovolného roku (minulého i budoucího) - pro
  * budoucnost amortizuje dopředu (stejně jako projectPortfolio), pro minulost
  * obrácením stejným způsobem jako rebaseToYear. Vrací null, pokud úvěr v tom
  * roce ještě nebyl sjednaný.
  */
-function projectLoanAmount(loan, targetYear, currentYear, events) {
+function projectLoanAmount(loan, targetYear, currentYear, events, startMonth) {
   events = events || [];
+  const monthsDone = startMonth == null ? defaultStartMonth(currentYear) : startMonth;
   const loanStartYear = yearOf(loan.start_date, currentYear);
   if (loanStartYear > targetYear) return null;
   let principal = Number(loan.amount) || 0;
   if (targetYear > currentYear) {
-    const ls = { remainingPrincipal: principal, startYear: loanStartYear, startMonth: defaultStartMonth(currentYear) };
+    const ls = { remainingPrincipal: principal, startYear: loanStartYear, projYear: currentYear, startMonth: monthsDone };
     for (let y = currentYear; y < targetYear; y++) {
       amortizeLoanForYear(loan, ls, y, currentYear, loanRateDelta(events, loan.id, y), loanRateOverride(events, loan.id, y));
     }
     return ls.remainingPrincipal;
   }
+  // zpětně: nejdřív letošní měsíce do dneška, pak celé roky až po 1. 1. cílového roku
   const payment = Number(loan.monthly_payment) || 0;
-  for (let y = currentYear; y > targetYear; y--) {
-    const override = loanRateOverride(events, loan.id, y - 1);
-    const monthlyRate = (override != null ? override : Math.max(0, loanRateForYear(loan, loanStartYear, y - 1) + loanRateDelta(events, loan.id, y - 1))) / 12;
-    for (let m = 0; m < 12; m++) principal = (principal + payment) / (1 + monthlyRate);
+  for (let y = currentYear; y >= targetYear; y--) {
+    const override = loanRateOverride(events, loan.id, y);
+    const monthlyRate = (override != null ? override : Math.max(0, loanRateForYear(loan, loanStartYear, y) + loanRateDelta(events, loan.id, y))) / 12;
+    const months = y === currentYear ? monthsDone : 12;
+    for (let m = 0; m < months; m++) principal = (principal + payment) / (1 + monthlyRate);
   }
   return Math.max(0, principal);
 }
@@ -292,9 +298,9 @@ function projectLoanAmount(loan, targetYear, currentYear, events) {
 const monthIndex = (date) => date.getFullYear() * 12 + date.getMonth();
 
 /**
- * Model počítá po 12měsíčních "letech" od dneška (hodnota, nájem i zůstatek úvěru na řádku 2029 jsou stav za tři roky od
- * dneška). Aby konec fixace, refinancování a splatnost připadly na správný měsíc téhle osy, posouvají se o počet
- * měsíců, které už letos uplynuly. Mimo aktuální rok (zpětný výpočet) se začíná od ledna.
+ * Řádky simulace jsou KALENDÁŘNÍ roky. První řádek (letošek) pokrývá jen zbytek roku od dneška (od měsíce
+ * `defaultStartMonth`), další řádky celé roky leden až prosinec. Data (konec fixace, refinancování, splatnost) se tak
+ * dají přímo na kalendářní měsíc. Mimo aktuální rok (zpětný výpočet) se začíná od ledna.
  */
 function defaultStartMonth(startYear) {
   const now = new Date();
@@ -308,7 +314,7 @@ function monthAfter(date) {
 
 /**
  * Měsíc, od kterého platí podmínky po fixaci. null = konec fixace není znám (pak se nic nemění).
- * Bez data počátku se fixace počítá od ledna roku sjednání/dneška.
+ * Bez data počátku se fixace počítá od dneška (od měsíce `startMonth` roku sjednání).
  */
 function fixationChangeMonth(loan, loanStartYear, startMonth = 0) {
   if (loan.fixation_end) {
@@ -326,7 +332,7 @@ function fixationChangeMonth(loan, loanStartYear, startMonth = 0) {
 
 /** Rok, od kterého úvěr přechází na sazbu po fixaci (Infinity = neznámo). */
 function fixationEndYear(loan, loanStartYear) {
-  const month = fixationChangeMonth(loan, loanStartYear);
+  const month = fixationChangeMonth(loan, loanStartYear, defaultStartMonth(loanStartYear));
   return month == null ? Infinity : Math.floor(month / 12);
 }
 
@@ -359,14 +365,15 @@ function remainingTermMonths(principal, payment, annualRate) {
 
 /** Počáteční stav úvěru v prvním simulovaném roce (splátka, zbývající doba, plánované změny). */
 function initLoanState(loan, ls, firstYear) {
-  const startMonth = ls.startMonth || 0;
-  const firstAbs = firstYear * 12 + startMonth;
+  // v prvním simulovaném roce (letošek) se začíná od dnešního měsíce, jinak od ledna
+  const firstMonth = firstYear === ls.projYear ? ls.startMonth || 0 : 0;
+  const firstAbs = firstYear * 12 + firstMonth;
   const balance = ls.remainingPrincipal;
   const hasNumber = (v) => v != null && v !== '' && !isNaN(Number(v));
   ls.afterRate = hasNumber(loan.rate_after_fixation) ? Number(loan.rate_after_fixation) / 100 : null;
   ls.afterPay = Number(loan.payment_after_fixation) > 0 ? Number(loan.payment_after_fixation) : null;
   ls.keepPay = false;
-  ls.fixAbs = fixationChangeMonth(loan, ls.startYear, startMonth);
+  ls.fixAbs = fixationChangeMonth(loan, ls.startYear, ls.startYear === ls.projYear ? ls.startMonth || 0 : 0);
   const refDate = loan.refinance_date ? toDate(loan.refinance_date) : null;
   ls.refAbs = refDate && !isNaN(refDate) ? monthAfter(refDate) : null;
   ls.refRate = hasNumber(loan.refinance_rate) ? Number(loan.refinance_rate) / 100 : null;
@@ -409,8 +416,8 @@ function effectiveRate(ls) {
 }
 
 /**
- * Umoří jeden úvěr o jeden rok (rok `stateYear`). Mutuje stav úvěru `ls`
- * (remainingPrincipal, splátka, zbývající doba...). Vrací za ten rok
+ * Umoří jeden úvěr o kalendářní rok `stateYear` (v prvním simulovaném roce jen od dneška do prosince). Mutuje stav
+ * úvěru `ls` (remainingPrincipal, splátka, zbývající doba...). Vrací za ten rok
  * { interest, principal, rate, payment, monthlyPayment } (payment = zaplaceno za rok celkem).
  * `rateDelta` = posun sazby ze starších scénářových událostí (zlomek), `rateOverride` = sazba přepsaná událostí
  * "změna úrokové sazby" (zlomek, undefined = bez přepisu).
@@ -431,9 +438,10 @@ function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0, rate
   }
   const rateStart = effectiveRate(ls);
   const payStart = ls.pay;
-  for (let m = 0; m < 12; m++) {
+  const mFrom = stateYear === ls.projYear ? ls.startMonth || 0 : 0;
+  for (let m = mFrom; m < 12; m++) {
     if (ls.remainingPrincipal <= 0) break;
-    const abs = stateYear * 12 + (ls.startMonth || 0) + m;
+    const abs = stateYear * 12 + m;
     const payBefore = ls.pay;
     let recompute = false;
     let forceAnnuity = false;
@@ -460,7 +468,7 @@ function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0, rate
         payFixed = true;
       }
     }
-    if (m === 0 && (rateDelta !== ls.delta || (rateOverride == null ? null : rateOverride) !== ls.override)) {
+    if (m === mFrom && (rateDelta !== ls.delta || (rateOverride == null ? null : rateOverride) !== ls.override)) {
       ls.delta = rateDelta;
       ls.override = rateOverride == null ? null : rateOverride;
       recompute = true;
@@ -503,6 +511,7 @@ function loanTerms(loan, firstYear, startMonth) {
   const ls = {
     remainingPrincipal: amount,
     startYear: Math.max(yearOf(loan.start_date, firstYear), firstYear),
+    projYear: firstYear,
     startMonth: startMonth == null ? defaultStartMonth(firstYear) : startMonth,
   };
   if (amount <= 0) return { payment: 0, termMonths: 0, payoffYear: null, payoffMonth: null, auto: false };
@@ -526,6 +535,7 @@ function loanSchedule(loan, { events = [], startYear, maxYears = 40, startMonth 
   const ls = {
     remainingPrincipal: Number(loan.amount) || 0,
     startYear: yearOf(loan.start_date, startYear),
+    projYear: startYear,
     startMonth: startMonth == null ? defaultStartMonth(startYear) : startMonth,
   };
   const rows = [];
@@ -535,6 +545,7 @@ function loanSchedule(loan, { events = [], startYear, maxYears = 40, startMonth 
     const r = amortizeLoanForYear(loan, ls, year, startYear, loanRateDelta(events, loan.id, year), loanRateOverride(events, loan.id, year));
     rows.push({
       year,
+      months: year === ls.projYear ? 12 - (ls.startMonth || 0) : 12,
       balanceStart,
       interest: r.interest,
       principal: r.principal,
@@ -559,10 +570,11 @@ function loanSchedule(loan, { events = [], startYear, maxYears = 40, startMonth 
  * events: pole { type: 'growth'|'rent_growth'|'vacancy'|'inflation'|'interest'|'one_time',
  *                year_from, year_to, value, target_ids, note }
  *
- * Model odděluje STAV (majetek/dluh na začátku roku) a TOK (co se stane BĚHEM
- * roku). rows[k] = stav na začátku roku startYear+k a tokové veličiny
- * (cashflow, zhodnocení, daň...) ZA TENTO ROK. Scénářová událost s rokem Y
- * proto ovlivňuje tok v řádku Y a stav až od řádku Y+1. rows[0] je přesně dnešek.
+ * Řádky jsou KALENDÁŘNÍ roky. Model odděluje STAV (majetek/dluh na začátku období) a TOK (co se stane BĚHEM
+ * období). rows[k] = stav na začátku období a tokové veličiny (cashflow, zhodnocení, daň...) ZA TOTO OBDOBÍ.
+ * rows[0] je letošek: stav je dnešek a toky jsou jen od dneška do konce roku (rows[0].months < 12, pokud už
+ * letos něco uplynulo). Další řádky jsou celé roky (leden až prosinec, stav k 1. 1.). Zhodnocení hodnoty v
+ * neúplném roce se počítá poměrně. Scénářová událost s rokem Y ovlivňuje tok v řádku Y a stav až od řádku Y+1.
  * Poslední řádek má jen stav (nemá už žádný další rok, ze kterého by tok počítal).
  * Daň z příjmu z pronájmu se tak počítá stejně pro "dnešek" i pro všechny
  * budoucí roky - na rozdíl od daně z prodeje se časového testu netýká.
@@ -586,6 +598,7 @@ function loanSchedule(loan, { events = [], startYear, maxYears = 40, startMonth 
 function projectPortfolio({ properties, loans, settings, events, horizonYears, startYear, startMonth }) {
   startYear = startYear || new Date().getFullYear();
   const timelineMonth = startMonth == null ? defaultStartMonth(startYear) : startMonth;
+  const firstRowMonths = 12 - timelineMonth; // letošek: od dneška do prosince
   events = events || [];
   horizonYears = Math.max(1, Number(horizonYears) || 1);
   const capGainsTaxRate = (Number(settings.capital_gains_tax_rate) || 0) / 100;
@@ -599,7 +612,7 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
   const loanState = {};
   const loanShares = {};
   for (const l of loans) {
-    loanState[l.id] = { remainingPrincipal: Number(l.amount) || 0, startYear: yearOf(l.start_date, startYear), startMonth: timelineMonth };
+    loanState[l.id] = { remainingPrincipal: Number(l.amount) || 0, startYear: yearOf(l.start_date, startYear), projYear: startYear, startMonth: timelineMonth };
     loanShares[l.id] = loanPropertyShares(l, properties);
   }
 
@@ -621,6 +634,8 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
 
   for (let k = 0; k <= horizonYears; k++) {
     const stateYear = startYear + k;
+    const months = k === 0 ? firstRowMonths : 12; // kolik měsíců řádek pokrývá
+    const yf = months / 12;
     const activeProps = properties.filter(
       (p) => yearOf(p.acquisition_date, startYear) <= stateYear && !soldProperties.has(p.id)
     );
@@ -635,6 +650,7 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
     if (k === horizonYears) {
       rows.push({
         year: stateYear,
+        months: null,
         realEstateValue,
         cashReserve,
         totalValue,
@@ -683,12 +699,12 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
       const vacancy = resolvePortfolioRate(events, 'vacancy', stateYear, Number(p.vacancy_rate) || 0, p.id);
 
       const valueBefore = curValue[p.id];
-      curValue[p.id] = valueBefore * (1 + growth);
+      curValue[p.id] = valueBefore * Math.pow(1 + growth, yf);
       const gain = curValue[p.id] - valueBefore;
       appreciationGain += gain;
 
-      const rentAnnual = curRent[p.id] * 12 * (1 - vacancy);
-      const costAnnual = curCost[p.id];
+      const rentAnnual = curRent[p.id] * months * (1 - vacancy); // za období řádku (letošek jen zbytek roku)
+      const costAnnual = curCost[p.id] * yf;
       const propertyNOI = rentAnnual - costAnnual;
       totalRentNOI += propertyNOI;
       totalRent += rentAnnual;
@@ -745,13 +761,13 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
     const cashflow = totalRentNOI - totalInterest - totalPrincipal + oneTimeTotal;
     cumulativeCashflow += cashflow;
 
-    const inflationLoss = realEstateValue * inflation;
+    const inflationLoss = realEstateValue * inflation * yf;
 
     // --- Automatický prodej nemovitostí na umoření dluhu (na konci roku) ---
     // Nastřádané zhodnocení navíc samo podléhá inflaci (je to "papírový" zisk,
     // dokud se nerealizuje prodejem) - starší část součtu se každý rok
     // reálně znehodnotí, teprve pak se přičte letošní (ještě neznehodnocený) přírůstek.
-    cumulativeGain = cumulativeGain / (1 + inflation) + appreciationGain;
+    cumulativeGain = cumulativeGain / Math.pow(1 + inflation, yf) + appreciationGain;
     const sales = [];
     const saleDate = new Date(stateYear + 1, 0, 1);
 
@@ -823,6 +839,7 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
 
     rows.push({
       year: stateYear,
+      months,
       realEstateValue,
       cashReserve,
       totalValue,
@@ -858,10 +875,12 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
   // hotovostní rezervy/splácení dluhu. avgGrowthRate každého roku je naproti
   // tomu čistý poměr appreciationGain ÷ realEstateValue toho roku.
   let assetGrowthFactor = 1;
+  let growthMonths = 0;
   for (let k = 0; k < horizonYears; k++) {
     assetGrowthFactor *= 1 + (Number(rows[k].avgGrowthRate) || 0);
+    growthMonths += rows[k].months;
   }
-  const cagrAssets = Math.pow(assetGrowthFactor, 1 / horizonYears) - 1;
+  const cagrAssets = Math.pow(assetGrowthFactor, 12 / growthMonths) - 1;
 
   return {
     rows,

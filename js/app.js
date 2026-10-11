@@ -1105,6 +1105,14 @@ function wirePledgeChecklist() {
   });
 }
 
+const MONTH_SHORT = ['led', 'úno', 'bře', 'dub', 'kvě', 'čvn', 'čvc', 'srp', 'zář', 'říj', 'lis', 'pro'];
+
+/** Jaká část roku je v řádku: u neúplného (letošního) roku např. "říj–pro", jinak prázdné. */
+function monthRange(months) {
+  if (!months || months >= 12) return '';
+  return months === 1 ? 'pro' : `${MONTH_SHORT[12 - months]}–pro`;
+}
+
 /** Splátkový kalendář úvěru (jako list "Roky" v bankovní kalkulačce): úrok, jistina a podíl úroku po letech. */
 function loanScheduleHtml(loan, expanded) {
   const sch = calc.loanSchedule(loan, { events: state.events, startYear: CURRENT_YEAR, maxYears: 40 });
@@ -1113,7 +1121,7 @@ function loanScheduleHtml(loan, expanded) {
     .map((r) => {
       const share = Math.round(r.interestShare * 100);
       return `<tr>
-        <td class="font-medium">${r.year}</td>
+        <td class="font-medium">${r.year}${r.months < 12 ? ` <span class="text-xs t-faint">${monthRange(r.months)}</span>` : ''}</td>
         <td>${moneyHtml(r.interest)}</td>
         <td>${moneyHtml(r.principal)}</td>
         <td><span class="share-bar" title="${share} % splátek tvoří úrok"><i style="width:${share}%"></i></span> ${share} %</td>
@@ -2173,7 +2181,16 @@ function renderScenario() {
 
 /** Pruh s cashflow za letošní rok nad tabulkami nemovitostí a úvěrů (stejná čísla jako v Přehledu). */
 function renderCashflowStrips() {
-  const row = runProjection(1).rows[0];
+  let row = runProjection(1).rows[0];
+  // letošní řádek pokrývá jen zbytek roku, pruh ukazuje běžnou roční hodnotu (stejná čísla jako dřív)
+  const scale = 12 / (row.months || 12);
+  row = {
+    totalRent: row.totalRent * scale,
+    totalCosts: row.totalCosts * scale,
+    totalInterest: row.totalInterest * scale,
+    totalPrincipal: row.totalPrincipal * scale,
+    cashflow: (row.totalRent - row.totalCosts - row.totalInterest - row.totalPrincipal) * scale,
+  };
   const chip = (label, value, cls) => `<span class="cf-pill ${cls || ''}"><span class="cf-label">${label}</span> <strong class="num">${fmtMoney(value)}</strong></span>`;
   const html =
     chip('Nájem', row.totalRent, 'cf-pos') +
@@ -2196,7 +2213,7 @@ function renderScenarioTable() {
       cell: (r) => {
         const expandedYear = expandedYears.has(r.year);
         const hasEvent = r.sales.length > 0 || state.events.some((ev) => Number(ev.year_from) === r.year);
-        return `<button type="button" class="year-pill" aria-expanded="${expandedYear}" aria-label="Rok ${r.year} - detail po nemovitostech"><span class="year-chevron"></span>${r.year}</button>${hasEvent ? '<span class="ev-dot" title="Událost v tomto roce"></span>' : ''}`;
+        return `<button type="button" class="year-pill" aria-expanded="${expandedYear}" aria-label="Rok ${r.year} - detail po nemovitostech"><span class="year-chevron"></span>${r.year}</button>${r.months && r.months < 12 ? `<span class="year-part t-faint text-xs ml-1">${monthRange(r.months)}</span>` : ''}${hasEvent ? '<span class="ev-dot" title="Událost v tomto roce"></span>' : ''}`;
       },
     },
     { label: 'Majetek', right: true, cell: (r) => money(r.totalValue) },
@@ -2500,8 +2517,11 @@ function renderOverview() {
   const row = result.rows[idx];
 
   const isMonth = overviewState.period === 'month';
-  const div = isMonth ? 12 : 1;
-  const per = isMonth ? 'měsíc' : 'rok';
+  const months = row.months || 12; // letošek pokrývá jen zbytek roku
+  const partial = !isMonth && months < 12;
+  const range = monthRange(months);
+  const div = isMonth ? months : 1;
+  const per = isMonth ? 'měsíc' : partial ? 'zbytek roku' : 'rok';
 
   document.getElementById('kpi-assets').textContent = fmtMoney(row.totalValue);
   document.getElementById('kpi-debt').textContent = fmtMoney(row.totalDebt);
@@ -2509,14 +2529,17 @@ function renderOverview() {
   document.getElementById('kpi-debtratio').textContent = row.totalValue > 0 ? fmtPercent(row.totalDebt / row.totalValue) : '0 %';
   document.getElementById('kpi-cashflow').textContent = fmtMoney((row.cashflow || 0) / div);
   document.getElementById('kpi-appreciation').textContent = fmtMoney((row.appreciationGain || 0) / div);
-  document.getElementById('kpi-avg-growth').textContent = row.avgGrowthRate == null ? '—' : fmtPercent(row.avgGrowthRate);
+  // průměrný růst je vždy roční: u neúplného roku se přepočte z růstu za zbývající měsíce
+  const shortRow = months < 12;
+  const avgGrowthYearly = row.avgGrowthRate == null ? null : shortRow ? Math.pow(1 + row.avgGrowthRate, 12 / months) - 1 : row.avgGrowthRate;
+  document.getElementById('kpi-avg-growth').textContent = avgGrowthYearly == null ? '—' : fmtPercent(avgGrowthYearly);
   document.getElementById('kpi-inflation-loss').textContent = row.inflationRate == null ? '—' : fmtPercent(row.inflationRate);
   document.getElementById('kpi-inflation-loss-amount').textContent = row.inflationLoss == null ? '—' : fmtMoney((row.inflationLoss || 0) / div);
   document.getElementById('kpi-real-appreciation').textContent = fmtMoney((row.realAppreciation || 0) / div);
 
-  document.getElementById('kpi-cashflow-label').textContent = isMonth ? 'Měsíční cashflow' : 'Roční cashflow';
-  document.getElementById('kpi-appreciation-label').textContent = isMonth ? 'Měsíční zhodnocení' : 'Roční zhodnocení';
-  document.getElementById('kpi-real-appreciation-label').textContent = isMonth ? 'Zbývá po inflaci (měsíc)' : 'Zbývá po inflaci (rok)';
+  document.getElementById('kpi-cashflow-label').textContent = isMonth ? 'Měsíční cashflow' : partial ? `Cashflow ${range}` : 'Roční cashflow';
+  document.getElementById('kpi-appreciation-label').textContent = isMonth ? 'Měsíční zhodnocení' : partial ? `Zhodnocení ${range}` : 'Roční zhodnocení';
+  document.getElementById('kpi-real-appreciation-label').textContent = isMonth ? 'Zbývá po inflaci (měsíc)' : partial ? `Zbývá po inflaci (${range})` : 'Zbývá po inflaci (rok)';
 
   setFormula('kpi-assets-formula', row.cashReserve ? `Nemovitosti ${fmtMoney(row.realEstateValue)} + hotovost ${fmtMoney(row.cashReserve)}` : `Součet tržních hodnot nemovitostí`);
   setFormula('kpi-debt-formula', 'Zbývající jistina všech úvěrů');
@@ -2536,7 +2559,7 @@ function renderOverview() {
       `Nájem ${fmtMoney(row.totalRent / div)} − náklady ${fmtMoney(row.totalCosts / div)} − úrok ${fmtMoney(row.totalInterest / div)} − jistina ${fmtMoney(row.totalPrincipal / div)}${oneTime}${changes.length ? '. ' + changes.join('; ') : ''}`
     );
     setFormula('kpi-appreciation-formula', `Růst hodnoty nemovitostí za ${per}`);
-    setFormula('kpi-avg-growth-formula', `Zhodnocení ${fmtMoney(row.appreciationGain)} ÷ hodnota nemovitostí ${fmtMoney(row.realEstateValue)}`);
+    setFormula('kpi-avg-growth-formula', `Zhodnocení ${fmtMoney(row.appreciationGain)} ÷ hodnota nemovitostí ${fmtMoney(row.realEstateValue)}${shortRow ? `, přepočteno z ${months} měsíců na rok` : ''}`);
     setFormula('kpi-inflation-loss-formula', `Inflace v roce ${row.year}`);
     setFormula('kpi-real-appreciation-formula', `Zhodnocení − ztráta inflací ${fmtMoney((row.inflationLoss || 0) / div)}`);
   }
