@@ -1848,7 +1848,7 @@ const EVENT_LABELS = {
   growth: 'Růst hodnoty nemovitostí',
   rent_growth: 'Růst nájmu',
   vacancy: 'Obsazenost',
-  interest: 'Růst úrokových sazeb',
+  interest: 'Změna úrokové sazby',
   inflation: 'Inflace',
   one_time: 'Jednorázový příjem/výdaj',
   sale: 'Prodej co nejdřív',
@@ -1856,12 +1856,12 @@ const EVENT_LABELS = {
   refinance: 'Refinancování',
 };
 
-const EVENT_UNITS = { growth: 'percent', rent_growth: 'percent', vacancy: 'percent', inflation: 'percent', interest: 'pp', one_time: 'money' };
+const EVENT_UNITS = { growth: 'percent', rent_growth: 'percent', vacancy: 'percent', inflation: 'percent', interest: 'percent', one_time: 'money' };
 const EVENT_VALUE_LABELS = {
   growth: 'Růst',
   rent_growth: 'Růst',
   vacancy: 'Obsazenost',
-  interest: 'Změna sazby',
+  interest: 'Nová sazba',
   inflation: 'Inflace',
   one_time: 'Částka',
 };
@@ -1937,6 +1937,11 @@ function eventTargetNames(ev) {
   return names.length ? names.join(', ') : '—';
 }
 
+function eventLabel(ev) {
+  if (ev.type === 'interest' && ev.mode !== 'set') return 'Růst sazeb (starší)';
+  return EVENT_LABELS[ev.type] || ev.type;
+}
+
 function eventPeriod(ev) {
   if (ev.type === 'one_time' || (ev.year_to && Number(ev.year_to) === Number(ev.year_from))) return `${ev.year_from}`;
   return ev.year_to ? `${ev.year_from}–${ev.year_to}` : `${ev.year_from} →`;
@@ -1948,7 +1953,8 @@ function eventValueText(ev) {
     case 'one_time':
       return fmtMoney(v);
     case 'interest':
-      return `${v > 0 ? '+' : ''}${fmtNumber(v)} p. b.`;
+      // nová událost přepisuje sazbu; starší (bez mode) přičítala procentní body
+      return ev.mode === 'set' ? `${fmtNumber(v)} %` : `${v > 0 ? '+' : ''}${fmtNumber(v)} p. b.`;
     case 'vacancy':
       return `${fmtNumber(100 - v)} %`;
     default:
@@ -1988,7 +1994,7 @@ function renderEvents() {
   document.getElementById('events-card').classList.toggle('hidden', !state.events.length && !derived.length);
   const items = [
     ...state.events.map((ev) => ({
-      label: EVENT_LABELS[ev.type] || ev.type,
+      label: eventLabel(ev),
       badge: '',
       targets: eventTargetNames(ev),
       period: eventPeriod(ev),
@@ -2044,7 +2050,9 @@ function fillEventForm(id) {
   f.elements['year_to'].value = ev.year_to && Number(ev.year_to) !== Number(ev.year_from) ? ev.year_to : '';
   updateEventFormUi();
   const v = Number(ev.value) || 0;
-  setFormattedValue(f.elements['value'], ev.type === 'vacancy' ? +(100 - v).toFixed(4) : v);
+  // starší událost "růst sazeb" měla jiný význam (p. b.), takže se hodnota nepřebírá a zadá se nová sazba
+  const legacyRate = ev.type === 'interest' && ev.mode !== 'set';
+  setFormattedValue(f.elements['value'], legacyRate ? '' : ev.type === 'vacancy' ? +(100 - v).toFixed(4) : v);
   f.elements['note'].value = ev.note || '';
   document.getElementById('event-form-title').textContent = 'Upravit scénářovou událost';
   document.getElementById('event-submit-label').textContent = 'Uložit změny';
@@ -2091,6 +2099,7 @@ function submitEventForm(e) {
     note: f.elements['note'].value.trim() || null,
   };
   if (eventTargetKind(type)) payload.target_ids = eventTargets.slice();
+  if (type === 'interest') payload.mode = 'set'; // nová sazba přepisuje (starší události bez mode přičítaly p. b.)
   if (id) {
     const idx = state.events.findIndex((ev) => ev.id === id);
     if (idx !== -1) state.events[idx] = payload;
@@ -2119,8 +2128,7 @@ function runProjection(horizonYears, properties, loans, startYear) {
 let scenarioRows = [];
 
 function shortEventLabel(ev) {
-  const base = EVENT_LABELS[ev.type] || ev.type;
-  return `${base} ${eventValueText(ev)}`;
+  return `${eventLabel(ev)} ${eventValueText(ev)}`;
 }
 
 function saleChipText(s) {

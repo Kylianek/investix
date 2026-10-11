@@ -53,8 +53,8 @@ Simulace vývoje portfolia rok po roce:
   proto se při zapnutém automatickém prodeji prodá co nejdřív (první rok simulace). FO nemovitost se
   automaticky neprodá, dokud neuplyne časový test.
 - **Scénářové události** (rok = rok, ve kterém se dějí; prázdné "do roku" = trvale):
-  růst hodnoty, růst nájmu, obsazenost, **růst úrokových sazeb** (o p. b.; banka přepočítá splátku na
-  zbývající dobu), inflace a jednorázový příjem/výdaj. Událost jde zacílit na **jednu, více nebo všechny
+  růst hodnoty, růst nájmu, obsazenost, **změna úrokové sazby** (zadáš novou sazbu, např. z 5 na 7 %, nebo níž;
+  banka přepočítá splátku na zbývající dobu), inflace a jednorázový příjem/výdaj. Událost jde zacílit na **jednu, více nebo všechny
   nemovitosti** (u sazeb na vybrané úvěry); konkrétní cíl má přednost před celoportfoliovou událostí.
 - Co zadáš v kartě nemovitosti nebo úvěru (obsazenost, vlastní růst nájmu, prodej PO, sazba po fixaci),
   se ve Scénářích objeví jako událost s odkazem zpět na kartu.
@@ -83,9 +83,11 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
   i nová splátka odpovídají skutečnému kalendáři.
 - **Refinancování** (datum, nová sazba, nová doba): ze zbývající jistiny se spočítá nová anuita - "kolo od
   začátku", takže se zase platí hlavně úrok, i když úvěr předtím už běžel.
-- Scénářová událost **růst úrokových sazeb** přičte procentní body a splátka se přepočte do stejné splatnosti.
-- Prodej nemovitosti splatí nejdřív úvěry vázané na ni, zbytek úvěr s nejvyšší sazbou; splátka zůstává a úvěr
-  se splatí dřív.
+- Scénářová událost **změna úrokové sazby** přepíše sazbu vybraných (nebo všech) úvěrů na zadanou hodnotu (nahoru i dolů)
+  a splátka se přepočte do stejné splatnosti; po skončení události se vrací původní sazba. Starší události "růst sazeb"
+  (o p. b.) fungují dál a jsou označené jako starší.
+- Prodej nemovitosti splatí nejdřív úvěry vázané na ni, zbytek úvěr s nejvyšší sazbou; doba splácení zůstává
+  a banka sníží splátku (cashflow tak neklesne víc, než činí ztracený nájem).
 - U každého úvěru jde rozbalit **splátkový kalendář** po letech (úrok, jistina, podíl úroku, zůstatek).
 - **Zástava**: u úvěru se k nemovitosti zadává částka a hlídá se, že nepřesáhne volnou hodnotu (hodnota −
   vlastní zástava − zástavy za jiné úvěry); stejné pravidlo platí i při úpravě nemovitosti.
