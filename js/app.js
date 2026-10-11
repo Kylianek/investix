@@ -2206,6 +2206,7 @@ function renderScenarioTable() {
     { label: 'Náklady', right: true, x: true, cell: (r) => `<span class="figure-negative">${money(r.totalCosts)}</span>` },
     { label: 'Úrok', right: true, x: true, cell: (r) => `<span class="figure-negative">${money(r.totalInterest)}</span>` },
     { label: 'Jistina', right: true, x: true, cell: (r) => `<span class="figure-negative">${money(r.totalPrincipal)}</span>` },
+    { label: 'Splátky', right: true, x: true, cell: (r) => `<span class="figure-negative">${money(r.totalInterest == null ? null : r.totalInterest + r.totalPrincipal)}</span>` },
     { label: 'Nashrom. zhodnocení', right: true, x: true, cell: (r) => money(r.cumulativeGain) },
     {
       label: 'Cashflow',
