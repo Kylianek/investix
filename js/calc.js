@@ -290,6 +290,8 @@ function projectLoanAmount(loan, targetYear, currentYear, events, startMonth) {
  *   na zbývající dobu (nebo platí zadaná payment_after_fixation).
  * - Refinancování (refinance_date): "kolo od začátku" - ze zbývající jistiny se podle nové
  *   sazby a nové doby (refinance_years) spočítá nová anuita, takže se zase platí hlavně úrok.
+ *   Při refinancování se dají sloučit i další úvěry (refinance_merge_ids): jejich zůstatky se k tomu měsíci splatí
+ *   a přičtou k refinancovanému úvěru, který je dál splácí jednou novou anuitou.
  * - Scénářová událost "změna úrokové sazby": sazba úvěru se po dobu události přepíše na zadanou hodnotu (nahoru i dolů),
  *   banka přepočítá splátku tak, aby se úvěr splatil ve stejném termínu. Po skončení události se sazba vrací.
  * - Mimořádné splacení z prodeje nemovitosti: doba splácení zůstává, banka sníží splátku.
@@ -410,6 +412,41 @@ function initLoanState(loan, ls, firstYear) {
   ls.init = true;
 }
 
+/**
+ * Plán sloučení úvěrů při refinancování. Úvěr s `refinance_merge_ids` a datem refinancování převezme k tomu měsíci
+ * zůstatky vybraných úvěrů ("dárců"), ty se splatí a dál se neplatí. Slučuje se jen do budoucnosti (u minulého
+ * data jsou dnešní zůstatky už sloučené). Úvěr je buď dárce, nebo úvěr, který slučuje, ne obojí (řetězení se
+ * ignoruje). Vrací { mergeInto: { [idDárce]: { to, abs } } }.
+ */
+function mergePlan(loans, projYear, projMonth) {
+  const ids = new Set(loans.map((l) => l.id));
+  const todayAbs = projYear * 12 + (projMonth || 0);
+  const mergeInto = {};
+  for (const l of loans) {
+    const donors = Array.isArray(l.refinance_merge_ids) ? l.refinance_merge_ids : [];
+    if (!donors.length || !l.refinance_date) continue;
+    const date = toDate(l.refinance_date);
+    if (isNaN(date)) continue;
+    const abs = monthAfter(date);
+    if (abs < todayAbs) continue;
+    for (const id of donors) {
+      if (id === l.id || !ids.has(id) || mergeInto[id]) continue;
+      mergeInto[id] = { to: l.id, abs };
+    }
+  }
+  // žádné řetězení: úvěr, který něco slučuje, se sám nesloučí do jiného (a naopak)
+  const survivors = new Set(Object.values(mergeInto).map((m) => m.to));
+  for (const id of Object.keys(mergeInto)) {
+    if (survivors.has(id) || !ids.has(mergeInto[id].to) || mergeInto[mergeInto[id].to]) delete mergeInto[id];
+  }
+  return { mergeInto };
+}
+
+/** Úvěry v pořadí, ve kterém se mají umořovat: nejdřív ty, které se slučují (jejich zůstatek se předává), pak ostatní. */
+function loansInMergeOrder(loans, plan) {
+  return loans.filter((l) => plan.mergeInto[l.id]).concat(loans.filter((l) => !plan.mergeInto[l.id]));
+}
+
 /** Aktuální sazba úvěru: přepsaná scénářem, jinak základní sazba (+ posun ze starších událostí). Nikdy záporná. */
 function effectiveRate(ls) {
   return Math.max(0, ls.override != null ? ls.override : ls.rate + ls.delta);
@@ -420,9 +457,10 @@ function effectiveRate(ls) {
  * úvěru `ls` (remainingPrincipal, splátka, zbývající doba...). Vrací za ten rok
  * { interest, principal, rate, payment, monthlyPayment } (payment = zaplaceno za rok celkem).
  * `rateDelta` = posun sazby ze starších scénářových událostí (zlomek), `rateOverride` = sazba přepsaná událostí
- * "změna úrokové sazby" (zlomek, undefined = bez přepisu).
+ * "změna úrokové sazby" (zlomek, undefined = bez přepisu). `book` je sdílená účetní kniha sloučení úvěrů (viz
+ * mergePlan): úvěr, který se slučuje, v ní k měsíci sloučení zanechá svůj zůstatek a úvěr, který slučuje, si ho převezme.
  */
-function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0, rateOverride) {
+function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0, rateOverride, book) {
   if (!(ls.remainingPrincipal > 0 && stateYear >= ls.startYear)) {
     return { interest: 0, principal: 0, rate: 0, payment: 0, monthlyPayment: 0 };
   }
@@ -439,15 +477,30 @@ function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0, rate
   const rateStart = effectiveRate(ls);
   const payStart = ls.pay;
   const mFrom = stateYear === ls.projYear ? ls.startMonth || 0 : 0;
+  let lastPaidAbs = null;
   for (let m = mFrom; m < 12; m++) {
     if (ls.remainingPrincipal <= 0) break;
     const abs = stateYear * 12 + m;
+    if (book && ls.mergeAbs === abs) {
+      // sloučení: zůstatek se předá úvěru, do kterého se slučuje, a tenhle úvěr se od tohoto měsíce neplatí
+      book[ls.mergeTo + ':' + abs] = (book[ls.mergeTo + ':' + abs] || 0) + ls.remainingPrincipal;
+      (book.log = book.log || []).push({ from: loan.id, bank: loan.bank, to: ls.mergeTo, abs, amount: ls.remainingPrincipal });
+      ls.remainingPrincipal = 0;
+      break;
+    }
     const payBefore = ls.pay;
     let recompute = false;
     let forceAnnuity = false;
     let payFixed = false;
     if (ls.refAbs === abs) {
       // refinancování: nová anuita ze zbývající jistiny (nová sazba, nová doba)
+      const incoming = book ? book[loan.id + ':' + abs] || 0 : 0;
+      if (incoming > 0) {
+        // sloučené úvěry: jejich zůstatky se přičtou a nová anuita se počítá z celé částky
+        ls.mergeIn = { abs, own: ls.remainingPrincipal, added: incoming };
+        ls.remainingPrincipal += incoming;
+        delete book[loan.id + ':' + abs];
+      }
       if (ls.refRate != null) ls.rate = ls.refRate;
       if (ls.refTerm != null) {
         ls.term = ls.refTerm;
@@ -481,11 +534,13 @@ function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0, rate
 
     const interestM = ls.remainingPrincipal * (rate / 12);
     let principalM = ls.pay - interestM;
-    if (principalM > ls.remainingPrincipal) principalM = ls.remainingPrincipal;
+    // zbytek pod půl haléře se doplatí touto splátkou (jinak by zaokrouhlení přidalo další měsíc s drobnou splátkou)
+    if (principalM > ls.remainingPrincipal - 0.005) principalM = ls.remainingPrincipal;
     if (principalM < 0) principalM = 0;
     ls.remainingPrincipal -= principalM;
     interest += interestM;
     principal += principalM;
+    lastPaidAbs = abs;
     if (Number.isFinite(ls.term)) ls.term = Math.max(0, ls.term - 1);
   }
   ls.remainingPrincipal = Math.max(ls.remainingPrincipal, 0);
@@ -498,6 +553,7 @@ function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0, rate
     monthlyPayment: ls.pay,
     monthlyPaymentStart: payStart,
     payChange,
+    lastPaidAbs,
   };
 }
 
@@ -527,22 +583,35 @@ function loanTerms(loan, firstYear, startMonth) {
 }
 
 /**
- * Splátkový kalendář úvěru po letech (jako list "Roky" v bankovní kalkulačce): úrok, jistina,
- * podíl úroku ve splátkách a zůstatek. Zahrnuje fixaci, refinancování i scénářové události.
+ * Splátkový kalendář úvěru po letech (jako list "Roky" v bankovní kalkulačce): úvěr, podíl úroku
+ * ve splátkách a zůstatek. Zahrnuje fixaci, refinancování i scénářové události. S `loans` (všechny úvěry) počítá
+ * i sloučení úvěrů při refinancování: úvěr, který slučuje, převezme zůstatky, a úvěr, který se slučuje, končí.
+ * Vrací i měsíc doplacení (payoffAbs), sloučení do jiného úvěru (mergedInto) a převzaté zůstatky (merges).
  */
-function loanSchedule(loan, { events = [], startYear, maxYears = 40, startMonth } = {}) {
+function loanSchedule(loan, { events = [], startYear, maxYears = 40, startMonth, loans } = {}) {
   startYear = startYear || new Date().getFullYear();
-  const ls = {
-    remainingPrincipal: Number(loan.amount) || 0,
-    startYear: yearOf(loan.start_date, startYear),
-    projYear: startYear,
-    startMonth: startMonth == null ? defaultStartMonth(startYear) : startMonth,
+  const sm = startMonth == null ? defaultStartMonth(startYear) : startMonth;
+  const plan = loans ? mergePlan(loans, startYear, sm) : { mergeInto: {} };
+  const makeState = (l) => {
+    const st = { remainingPrincipal: Number(l.amount) || 0, startYear: yearOf(l.start_date, startYear), projYear: startYear, startMonth: sm };
+    const m = plan.mergeInto[l.id];
+    if (m) {
+      st.mergeTo = m.to;
+      st.mergeAbs = m.abs;
+    }
+    return st;
   };
+  const ls = makeState(loan);
+  const donors = (loans || []).filter((l) => plan.mergeInto[l.id] && plan.mergeInto[l.id].to === loan.id).map((l) => ({ loan: l, ls: makeState(l) }));
+  const book = {};
   const rows = [];
+  let payoffAbs = null;
   let year = Math.max(startYear, ls.startYear);
   for (let i = 0; i < maxYears && ls.remainingPrincipal > 0.5; i++, year++) {
+    for (const d of donors) amortizeLoanForYear(d.loan, d.ls, year, startYear, loanRateDelta(events, d.loan.id, year), loanRateOverride(events, d.loan.id, year), book);
     const balanceStart = ls.remainingPrincipal;
-    const r = amortizeLoanForYear(loan, ls, year, startYear, loanRateDelta(events, loan.id, year), loanRateOverride(events, loan.id, year));
+    const r = amortizeLoanForYear(loan, ls, year, startYear, loanRateDelta(events, loan.id, year), loanRateOverride(events, loan.id, year), book);
+    if (r.lastPaidAbs != null) payoffAbs = r.lastPaidAbs;
     rows.push({
       year,
       months: year === ls.projYear ? 12 - (ls.startMonth || 0) : 12,
@@ -556,11 +625,15 @@ function loanSchedule(loan, { events = [], startYear, maxYears = 40, startMonth 
       monthlyPayment: r.monthlyPayment,
     });
   }
+  const paidOff = ls.remainingPrincipal <= 0.5;
   return {
     rows,
     totalInterest: rows.reduce((s, r) => s + r.interest, 0),
     totalPrincipal: rows.reduce((s, r) => s + r.principal, 0),
-    paidOff: ls.remainingPrincipal <= 0.5,
+    paidOff,
+    payoffAbs: paidOff ? payoffAbs : null,
+    mergedInto: plan.mergeInto[loan.id] || null,
+    merges: (book.log || []).filter((e) => e.to === loan.id),
   };
 }
 
@@ -612,10 +685,18 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
 
   const loanState = {};
   const loanShares = {};
+  const mergeBook = {}; // sloučení úvěrů při refinancování (viz mergePlan)
+  const merging = mergePlan(loans, startYear, timelineMonth);
   for (const l of loans) {
     loanState[l.id] = { remainingPrincipal: Number(l.amount) || 0, startYear: yearOf(l.start_date, startYear), projYear: startYear, startMonth: timelineMonth };
+    const m = merging.mergeInto[l.id];
+    if (m) {
+      loanState[l.id].mergeTo = m.to;
+      loanState[l.id].mergeAbs = m.abs;
+    }
     loanShares[l.id] = loanPropertyShares(l, properties);
   }
+  const loansToAmortize = loansInMergeOrder(loans, merging);
 
   const curValue = {};
   const curRent = {};
@@ -728,17 +809,17 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
     // Úvěry se umořují po jednom (každý má svou sazbu, splátku i případné zvýšení sazby ze scénáře).
     let totalInterest = 0;
     let totalPrincipal = 0;
-    const perLoan = [];
-    for (const l of loans) {
+    const perLoanById = {};
+    for (const l of loansToAmortize) {
       const ls = loanState[l.id];
       const balance = ls.remainingPrincipal;
       const active = stateYear >= ls.startYear;
-      const { interest, principal, rate, payment, monthlyPayment, payChange } = amortizeLoanForYear(l, ls, stateYear, startYear, loanRateDelta(events, l.id, stateYear), loanRateOverride(events, l.id, stateYear));
+      const { interest, principal, rate, payment, monthlyPayment, payChange } = amortizeLoanForYear(l, ls, stateYear, startYear, loanRateDelta(events, l.id, stateYear), loanRateOverride(events, l.id, stateYear), mergeBook);
       totalInterest += interest;
       totalPrincipal += principal;
       // splacený úvěr už v přehledu úvěrů nefiguruje
       if (active && balance > 0.005) {
-        perLoan.push({
+        perLoanById[l.id] = {
           id: l.id,
           bank: l.bank,
           property_id: l.property_id || null,
@@ -750,7 +831,25 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
           payment,
           monthlyPayment,
           payChange,
-        });
+        };
+      }
+    }
+    const perLoan = loans.filter((l) => perLoanById[l.id]).map((l) => perLoanById[l.id]);
+    // po sloučení patří úvěr, který slučuje, ke všem nemovitostem sloučených úvěrů (podle výše zůstatků)
+    for (const l of loans) {
+      const info = loanState[l.id].mergeIn;
+      if (!info || info.applied) continue;
+      info.applied = true;
+      const parts = [{ w: info.own, shares: loanShares[l.id] }];
+      for (const d of loans) {
+        const st = loanState[d.id];
+        if (st.mergeTo === l.id && st.mergeAbs === info.abs) parts.push({ w: (mergeBook.log || []).filter((e) => e.from === d.id && e.abs === info.abs).reduce((x, e) => x + e.amount, 0), shares: loanShares[d.id] });
+      }
+      const total = parts.reduce((x, p) => x + p.w, 0);
+      if (total > 0) {
+        const combined = {};
+        for (const p of parts) for (const [pid, share] of Object.entries(p.shares)) combined[pid] = (combined[pid] || 0) + (share * p.w) / total;
+        loanShares[l.id] = combined;
       }
     }
 
@@ -1081,6 +1180,7 @@ window.calc = {
   amortizeLoanForYear,
   loanTerms,
   loanSchedule,
+  mergePlan,
   fixationChangeMonth,
   defaultStartMonth,
   annuityPayment,

@@ -619,6 +619,22 @@ input[type='date'].input {
   color: var(--muted);
   transition: all 0.18s ease;
 }
+.chip > span.chip-with-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding-left: 0.4rem;
+}
+.chip-with-logo .bank-logo {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 0.3rem;
+}
+.chip input:disabled + span {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
 .chip:hover > span {
   border-color: var(--primary-2);
   color: var(--primary-text);

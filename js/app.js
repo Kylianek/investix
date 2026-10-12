@@ -1212,8 +1212,16 @@ function monthRange(months) {
 
 /** Splátkový kalendář úvěru (jako list "Roky" v bankovní kalkulačce): úrok, jistina a podíl úroku po letech. */
 function loanScheduleHtml(loan, expanded) {
-  const sch = calc.loanSchedule(loan, { events: state.events, startYear: CURRENT_YEAR, maxYears: 40 });
+  const sch = calc.loanSchedule(loan, { events: state.events, startYear: CURRENT_YEAR, maxYears: 40, loans: state.loans });
   if (!sch.rows.length) return '<p class="text-sm t-faint">Nic ke splácení</p>';
+  const monthYear = (abs) => `${String((abs % 12) + 1).padStart(2, '0')}/${Math.floor(abs / 12)}`;
+  const notes = [];
+  if (sch.mergedInto) {
+    const to = state.loans.find((x) => x.id === sch.mergedInto.to);
+    notes.push(`Od ${monthYear(sch.mergedInto.abs)} sloučeno do úvěru ${to ? escapeHtml(to.bank) : 'jiného úvěru'}, dál se neplatí.`);
+  }
+  for (const m of sch.merges) notes.push(`Od ${monthYear(m.abs)} převzato ${fmtMoney(m.amount)} z úvěru ${escapeHtml(m.bank)}, zůstatek se o tuto částku zvýší.`);
+  const notesHtml = notes.length ? `<p class="text-xs t-muted mb-2">${notes.join('<br>')}</p>` : '';
   const body = sch.rows
     .map((r) => {
       const share = Math.round(r.interestShare * 100);
@@ -1230,6 +1238,7 @@ function loanScheduleHtml(loan, expanded) {
   const total = sch.totalInterest + sch.totalPrincipal;
   const totalShare = total > 0 ? Math.round((sch.totalInterest / total) * 100) : 0;
   return `<div class="detail-panel">
+    ${notesHtml}
     <div class="overflow-x-auto"><table class="subtbl">
       <thead><tr><th>Rok</th><th>Úrok</th><th>Jistina</th><th>Podíl úroku</th><th>Zůstatek</th>${expanded ? '<th>Splátka /měs.</th><th>Sazba</th>' : ''}</tr></thead>
       <tbody>${body}</tbody>
@@ -1245,15 +1254,26 @@ function renderLoansTable() {
   const totals = { amount: 0, payment: 0, own: 0 };
   const dash = '<span class="t-faint">—</span>';
 
+  const monthYear = (abs) => `${String((abs % 12) + 1).padStart(2, '0')}/${Math.floor(abs / 12)}`;
   const rows = state.loans.map((l) => {
     const end = calc.fixationEndDate(l);
     const terms = calc.loanTerms(l, CURRENT_YEAR);
     const sch = calc.loanSchedule(l, { events: state.events, startYear: CURRENT_YEAR, maxYears: 1 });
+    // celý plán splácení bez scénářových událostí, ale s refinancováním a sloučením úvěrů: z něj je datum doplacení
+    const plan = calc.loanSchedule(l, { events: [], startYear: CURRENT_YEAR, maxYears: 60, loans: state.loans });
     const ltv = ltvInfo(l);
     totals.amount += Number(l.amount) || 0;
     totals.payment += terms.payment;
     if (ltv && ltv.own != null) totals.own += ltv.own;
-    return { l, end, terms, share: sch.rows.length ? sch.rows[0].interestShare : null, ltv, fx: end ? calc.fixationRemainingUntil(end) : null };
+    let mergeText = '';
+    if (plan.mergedInto) {
+      const to = state.loans.find((x) => x.id === plan.mergedInto.to);
+      mergeText = `sloučí se do ${to ? to.bank : 'jiného úvěru'} od ${monthYear(plan.mergedInto.abs)}`;
+    } else if (plan.merges.length) {
+      mergeText = `od ${monthYear(plan.merges[0].abs)} slučuje ${plan.merges.map((m) => m.bank).join(', ')}`;
+    }
+    const payoff = plan.payoffAbs != null ? { year: Math.floor(plan.payoffAbs / 12), month: (plan.payoffAbs % 12) + 1 } : null;
+    return { l, end, terms, payoff, merged: plan.mergedInto ? monthYear(plan.mergedInto.abs) : '', mergeText, share: sch.rows.length ? sch.rows[0].interestShare : null, ltv, fx: end ? calc.fixationRemainingUntil(end) : null };
   });
 
   const linkedName = (l) => {
@@ -1265,7 +1285,7 @@ function renderLoansTable() {
   const columns = [
     {
       label: 'Banka',
-      cell: (r) => `<button type="button" class="loan-toggle${expandedLoans.has(r.l.id) ? ' is-open' : ''}" data-loan-schedule="${r.l.id}" aria-expanded="${expandedLoans.has(r.l.id)}" title="Splátkový kalendář"><span class="year-chevron"></span>${bankLogoHtml(r.l.bank)}<span class="font-medium">${escapeHtml(r.l.bank)}</span></button>${r.l.note ? `<br><span class="text-xs t-muted">${escapeHtml(r.l.note)}</span>` : ''}`,
+      cell: (r) => `<button type="button" class="loan-toggle${expandedLoans.has(r.l.id) ? ' is-open' : ''}" data-loan-schedule="${r.l.id}" aria-expanded="${expandedLoans.has(r.l.id)}" title="Splátkový kalendář"><span class="year-chevron"></span>${bankLogoHtml(r.l.bank)}<span class="font-medium">${escapeHtml(r.l.bank)}</span></button>${r.mergeText ? `<br><span class="text-xs t-muted">${escapeHtml(r.mergeText)}</span>` : ''}${r.l.note ? `<br><span class="text-xs t-muted">${escapeHtml(r.l.note)}</span>` : ''}`,
       total: () => 'Celkem',
     },
     { label: 'Výše úvěru', right: true, cell: (r) => `<span class="num">${moneyHtml(r.l.amount)}</span>`, total: () => moneyHtml(totals.amount) },
@@ -1289,7 +1309,7 @@ function renderLoansTable() {
     {
       label: 'Doplatí se',
       x: true,
-      cell: (r) => (r.terms.payoffYear ? `<span class="num">${String(r.terms.payoffMonth).padStart(2, '0')}/${r.terms.payoffYear}</span>` : dash),
+      cell: (r) => (r.merged ? `<span class="t-muted">sloučeno ${r.merged}</span>` : r.payoff ? `<span class="num">${String(r.payoff.month).padStart(2, '0')}/${r.payoff.year}</span>` : dash),
       total: () => '',
     },
     { label: 'Úrok ve splátce', right: true, x: true, cell: (r) => (r.share == null ? dash : `<span class="num">${Math.round(r.share * 100)} %</span>`), total: () => '' },
@@ -1677,6 +1697,45 @@ function renderLoanCollateralChecklist(draft) {
   updateLoanBadges();
 }
 
+/**
+ * Úvěry, které jde při refinancování sloučit s upravovaným úvěrem: jejich zůstatky se k datu refinancování splatí a
+ * přičtou k tomuto úvěru. Nejde vybrat úvěr, který už se slučuje jinam nebo sám něco slučuje (bez řetězení).
+ */
+function renderLoanMergeChecklist(selected) {
+  const container = document.getElementById('loan-merge-checklist');
+  if (!container) return;
+  const editId = loanForm().elements['id'].value;
+  const editing = editId ? state.loans.find((l) => l.id === editId) : null;
+  const chosen = selected || new Set(editing && Array.isArray(editing.refinance_merge_ids) ? editing.refinance_merge_ids : []);
+  const others = state.loans.filter((l) => l.id !== editId);
+  const takenBy = new Map();
+  for (const l of others) for (const id of l.refinance_merge_ids || []) takenBy.set(id, l);
+  if (editId && takenBy.has(editId)) {
+    container.innerHTML = `<span class="text-sm t-faint">Tento úvěr se slučuje do úvěru ${escapeHtml(takenBy.get(editId).bank)}, sám nic slučovat nemůže.</span>`;
+    return;
+  }
+  if (!others.length) {
+    container.innerHTML = '<span class="text-sm t-faint">Zatím žádné další úvěry</span>';
+    return;
+  }
+  const mergers = new Set(others.filter((l) => (l.refinance_merge_ids || []).length).map((l) => l.id));
+  container.innerHTML = others
+    .map((l) => {
+      let blocked = '';
+      if (takenBy.has(l.id)) blocked = `Už se slučuje do úvěru ${takenBy.get(l.id).bank}`;
+      else if (mergers.has(l.id)) blocked = 'Tento úvěr sám něco slučuje';
+      return `<label class="chip"${blocked ? ` title="${escapeHtml(blocked)}"` : ''}><input type="checkbox" value="${l.id}" ${chosen.has(l.id) && !blocked ? 'checked' : ''} ${blocked ? 'disabled' : ''} /><span class="chip-with-logo">${bankLogoHtml(l.bank)}${escapeHtml(l.bank)} · ${fmtMoney(l.amount)}</span></label>`;
+    })
+    .join('');
+}
+
+/** Vybrané úvěry ke sloučení tak, jak jsou právě ve formuláři (null = seznam ještě nebyl vykreslen). */
+function readMergeDraft() {
+  const boxes = document.querySelectorAll('#loan-merge-checklist input[type="checkbox"]');
+  if (!boxes.length) return null;
+  return new Set(Array.from(boxes).filter((b) => b.checked).map((b) => b.value));
+}
+
 function renderLoanPropertySelect() {
   const select = document.getElementById('loan-property-select');
   if (!select) return;
@@ -1706,7 +1765,13 @@ function updateLoanBadges() {
   const refDate = f.elements['refinance_date'].value;
   const refRate = f.elements['refinance_rate'].value.trim();
   const refYears = f.elements['refinance_years'].value.trim();
-  document.getElementById('loan-refinance-badge').textContent = [refDate ? fmtDate(refDate) : '', refRate ? `${fmtNumber(parseFormNumber(refRate))} %` : '', refYears ? `${refYears} let` : '']
+  const mergeCount = (readMergeDraft() || new Set()).size;
+  document.getElementById('loan-refinance-badge').textContent = [
+    refDate ? fmtDate(refDate) : '',
+    refRate ? `${fmtNumber(parseFormNumber(refRate))} %` : '',
+    refYears ? `${refYears} let` : '',
+    mergeCount ? `+${mergeCount} ${mergeCount === 1 ? 'úvěr' : mergeCount < 5 ? 'úvěry' : 'úvěrů'}` : '',
+  ]
     .filter(Boolean)
     .join(' · ');
 
@@ -1767,6 +1832,7 @@ function wireLoanFormUi() {
 
 function renderLoans() {
   renderLoansTable();
+  renderLoanMergeChecklist(readMergeDraft());
   renderLoanCollateralChecklist(readPledgeDraft());
   renderLoanPropertySelect();
   renderEventTargets();
@@ -1801,12 +1867,13 @@ function fillLoanForm(id) {
   setFormattedValue(f.elements['own_funds'], l.own_funds != null ? l.own_funds : ltv && ltv.own != null ? Math.round(ltv.own) : '');
   renderLoanPropertySelect();
   f.elements['property_id'].value = l.property_id || '';
+  renderLoanMergeChecklist(null);
   renderLoanCollateralChecklist(null);
   document.getElementById('loan-acc-pledge').open = calc.loanCollateral(l).length > 0;
   const accordions = Array.from(f.querySelectorAll('details.acc:not(.acc-pledge)'));
   const [fixationAcc, refinanceAcc, detailsAcc] = accordions;
   fixationAcc.open = !!(l.start_date || end || l.fixation_years != null || l.rate_after_fixation != null || l.maturity_date || l.payment_after_fixation);
-  refinanceAcc.open = !!(l.refinance_date || l.refinance_rate != null || l.refinance_years);
+  refinanceAcc.open = !!(l.refinance_date || l.refinance_rate != null || l.refinance_years || (l.refinance_merge_ids || []).length);
   detailsAcc.open = !!(l.ltv_percent != null || l.own_funds != null || l.property_value_at_origination || l.property_id || l.note);
   document.getElementById('loan-form-title').textContent = 'Upravit úvěr';
   document.getElementById('loan-submit-label').textContent = 'Uložit změny';
@@ -1826,6 +1893,7 @@ function resetLoanForm() {
   document.getElementById('loan-form-title').textContent = 'Přidat úvěr';
   document.getElementById('loan-submit-label').textContent = 'Přidat úvěr';
   document.getElementById('loan-form-card').classList.remove('is-editing');
+  renderLoanMergeChecklist(null);
   renderLoanCollateralChecklist(null);
   renderLoanPropertySelect();
   updateLoanBadges();
@@ -1834,6 +1902,12 @@ function resetLoanForm() {
 async function deleteLoan(id) {
   if (!(await customConfirm('Opravdu smazat tento úvěr?', 'Smazat'))) return;
   state.loans = state.loans.filter((l) => l.id !== id);
+  // ať po úvěru nezůstávají viset odkazy ze sloučení
+  state.loans.forEach((l) => {
+    if (!Array.isArray(l.refinance_merge_ids)) return;
+    l.refinance_merge_ids = l.refinance_merge_ids.filter((x) => x !== id);
+    if (!l.refinance_merge_ids.length) delete l.refinance_merge_ids;
+  });
   expandedLoans.delete(id);
   pruneEventTargets(id, 'loan');
   saveState();
@@ -1859,6 +1933,26 @@ function submitLoanForm(e) {
       return;
     }
     collateral.push({ property_id: row.dataset.pid, amount: Math.round(amount) });
+  }
+  // sloučení úvěrů při refinancování potřebuje datum v budoucnosti a novou dobu splácení
+  const mergeIds = Array.from(readMergeDraft() || []);
+  if (mergeIds.length) {
+    const refDateValue = f.elements['refinance_date'].value;
+    let mergeError = '';
+    if (!refDateValue) mergeError = 'Pro sloučení úvěrů zadej datum refinancování.';
+    else if (!(Number(f.elements['refinance_years'].value) > 0)) mergeError = 'Pro sloučení úvěrů zadej novou dobu splácení.';
+    else {
+      const d = calc.toDate(refDateValue);
+      const now = new Date();
+      if (d.getFullYear() * 12 + d.getMonth() + (d.getDate() > 15 ? 1 : 0) < now.getFullYear() * 12 + now.getMonth()) {
+        mergeError = 'Sloučení musí být v budoucnosti, dnešní zůstatky už jsou sloučené.';
+      }
+    }
+    if (mergeError) {
+      f.querySelectorAll('details.acc:not(.acc-pledge)')[1].open = true;
+      showFormError('loan-form-error', mergeError);
+      return;
+    }
   }
   showFormError('loan-form-error', '');
 
@@ -1892,6 +1986,8 @@ function submitLoanForm(e) {
   };
   delete payload.additional_collateral_ids;
   delete payload.keep_payment_after_fixation; // starší volba "ponechat splátku" už neexistuje
+  if (mergeIds.length) payload.refinance_merge_ids = mergeIds;
+  else delete payload.refinance_merge_ids;
   if (id) {
     const idx = state.loans.findIndex((l) => l.id === id);
     if (idx !== -1) state.loans[idx] = payload;
