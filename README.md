@@ -94,9 +94,12 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
 - Prodej nemovitosti splatí nejdřív úvěry vázané na ni, zbytek úvěr s nejvyšší sazbou; doba splácení zůstává
   a banka sníží splátku (cashflow tak neklesne víc, než činí ztracený nájem).
 - U každého úvěru jde rozbalit **splátkový kalendář** po letech (úrok, jistina, podíl úroku, zůstatek).
-- **Zástava** je vazba nemovitost + úvěr + částka. Zadává se u úvěru (které nemovitosti zastavuje) i u nemovitosti
-  ("Zastaveno za úvěry": úvěr a částka), obě strany upravují totéž. Hlídá se, že součet zástav nepřesáhne hodnotu
-  nemovitosti. "Jiná zástava" slouží pro úvěr, který v aplikaci není.
+- **Zástava** = nemovitost, kterou dáš bance jako jistotu za úvěr. Je to vazba nemovitost + úvěr + částka z hodnoty
+  nemovitosti. Zadává se u úvěru ("Které nemovitosti jistí tenhle úvěr") i u nemovitosti ("Které úvěry tahle nemovitost
+  jistí"), obě strany upravují totéž. Hlídá se, že součet zástav nepřesáhne hodnotu nemovitosti; zbytek je "volné k
+  zastavení". Zástava trvá, dokud je úvěr nesplacený. "Jistí i úvěr, který v aplikaci nemám" slouží pro úvěr mimo aplikaci.
+- Ve Scénářích je prodej jen štítek s názvem nemovitosti, podrobnosti (cena, daň, výtěžek, proč se prodala) jsou v bublině po
+  kliknutí. Neúplný letošní rok je označený malým "i", které po kliknutí řekne, za jaké měsíce řádek je.
 - **LTV a vlastní zdroje** se zadávají ručně v "Další údaje" u úvěru (jeden úvěr může financovat víc nemovitostí).
 - V seznamu bank jsou původní loga (ikony z webů bank, `assets/banks`) a volba **Vlastní**, po které jde napsat libovolný název.
 - Dluh a splátka jednotlivých nemovitostí se berou z úvěrů, které se k nim vážou ("Financuje nemovitost"

@@ -1103,6 +1103,20 @@ function loanPropertyShares(loan, properties) {
 }
 
 /**
+ * Úvěry, které v daném období (řádku simulace) drží zástavy: nesplacené úvěry. Po splacení banka zástavu uvolní.
+ * Sloučený úvěr předal své zástavy úvěru, do kterého se sloučil, takže je drží, dokud běží ten.
+ * `outstandingIds` = id úvěrů se zůstatkem na začátku řádku, `rowStartAbs` = měsíc začátku řádku (rok·12 + měsíc),
+ * `mergeInto` = plán sloučení (viz mergePlan).
+ */
+function loansHoldingPledges(loans, outstandingIds, rowStartAbs, mergeInto) {
+  return loans.filter((l) => {
+    if (outstandingIds.has(l.id)) return true;
+    const m = mergeInto && mergeInto[l.id];
+    return !!(m && m.abs <= rowStartAbs && outstandingIds.has(m.to));
+  });
+}
+
+/**
  * Kolik nejdražší nemovitost lze koupit BEZ vlastní hotovosti, když banku
  * kryješ kombinovanou zástavou - kupovaná nemovitost + volná (nezastavená)
  * hodnota už vlastněných nemovitostí. Půjčka = 100 % kupní ceny (P), banka
@@ -1196,6 +1210,7 @@ window.calc = {
   compareSaleCandidates,
   projectPortfolio,
   pledgePurchaseCapacity,
+  loansHoldingPledges,
   payDownDebtWithCash,
   rebaseToYear,
   projectLoanAmount,

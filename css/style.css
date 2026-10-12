@@ -1295,6 +1295,128 @@ input[type='date'].input {
   border-color: var(--warn-border);
 }
 
+/* Sloupec Událost: štítky se skládají vedle sebe, ne po jednom pod sebou (řádky tabulky zůstanou nízké) */
+.tbl td.ev-cell {
+  min-width: 15rem;
+}
+
+/* Štítek prodeje je tlačítko, které otevře bublinu s podrobnostmi */
+button.event-chip {
+  cursor: pointer;
+  line-height: 1.4;
+  transition: filter 0.15s ease, box-shadow 0.15s ease;
+}
+button.event-chip:hover {
+  filter: brightness(0.96);
+}
+button.event-chip.is-open {
+  box-shadow: 0 0 0 2px var(--primary-glow);
+}
+
+/* Malé "i" u neúplného roku */
+.info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-left: 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: middle;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.info-btn:hover,
+.info-btn.is-open {
+  background: var(--primary-soft);
+  color: var(--primary-text);
+  border-color: var(--primary-2);
+}
+
+/* Popup bublina (otevírá se kliknutím) */
+.popover {
+  position: fixed;
+  z-index: 70;
+  width: max-content;
+  max-width: min(22rem, calc(100vw - 16px));
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.85rem;
+  box-shadow: var(--shadow-hover);
+  padding: 0.75rem 2.1rem 0.85rem 0.95rem;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  animation: acc-in 0.15s ease;
+}
+.popover::before {
+  content: '';
+  position: absolute;
+  left: var(--arrow-x, 1.5rem);
+  top: -6px;
+  width: 10px;
+  height: 10px;
+  background: var(--surface);
+  border-left: 1px solid var(--border-strong);
+  border-top: 1px solid var(--border-strong);
+  transform: translateX(-50%) rotate(45deg);
+}
+.popover.is-above::before {
+  top: auto;
+  bottom: -6px;
+  transform: translateX(-50%) rotate(225deg);
+}
+.popover p {
+  margin: 0;
+}
+.popover-close {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.4rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.4rem;
+  color: var(--muted);
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.popover-close:hover {
+  background: var(--surface-2);
+  color: var(--text-strong);
+}
+.popover-title {
+  font-weight: 700;
+  color: var(--text-strong);
+  margin-bottom: 0.4rem;
+}
+.popover-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.2rem 1rem;
+  margin: 0;
+}
+.popover-list dt {
+  color: var(--muted);
+}
+.popover-list dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.popover-note {
+  margin-top: 0.6rem !important;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 /* Chip se scénářem v Přehledu */
 .scenario-chip {
   display: inline-flex;
@@ -2028,6 +2150,28 @@ input[type='date'].input {
 .ppledge-row .pledge-msg {
   grid-column: 1 / -1;
 }
+.ppledge-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 11rem) auto;
+  gap: 0.6rem;
+  padding: 0 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+.ppledge-head span:first-child,
+.ppledge-head span:last-child {
+  width: 1.9rem;
+}
+@media (max-width: 559px) {
+  .ppledge-head {
+    display: none;
+  }
+}
+.pledge-amount .label {
+  display: block;
+  margin-bottom: 0.2rem;
+}
 .ppledge-logo {
   display: flex;
 }
@@ -2225,6 +2369,7 @@ input[type='date'].input {
   #session-notice,
   #sync-overlay,
   #success-toast,
+  .popover,
   #confirm-modal,
   .number-stepper-buttons,
   .btn-pdf-export,

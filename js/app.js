@@ -1082,7 +1082,7 @@ function renderPropertiesTable() {
       },
       total: () => `<span class="num">${fmtMoney(totals.lien)}</span>`,
     },
-    { label: 'Uvolněno nad zástavu', right: true, x: true, cell: (r) => `<span class="num">${moneyHtml(r.freed)}</span>`, total: () => moneyHtml(totals.freed) },
+    { label: 'Volné k zastavení', right: true, x: true, cell: (r) => `<span class="num">${moneyHtml(r.freed)}</span>`, total: () => moneyHtml(totals.freed) },
     { label: 'Růst %', right: true, x: true, cell: (r) => `<span class="num">${fmtPercent(r.p.growth_rate)}</span>`, total: () => `<span class="num">${fmtPercent(avgGrowth)}</span>` },
     { label: 'Po zhodnocení', right: true, x: true, cell: (r) => `<span class="num">${moneyHtml(r.av)}</span>`, total: () => moneyHtml(totals.appreciated) },
     { label: 'Časový test - zbývá', x: true, cell: (r) => (r.tt.never ? '<span class="t-muted">Bez testu</span>' : r.tt.none ? dash : escapeHtml(r.tt.text)), total: () => '' },
@@ -1130,7 +1130,7 @@ function readPropertyPledges() {
 
 function pledgeLoanOptionsHtml(selectedId) {
   return state.loans
-    .map((l) => `<option value="${l.id}"${l.id === selectedId ? ' selected' : ''}>${escapeHtml(l.bank)} · ${fmtMoney(l.amount)}</option>`)
+    .map((l) => `<option value="${l.id}"${l.id === selectedId ? ' selected' : ''}>${escapeHtml(l.bank)} · úvěr ${fmtMoney(l.amount)}</option>`)
     .join('');
 }
 
@@ -1159,7 +1159,12 @@ function renderPropertyPledges(draft) {
     return;
   }
   add.disabled = false;
-  box.innerHTML = items
+  const head = items.length
+    ? '<div class="ppledge-head" aria-hidden="true"><span></span><span>Úvěr</span><span>Zastavená částka</span><span></span></div>'
+    : '';
+  box.innerHTML =
+    head +
+    items
     .map(
       (p) => `<div class="ppledge-row">
         <span class="ppledge-logo"></span>
@@ -1217,12 +1222,12 @@ function addPropertyPledge() {
 function updatePropertyFreeReadout() {
   const el = document.getElementById('property-free-pledge');
   if (!el) return;
-  const { free, cross } = propertyFreeFromForm();
+  const { market, lien, cross, free } = propertyFreeFromForm();
   el.classList.toggle('is-over', free < 0);
   el.innerHTML =
     free < 0
-      ? `Zástavy přesahují hodnotu o <strong>${fmtMoney(-free)}</strong>`
-      : `Volné k zastavení <strong>${fmtMoney(free)}</strong>${cross ? ` <span class="t-muted">(za úvěry zastaveno ${fmtMoney(cross)})</span>` : ''}`;
+      ? `Zástavy přesahují hodnotu nemovitosti o <strong>${fmtMoney(-free)}</strong>`
+      : `Hodnota <strong>${fmtMoney(market)}</strong> · zastaveno <strong>${fmtMoney(lien + cross)}</strong> · volné k zastavení <strong>${fmtMoney(free)}</strong>`;
 }
 
 function showFormError(id, message) {
@@ -1259,6 +1264,18 @@ function showPledgeMessage(row, text) {
 }
 
 /** Částku zástavy drží v mezích 1 Kč až volná hodnota nemovitosti. */
+/** Rozumná výchozí částka zástavy u úvěru: tolik, kolik úvěru ještě chybí do výše úvěru (nejvýš volná hodnota nemovitosti). */
+function defaultLoanPledge(row) {
+  const free = Number(row.dataset.free) || 0;
+  const loanAmount = parseFormNumber(loanForm().elements['amount'].value);
+  if (!(loanAmount > 0)) return Math.floor(free);
+  const others = Array.from(document.querySelectorAll('#loan-collateral-checklist .pledge-row'))
+    .filter((r) => r !== row && r.querySelector('.loan-collateral-checkbox').checked)
+    .reduce((sum, r) => sum + (parseFormNumber(r.querySelector('.loan-collateral-amount').value) || 0), 0);
+  const remaining = loanAmount - others;
+  return Math.floor(Math.min(free, remaining > 0 ? remaining : loanAmount));
+}
+
 function clampPledgeAmount(row) {
   const input = row.querySelector('.loan-collateral-amount');
   const free = Number(row.dataset.free) || 0;
@@ -1267,7 +1284,7 @@ function clampPledgeAmount(row) {
     setFormattedValue(input, Math.floor(free));
     showPledgeMessage(row, `Víc než volných ${fmtMoney(free)} zastavit nejde.`);
   } else if (!(amount > 0)) {
-    setFormattedValue(input, Math.floor(free));
+    setFormattedValue(input, defaultLoanPledge(row));
   }
 }
 
@@ -1285,7 +1302,7 @@ function wirePledgeChecklist() {
       row.classList.toggle('is-on', e.target.checked);
       row.querySelector('.pledge-amount').classList.toggle('hidden', !e.target.checked);
       if (e.target.checked && !(parseFormNumber(row.querySelector('.loan-collateral-amount').value) > 0)) {
-        setFormattedValue(row.querySelector('.loan-collateral-amount'), Math.floor(free));
+        setFormattedValue(row.querySelector('.loan-collateral-amount'), defaultLoanPledge(row));
       }
     } else if (e.target.classList.contains('loan-collateral-amount')) {
       clampPledgeAmount(row);
@@ -1306,6 +1323,134 @@ function monthRange(months) {
   return months === 1 ? 'pro' : `${MONTH_SHORT[12 - months]}–pro`;
 }
 
+/* ---------- Popup bublina: otevře se kliknutím na tlačítko, zavře se kliknutím mimo, klávesou Esc nebo křížkem ---------- */
+
+const popoverContent = new Map(); // id -> HTML bubliny (plní se při vykreslení tabulek)
+let popoverEl = null;
+let popoverTrigger = null;
+
+function registerPopover(id, html) {
+  popoverContent.set(id, html);
+  return id;
+}
+
+function closePopover() {
+  if (popoverEl) popoverEl.classList.add('hidden');
+  if (popoverTrigger) {
+    popoverTrigger.setAttribute('aria-expanded', 'false');
+    popoverTrigger.classList.remove('is-open');
+  }
+  popoverTrigger = null;
+}
+
+/** Bublina se drží u tlačítka: pod ním, nebo nad ním, když dole není místo; do stran se vejde na obrazovku. */
+function positionPopover() {
+  if (!popoverEl || !popoverTrigger) return;
+  if (!popoverTrigger.isConnected) {
+    closePopover();
+    return;
+  }
+  const r = popoverTrigger.getBoundingClientRect();
+  if (r.bottom < 0 || r.top > window.innerHeight) {
+    closePopover();
+    return;
+  }
+  const margin = 8;
+  const width = popoverEl.offsetWidth;
+  const height = popoverEl.offsetHeight;
+  const left = Math.max(margin, Math.min(r.left + r.width / 2 - width / 2, window.innerWidth - width - margin));
+  let top = r.bottom + 10;
+  let above = false;
+  if (top + height > window.innerHeight - margin && r.top - 10 - height > margin) {
+    top = r.top - 10 - height;
+    above = true;
+  }
+  popoverEl.style.left = `${Math.round(left)}px`;
+  popoverEl.style.top = `${Math.round(top)}px`;
+  popoverEl.style.setProperty('--arrow-x', `${Math.round(Math.max(16, Math.min(r.left + r.width / 2 - left, width - 16)))}px`);
+  popoverEl.classList.toggle('is-above', above);
+}
+
+function openPopover(trigger) {
+  if (popoverTrigger === trigger) {
+    closePopover();
+    return;
+  }
+  closePopover();
+  const html = popoverContent.get(trigger.dataset.pop);
+  if (!html) return;
+  if (!popoverEl) {
+    popoverEl = document.createElement('div');
+    popoverEl.className = 'popover hidden';
+    popoverEl.setAttribute('role', 'dialog');
+    document.body.appendChild(popoverEl);
+  }
+  popoverEl.innerHTML = `<button type="button" class="popover-close" aria-label="Zavřít">&times;</button>${html}`;
+  popoverEl.setAttribute('aria-label', trigger.getAttribute('aria-label') || trigger.textContent.trim());
+  popoverEl.classList.remove('hidden');
+  trigger.setAttribute('aria-expanded', 'true');
+  trigger.classList.add('is-open');
+  popoverTrigger = trigger;
+  positionPopover();
+}
+
+function wirePopovers() {
+  document.addEventListener('click', (e) => {
+    const trigger = e.target.closest('[data-pop]');
+    if (trigger) {
+      e.preventDefault();
+      openPopover(trigger);
+      return;
+    }
+    if (e.target.closest('.popover-close')) {
+      const t = popoverTrigger;
+      closePopover();
+      if (t) t.focus();
+      return;
+    }
+    if (popoverTrigger && !e.target.closest('.popover')) closePopover();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && popoverTrigger) {
+      const t = popoverTrigger;
+      closePopover();
+      t.focus();
+    }
+  });
+  window.addEventListener('resize', positionPopover);
+  window.addEventListener('scroll', positionPopover, true);
+}
+
+const MONTH_NAMES = ['leden', 'únor', 'březen', 'duben', 'květen', 'červen', 'červenec', 'srpen', 'září', 'říjen', 'listopad', 'prosinec'];
+
+/** Malé "i" u neúplného (letošního) roku: po kliknutí řekne, za jaké období řádek je. */
+function periodInfoButton(months) {
+  if (!months || months >= 12) return '';
+  const word = months === 1 ? 'měsíc' : months < 5 ? 'měsíce' : 'měsíců';
+  const range = months === 1 ? 'prosinec' : `${MONTH_NAMES[12 - months]} až prosinec`;
+  const id = registerPopover(
+    `period:${months}`,
+    `<div class="popover-title">Neúplný rok</div><p>Letos zbývá ${months} ${word} (${range}). Nájem, splátky a cashflow jsou jen za tyto měsíce, majetek a dluh jsou dnešní. Další roky jsou celé, od ledna do prosince.</p>`
+  );
+  return `<button type="button" class="info-btn" data-pop="${id}" aria-haspopup="dialog" aria-expanded="false" aria-label="Za jaké období je tento rok" title="Za jaké období je tento rok">i</button>`;
+}
+
+/** Štítek prodeje ve Scénářích: jen název nemovitosti, podrobnosti jsou v bublině po kliknutí. */
+function saleChipHtml(sale, year) {
+  const rows = [['Prodáno za', fmtMoney(sale.marketValue)]];
+  if (sale.acquisitionPrice > 0) rows.push(['Koupeno za', fmtMoney(sale.acquisitionPrice)]);
+  rows.push(['Daň z prodeje', sale.taxExempt ? 'žádná' : fmtMoney(sale.estimatedSaleTax)]);
+  rows.push(['Výtěžek', fmtMoney(sale.saleProceeds)]);
+  rows.push(['Dluh po prodeji', sale.loanFullyCleared ? 'splacen celý' : 'zbytek se splácí dál']);
+  const id = registerPopover(
+    `sale:${year}:${sale.propertyId}`,
+    `<div class="popover-title">Prodej: ${escapeHtml(sale.propertyName)}${sale.owner === 'po' ? ' <span class="badge badge-po">PO</span>' : ''}</div>
+    <dl class="popover-list">${rows.map(([k, v]) => `<dt>${k}</dt><dd class="num">${v}</dd>`).join('')}</dl>
+    <p class="popover-note">${escapeHtml(saleReasonTitle(sale))}</p>`
+  );
+  return `<button type="button" class="event-chip event-chip-sale" data-pop="${escapeHtml(id)}" aria-haspopup="dialog" aria-expanded="false" aria-label="Prodej: ${escapeHtml(sale.propertyName)}, detail" title="Detail prodeje">${escapeHtml(sale.propertyName)}</button>`;
+}
+
 /** Splátkový kalendář úvěru (jako list "Roky" v bankovní kalkulačce): úrok, jistina a podíl úroku po letech. */
 function loanScheduleHtml(loan, expanded) {
   const sch = calc.loanSchedule(loan, { events: state.events, startYear: CURRENT_YEAR, maxYears: 40, loans: state.loans });
@@ -1322,7 +1467,7 @@ function loanScheduleHtml(loan, expanded) {
     .map((r) => {
       const share = Math.round(r.interestShare * 100);
       return `<tr>
-        <td class="font-medium">${r.year}${r.months < 12 ? ` <span class="text-xs t-faint">${monthRange(r.months)}</span>` : ''}</td>
+        <td class="font-medium">${r.year}${periodInfoButton(r.months)}</td>
         <td>${moneyHtml(r.interest)}</td>
         <td>${moneyHtml(r.principal)}</td>
         <td><span class="share-bar" title="${share} % splátek tvoří úrok"><i style="width:${share}%"></i></span> ${share} %</td>
@@ -1344,6 +1489,7 @@ function loanScheduleHtml(loan, expanded) {
 }
 
 function renderLoansTable() {
+  closePopover();
   const key = 'loans';
   applyTableMode(key);
   const expanded = isExpanded(key);
@@ -1459,6 +1605,7 @@ function init() {
   wireNumberSteppers();
   wireDateFields();
   wireTableToggles();
+  wirePopovers();
   document.querySelectorAll('[data-combo="bank"]').forEach((input) => makeCombobox(input, bankOptions));
   wirePropertyFormUi();
   wireLoanFormUi();
@@ -1818,8 +1965,8 @@ function renderLoanCollateralChecklist(draft) {
           <input type="checkbox" class="loan-collateral-checkbox" value="${p.id}" ${on ? 'checked' : ''} />
           <span class="pledge-name">${escapeHtml(p.name)}</span>
         </label>
-        <span class="pledge-free">volné <strong class="num">${fmtMoney(free)}</strong></span>
-        <div class="pledge-amount ${on ? '' : 'hidden'}"><input class="input loan-collateral-amount" data-unit="money" aria-label="Zastavená částka" /></div>
+        <span class="pledge-free">volné k zastavení <strong class="num">${fmtMoney(free)}</strong></span>
+        <div class="pledge-amount ${on ? '' : 'hidden'}"><span class="label">Zastavená částka</span><input class="input loan-collateral-amount" data-unit="money" aria-label="Zastavená částka" /></div>
         <p class="pledge-msg hidden"></p>
       </div>`;
     })
@@ -2494,11 +2641,6 @@ function saleReasonTitle(s) {
   return `Nejméně výkonná z těch, které už prošly časovým testem: výnos z nájmu ${fmtPercent(s.yieldPct)}, zhodnocení ${fmtPercent(s.growth)}`;
 }
 
-function saleChipText(s) {
-  const tax = s.taxExempt ? 'bez daně' : `daň ${fmtMoney(s.estimatedSaleTax)}`;
-  return `Prodej: ${escapeHtml(s.propertyName)}${s.owner === 'po' ? ' (PO)' : ''} · ${fmtMoney(s.saleProceeds)} (${tax})`;
-}
-
 function renderScenario() {
   const horizon = state.scenario.horizonYears;
   setValueIfNotFocused(document.getElementById('scenario-horizon'), horizon);
@@ -2558,6 +2700,7 @@ function renderCashflowStrips() {
 }
 
 function renderScenarioTable() {
+  closePopover();
   const key = 'scenario';
   applyTableMode(key);
   const rows = scenarioRows;
@@ -2565,9 +2708,10 @@ function renderScenarioTable() {
   const columns = [
     {
       label: 'Rok',
+      cls: 'whitespace-nowrap',
       cell: (r) => {
         const hasEvent = r.sales.length > 0 || state.events.some((ev) => Number(ev.year_from) === r.year);
-        return `<span class="year-label">${r.year}</span>${r.months && r.months < 12 ? `<span class="year-part t-faint text-xs ml-1">${monthRange(r.months)}</span>` : ''}${hasEvent ? '<span class="ev-dot" title="Událost v tomto roce"></span>' : ''}`;
+        return `<span class="year-label">${r.year}</span>${periodInfoButton(r.months)}${hasEvent ? '<span class="ev-dot" title="Událost v tomto roce"></span>' : ''}`;
       },
     },
     { label: 'Majetek', right: true, cell: (r) => money(r.totalValue) },
@@ -2587,10 +2731,11 @@ function renderScenarioTable() {
     {
       label: 'Událost',
       x: true,
+      cls: 'ev-cell',
       cell: (r) => {
         const starting = state.events.filter((ev) => Number(ev.year_from) === r.year);
         return (
-          r.sales.map((s) => `<span class="event-chip event-chip-sale" title="${escapeHtml(saleReasonTitle(s))}">${saleChipText(s)}</span>`).join('') +
+          r.sales.map((sale) => saleChipHtml(sale, r.year)).join('') +
           starting.map((ev) => `<span class="event-chip">${escapeHtml(shortEventLabel(ev))}</span>`).join('')
         );
       },
@@ -2599,7 +2744,7 @@ function renderScenarioTable() {
   const cols = visibleColumns(columns, key);
   document.getElementById('scenario-thead').innerHTML = headHtml(cols);
   document.getElementById('scenario-tbody').innerHTML = rows
-    .map((r) => `<tr>${cols.map((c) => `<td class="${c.right ? 'text-right' : ''}">${c.cell(r)}</td>`).join('')}</tr>`)
+    .map((r) => `<tr>${cols.map((c) => `<td class="${c.right ? 'text-right' : ''} ${c.cls || ''}">${c.cell(r)}</td>`).join('')}</tr>`)
     .join('');
 }
 
@@ -2795,9 +2940,13 @@ function renderPledgeCapacity(row, selectedYear) {
     const original = state.properties.find((p) => p.id === rp.id) || {};
     return { id: rp.id, market_value: rp.value, has_lien: original.has_lien, lien_value: original.lien_value };
   });
-  // Úvěr, který ještě v tom roce nebyl sjednaný, ještě nemohl "spotřebovat"
-  // zástavu žádné jiné nemovitosti.
-  const activeLoans = state.loans.filter((l) => calc.yearOf(l.start_date, CURRENT_YEAR) <= selectedYear);
+  // Zástavu drží jen úvěry, které v tom roce ještě běží (po splacení ji banka uvolní; úvěr, který ještě nebyl
+  // sjednaný, ji ještě nespotřeboval). Sloučený úvěr předal zástavy tomu, do kterého se sloučil.
+  const now = new Date();
+  const outstanding = new Set((row.perLoan || []).map((l) => l.id));
+  const rowStartAbs = selectedYear * 12 + (selectedYear === CURRENT_YEAR ? now.getMonth() : 0);
+  const merging = calc.mergePlan(state.loans, CURRENT_YEAR, now.getMonth()).mergeInto;
+  const activeLoans = calc.loansHoldingPledges(state.loans, outstanding, rowStartAbs, merging);
   const { freeCollateral, maxPurchasePrice } = calc.pledgePurchaseCapacity(projectedProperties, maxLtv, activeLoans);
   document.getElementById('pledge-free-collateral').textContent = fmtMoney(freeCollateral);
   document.getElementById('pledge-max-purchase').textContent = fmtMoney(maxPurchasePrice);
