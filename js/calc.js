@@ -114,8 +114,10 @@ function taxExemptYears(property) {
 function timeTestInfo(property, today = new Date()) {
   if (isPO(property)) return { done: false, never: true, text: 'Bez časového testu' };
   const years = taxExemptYears(property);
-  if (!property.acquisition_date || years <= 0) return { done: true, never: false, none: true, text: '—' };
-  const tt = timeTestRemaining(toDate(property.acquisition_date), years, today);
+  if (years <= 0) return { done: true, never: false, none: true, text: '—' };
+  // bez data pořízení se počítá od dneška (aplikace chybějící datum při uložení sama doplní dnešním)
+  const acquired = property.acquisition_date ? toDate(property.acquisition_date) : new Date();
+  const tt = timeTestRemaining(acquired, years, today);
   return { done: tt.done, never: false, text: tt.text };
 }
 
@@ -871,7 +873,7 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
     const sales = [];
     const saleDate = new Date(stateYear + 1, 0, 1);
 
-    const sell = (candidate, reason) => {
+    const sell = (candidate, reason, extra = {}) => {
       cashReserve += candidate.netProceeds;
       soldProperties.add(candidate.property.id);
       const sold = perProperty.find((pp) => pp.id === candidate.property.id);
@@ -897,6 +899,7 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
         growth: candidate.growth,
         loanFullyCleared: totalDebtAfterSale <= 0.01,
         cashAfter: cashReserve,
+        ...extra,
       });
     };
 
@@ -943,10 +946,11 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
         if (cumulativeGain >= threshold) {
           // Prodává se nejméně výkonná nemovitost: nejdřív podle výnosnosti z nájmu (nižší se prodává dřív),
           // při podobné výnosnosti podle zhodnocení (nižší dřív). Viz compareSaleCandidates.
-          const candidates = unsold
-            .map((p) => scoreSaleCandidate(p, curValue[p.id], capGainsTaxRate, saleDate, poTaxRate, performanceOf(p)))
-            .sort(compareSaleCandidates);
-          sell(candidates[0], 'gain');
+          const score = (p) => scoreSaleCandidate(p, curValue[p.id], capGainsTaxRate, saleDate, poTaxRate, performanceOf(p));
+          const candidates = unsold.map(score).sort(compareSaleCandidates);
+          const eligibleIds = new Set(unsold.map((p) => p.id));
+          const notEligible = stillOwned.filter((p) => !eligibleIds.has(p.id)).map(score);
+          sell(candidates[0], 'gain', { threshold, comparison: describeSaleChoice(candidates[0], candidates, notEligible) });
           cumulativeGain = 0;
         }
       }
@@ -1035,6 +1039,37 @@ function scoreSaleCandidate(property, marketValue, capGainsTaxRate, today, poTax
   const estimatedSaleTax = tt.done ? 0 : Math.max(gain, 0) * taxRate;
   const netProceeds = marketValue - estimatedSaleTax;
   return { property, marketValue, gain, gainPct, taxExempt: tt.done, timeTestText: tt.text, yieldPct, growth, estimatedSaleTax, netProceeds };
+}
+
+/**
+ * Srovnání nemovitostí při rozhodnutí o prodeji, z něj se v aplikaci skládá vysvětlení, proč se prodala právě tahle.
+ * Řádek = nemovitost, perMillion = čistý nájem za rok v Kč na 1 mil. hodnoty. Nejdřív způsobilé nemovitosti v pořadí
+ * prodeje, pak ty, které ještě neprošly časovým testem (s textem, kolik jim zbývá).
+ * decidedBy: 'only' = jediná způsobilá, 'yield' = nejnižší výnos ze všech, 'growth' = výnos podobný jako u dalších
+ * (do jednoho pásma), rozhodlo nižší zhodnocení (podobné nemovitosti jsou v `similar`).
+ */
+function describeSaleChoice(chosen, eligible, notEligible) {
+  const row = (c, isEligible) => ({
+    id: c.property.id,
+    name: c.property.name,
+    owner: isPO(c.property) ? 'po' : 'fo',
+    perMillion: Math.round(c.yieldPct * 1e6),
+    yieldPct: c.yieldPct,
+    growth: c.growth,
+    eligible: isEligible,
+    timeTestText: isEligible ? '' : c.timeTestText,
+    chosen: c === chosen,
+  });
+  const band = (c) => Math.round(c.yieldPct / SALE_YIELD_BAND);
+  const similar = eligible.filter((c) => c !== chosen && band(c) === band(chosen));
+  let decidedBy = 'yield';
+  if (eligible.length <= 1) decidedBy = 'only';
+  else if (similar.length) decidedBy = 'growth';
+  return {
+    decidedBy,
+    similar: similar.map((c) => c.property.name),
+    rows: eligible.map((c) => row(c, true)).concat(notEligible.map((c) => row(c, false))),
+  };
 }
 
 /** Výnosnosti se porovnávají po pásmech této šířky (0,25 p. b.): v rámci pásma se berou jako stejné a rozhoduje zhodnocení. */
@@ -1208,6 +1243,8 @@ window.calc = {
   loanPropertyShares,
   scoreSaleCandidate,
   compareSaleCandidates,
+  describeSaleChoice,
+  SALE_YIELD_BAND,
   projectPortfolio,
   pledgePurchaseCapacity,
   loansHoldingPledges,

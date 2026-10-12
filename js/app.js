@@ -620,7 +620,8 @@ function applyStateFromObject(parsed) {
   if (parsed.settings) Object.assign(state.settings, parsed.settings);
   if (parsed.scenario) Object.assign(state.scenario, parsed.scenario);
   if (parsed.overview) Object.assign(state.overview, parsed.overview);
-  normalizeStateData();
+  // doplněná data se hned uloží do pracovní kopie, ať se příště nedoplňují znovu jiným dnem
+  if (normalizeStateData()) persistWorkingCopy();
 }
 
 function loadState() {
@@ -781,7 +782,12 @@ function wireDateFields() {
     let y;
     let mo;
     let d;
-    let m = /^(\d{1,2})\s*[.\-/ ]\s*(\d{1,2})\s*[.\-/ ]\s*(\d{4})$/.exec(t);
+    const valid = (yy, mm, dd) => {
+      if (yy < 1900 || yy > 2100) return false;
+      const date = new Date(yy, mm - 1, dd);
+      return date.getFullYear() === yy && date.getMonth() === mm - 1 && date.getDate() === dd;
+    };
+    let m = /^(\d{1,2})\s*[.,\-/ ]\s*(\d{1,2})\s*[.,\-/ ]\s*(\d{4})$/.exec(t);
     if (m) {
       d = Number(m[1]);
       mo = Number(m[2]);
@@ -790,9 +796,20 @@ function wireDateFields() {
       y = Number(m[1]);
       mo = Number(m[2]);
       d = Number(m[3]);
+    } else if (/^\d{6,8}$/.test(t)) {
+      // jen číslice (číselná klávesnice bez teček): den a měsíc po 1-2 číslicích, rok poslední čtyři
+      const yearPart = Number(t.slice(-4));
+      const front = t.slice(0, -4);
+      const options = [];
+      if (front.length === 2) options.push([Number(front[0]), Number(front[1])]);
+      if (front.length === 3) options.push([Number(front.slice(0, 1)), Number(front.slice(1))], [Number(front.slice(0, 2)), Number(front.slice(2))]);
+      if (front.length === 4) options.push([Number(front.slice(0, 2)), Number(front.slice(2))]);
+      const ok = options.filter(([dd, mm]) => valid(yearPart, mm, dd));
+      if (ok.length !== 1) return null; // nejednoznačné (např. 1122026) nebo neplatné
+      [d, mo] = ok[0];
+      y = yearPart;
     } else return null;
-    const date = new Date(y, mo - 1, d);
-    if (date.getFullYear() !== y || date.getMonth() !== mo - 1 || date.getDate() !== d) return null;
+    if (!valid(y, mo, d)) return null;
     return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
   };
   document.querySelectorAll('input[type="date"]').forEach((native) => {
@@ -804,7 +821,8 @@ function wireDateFields() {
     text.type = 'text';
     text.className = 'input';
     text.autocomplete = 'off';
-    text.setAttribute('inputmode', 'numeric');
+    text.setAttribute('inputmode', 'decimal');
+    if (native.dataset.placeholder) text.placeholder = native.dataset.placeholder;
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'date-btn';
@@ -812,15 +830,17 @@ function wireDateFields() {
     button.setAttribute('aria-label', 'Vybrat datum');
     button.innerHTML =
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>';
-    wrap.append(text, button, native);
+    button.setAttribute('aria-hidden', 'true');
+    wrap.append(text, native, button);
     native.classList.add('date-native');
     native.tabIndex = -1;
-    native.setAttribute('aria-hidden', 'true');
+    native.setAttribute('aria-label', 'Vybrat datum v kalendáři');
 
     const sync = () => {
       const iso = valueDesc.get.call(native);
       text.value = iso ? fmtDate(iso) : '';
       text.classList.remove('is-invalid');
+      delete text.dataset.typedInvalid;
     };
     // programové nastavení hodnoty (vyplnění formuláře, dopočty) se hned propíše i do textu
     Object.defineProperty(native, 'value', {
@@ -838,6 +858,7 @@ function wireDateFields() {
       const iso = parseTyped(text.value);
       if (iso === null) {
         text.classList.add('is-invalid');
+        text.dataset.typedInvalid = '1';
         return;
       }
       if (iso !== valueDesc.get.call(native)) {
@@ -854,17 +875,16 @@ function wireDateFields() {
         commit();
       }
     });
-    button.addEventListener('click', () => {
-      if (typeof native.showPicker === 'function') {
-        try {
-          native.showPicker();
-          return;
-        } catch (err) {
-          /* prohlížeč výběr nepovolil - zkusí se klasicky */
-        }
+    // Na telefonu otevře kalendář přímo dotyk na průhledné pole nad ikonou (jediná cesta, která funguje i na iPhonu),
+    // na počítači ho navíc otevře showPicker.
+    const coarsePointer = window.matchMedia('(pointer: coarse)');
+    native.addEventListener('click', () => {
+      if (coarsePointer.matches || typeof native.showPicker !== 'function') return;
+      try {
+        native.showPicker();
+      } catch (err) {
+        /* už je otevřený, nebo ho prohlížeč nepovolil */
       }
-      native.focus();
-      native.click();
     });
     if (native.form) native.form.addEventListener('reset', () => setTimeout(sync, 0));
     sync();
@@ -981,8 +1001,31 @@ function normalizeLoanList(loans, properties) {
   });
 }
 
+/**
+ * Chybějící datum pořízení nemovitosti a zřízení úvěru se doplní dneškem a od té chvíle zůstává stejné (nesmí se
+ * posouvat každý den, jinak by se časový test ani fixace nikdy nedokončily). Vrací, jestli se něco doplnilo.
+ */
+function stampMissingDates() {
+  const today = toInputDate(new Date());
+  let stamped = false;
+  for (const p of state.properties) {
+    if (!p.acquisition_date) {
+      p.acquisition_date = today;
+      stamped = true;
+    }
+  }
+  for (const l of state.loans) {
+    if (!l.start_date) {
+      l.start_date = today;
+      stamped = true;
+    }
+  }
+  return stamped;
+}
+
 function normalizeStateData() {
   state.loans = normalizeLoanList(state.loans, state.properties);
+  return stampMissingDates();
 }
 
 /** Podoba dat bez ohledu na verzi záznamu (porovnání s cloudem). */
@@ -1356,15 +1399,23 @@ function positionPopover() {
     return;
   }
   const margin = 8;
+  const body = popoverEl.querySelector('.popover-body');
+  const keptScroll = body ? body.scrollTop : 0;
+  if (body) body.style.maxHeight = ''; // změří se přirozená výška; při přepočtu (scroll, změna okna) se začíná znovu
   const width = popoverEl.offsetWidth;
-  const height = popoverEl.offsetHeight;
+  let height = popoverEl.offsetHeight;
   const left = Math.max(margin, Math.min(r.left + r.width / 2 - width / 2, window.innerWidth - width - margin));
-  let top = r.bottom + 10;
-  let above = false;
-  if (top + height > window.innerHeight - margin && r.top - 10 - height > margin) {
-    top = r.top - 10 - height;
-    above = true;
+  // bublina jde na stranu, kam se vejde; když se nevejde nikam, zkrátí se (obsah se v ní posouvá)
+  const spaceBelow = window.innerHeight - margin - (r.bottom + 10);
+  const spaceAbove = r.top - 10 - margin;
+  const above = height > spaceBelow && spaceAbove > spaceBelow;
+  const space = above ? spaceAbove : spaceBelow;
+  if (body && height > space) {
+    body.style.maxHeight = `${Math.max(120, Math.floor(space - (height - body.offsetHeight)))}px`;
+    body.scrollTop = keptScroll;
+    height = popoverEl.offsetHeight;
   }
+  const top = above ? r.top - 10 - height : r.bottom + 10;
   popoverEl.style.left = `${Math.round(left)}px`;
   popoverEl.style.top = `${Math.round(top)}px`;
   popoverEl.style.setProperty('--arrow-x', `${Math.round(Math.max(16, Math.min(r.left + r.width / 2 - left, width - 16)))}px`);
@@ -1385,7 +1436,7 @@ function openPopover(trigger) {
     popoverEl.setAttribute('role', 'dialog');
     document.body.appendChild(popoverEl);
   }
-  popoverEl.innerHTML = `<button type="button" class="popover-close" aria-label="Zavřít">&times;</button>${html}`;
+  popoverEl.innerHTML = `<button type="button" class="popover-close" aria-label="Zavřít">&times;</button><div class="popover-body">${html}</div>`;
   popoverEl.setAttribute('aria-label', trigger.getAttribute('aria-label') || trigger.textContent.trim());
   popoverEl.classList.remove('hidden');
   trigger.setAttribute('aria-expanded', 'true');
@@ -1418,7 +1469,15 @@ function wirePopovers() {
     }
   });
   window.addEventListener('resize', positionPopover);
-  window.addEventListener('scroll', positionPopover, true);
+  // posouvání obsahu uvnitř bubliny ji nesmí přepočítávat (vrátilo by ho na začátek)
+  window.addEventListener(
+    'scroll',
+    (e) => {
+      if (popoverEl && e.target instanceof Node && popoverEl.contains(e.target)) return;
+      positionPopover();
+    },
+    true
+  );
 }
 
 const MONTH_NAMES = ['leden', 'únor', 'březen', 'duben', 'květen', 'červen', 'červenec', 'srpen', 'září', 'říjen', 'listopad', 'prosinec'];
@@ -1435,7 +1494,60 @@ function periodInfoButton(months) {
   return `<button type="button" class="info-btn" data-pop="${id}" aria-haspopup="dialog" aria-expanded="false" aria-label="Za jaké období je tento rok" title="Za jaké období je tento rok">i</button>`;
 }
 
-/** Štítek prodeje ve Scénářích: jen název nemovitosti, podrobnosti jsou v bublině po kliknutí. */
+/** Částka v Kč na 1 mil. hodnoty ročně (nájem po nákladech), např. "30 000 Kč". */
+const fmtPerMillion = (n) => `${fmtNumber(n, 0)} Kč`;
+
+/**
+ * Vysvětlení v bublině prodeje: proč se prodala právě tahle nemovitost a jak dopadla proti ostatním. Výkon se bere
+ * z víc pohledů: kolik Kč ročně nájem vydělá na 1 mil. hodnoty (hlavní) a roční zhodnocení (druhé).
+ */
+function saleWhyHtml(sale) {
+  if (sale.reason === 'po') {
+    return '<div class="popover-sub">Proč se prodala</div><p>PO se prodává co nejdřív: nemá časový test a daň z prodeje se platí vždy, další zhodnocení by jen zvětšovalo daň.</p>';
+  }
+  const cmp = sale.comparison;
+  const trigger =
+    sale.threshold > 0
+      ? `<p class="popover-note">Prodej se spustil, protože nastřádané zhodnocení ${fmtMoney(sale.triggeredByGain)} dosáhlo prahu ${fmtMoney(sale.threshold)}. Výtěžek šel na umoření dluhu.</p>`
+      : '';
+  if (!cmp) {
+    return `<div class="popover-sub">Proč se prodala</div><p>Nejméně výkonná z těch, které už prošly časovým testem: nájem ${fmtPerMillion((sale.yieldPct || 0) * 1e6)} ročně na 1 mil. hodnoty, zhodnocení ${fmtPercent(sale.growth)}.</p>${trigger}`;
+  }
+  const eligible = cmp.rows.filter((r) => r.eligible);
+  const me = cmp.rows.find((r) => r.chosen);
+  const others = eligible.filter((r) => !r.chosen);
+  let why;
+  if (cmp.decidedBy === 'only') {
+    why = `Jediná nemovitost, která už prošla časovým testem. Nájem vydělává ${fmtPerMillion(me.perMillion)} ročně na 1 mil. hodnoty, zhodnocení ${fmtPercent(me.growth)}.`;
+  } else if (cmp.decidedBy === 'yield') {
+    const values = others.map((r) => r.perMillion);
+    const low = Math.min(...values);
+    const high = Math.max(...values);
+    const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
+    const rest =
+      others.length === 1
+        ? `u ${escapeHtml(others[0].name)} ${fmtPerMillion(low)}`
+        : fmtPerMillion(low) === fmtPerMillion(high)
+          ? `u ostatních ${fmtPerMillion(low)}`
+          : `u ostatních ${fmtPerMillion(low)} až ${fmtPerMillion(high)} (průměr ${fmtPerMillion(avg)})`;
+    why = `Nejnižší výnos z nájmu ze ${eligible.length} nemovitostí po časovém testu: ${fmtPerMillion(me.perMillion)} ročně na 1 mil. hodnoty, ${rest}. Zhodnocení ${fmtPercent(me.growth)}.`;
+  } else {
+    const similar = others.filter((r) => cmp.similar.includes(r.name));
+    why = `Výnos z nájmu je podobný jako u ${similar.map((r) => escapeHtml(r.name)).join(', ')} (rozdíl do ${fmtPerMillion(calc.SALE_YIELD_BAND * 1e6)} na 1 mil. ročně), proto rozhodlo nižší zhodnocení: ${fmtPercent(me.growth)} proti ${similar.map((r) => `${fmtPercent(r.growth)} u ${escapeHtml(r.name)}`).join(', ')}.`;
+  }
+  const table = `<table class="popover-table">
+    <thead><tr><th>Nemovitost</th><th>Nájem na 1 mil. ročně</th><th>Růst</th></tr></thead>
+    <tbody>${cmp.rows
+      .map(
+        (r) => `<tr class="${r.chosen ? 'is-chosen' : r.eligible ? '' : 'is-muted'}"><td>${escapeHtml(r.name)}${r.chosen ? ' <span class="chip-tag">prodáno</span>' : ''}${
+          r.eligible ? '' : `<span class="popover-sub-note">${r.owner === 'po' ? 'PO, prodává se zvlášť' : `před časovým testem, zbývá ${escapeHtml(r.timeTestText)}`}</span>`
+        }</td><td class="num">${fmtPerMillion(r.perMillion)}</td><td class="num">${fmtPercent(r.growth)}</td></tr>`
+      )
+      .join('')}</tbody></table>`;
+  return `<div class="popover-sub">Proč se prodala</div><p>${why}</p><div class="popover-sub">Porovnání s ostatními</div>${table}${trigger}`;
+}
+
+/** Štítek prodeje ve Scénářích: jen název nemovitosti, podrobnosti a důvod jsou v bublině po kliknutí. */
 function saleChipHtml(sale, year) {
   const rows = [['Prodáno za', fmtMoney(sale.marketValue)]];
   if (sale.acquisitionPrice > 0) rows.push(['Koupeno za', fmtMoney(sale.acquisitionPrice)]);
@@ -1446,7 +1558,7 @@ function saleChipHtml(sale, year) {
     `sale:${year}:${sale.propertyId}`,
     `<div class="popover-title">Prodej: ${escapeHtml(sale.propertyName)}${sale.owner === 'po' ? ' <span class="badge badge-po">PO</span>' : ''}</div>
     <dl class="popover-list">${rows.map(([k, v]) => `<dt>${k}</dt><dd class="num">${v}</dd>`).join('')}</dl>
-    <p class="popover-note">${escapeHtml(saleReasonTitle(sale))}</p>`
+    ${saleWhyHtml(sale)}`
   );
   return `<button type="button" class="event-chip event-chip-sale" data-pop="${escapeHtml(id)}" aria-haspopup="dialog" aria-expanded="false" aria-label="Prodej: ${escapeHtml(sale.propertyName)}, detail" title="Detail prodeje">${escapeHtml(sale.propertyName)}</button>`;
 }
@@ -1612,13 +1724,20 @@ function init() {
   wireEventFormUi();
   wireKpiFormulaToggles();
   wirePdfExportButtons();
-  document.getElementById('scenario-horizon').addEventListener('input', (e) => {
-    state.scenario.horizonYears = Math.max(1, Number(e.target.value) || 1);
+  const horizonInput = document.getElementById('scenario-horizon');
+  horizonInput.addEventListener('input', (e) => {
+    const error = checkValue({ kind: 'number', integer: true, required: true, min: 1, max: 50, unit: ' let' }, e.target.value);
+    setFieldError(horizonInput, error);
+    if (error) return;
+    state.scenario.horizonYears = Number(e.target.value);
     saveState();
     renderScenario();
     renderOverview();
   });
-  document.getElementById('scenario-horizon').addEventListener('blur', () => renderScenario());
+  horizonInput.addEventListener('blur', () => {
+    setFieldError(horizonInput, '');
+    renderScenario();
+  });
   resetPropertyForm();
   resetLoanForm();
   resetEventForm();
@@ -1698,6 +1817,231 @@ function ownerBadge(p) {
 function propertyName(id) {
   const p = state.properties.find((x) => x.id === id);
   return p ? p.name : '';
+}
+
+/* ---------- Hlídání hodnot ve formulářích ---------- */
+
+// Každé pole má pravidlo (typ, meze). Formulář se před uložením zkontroluje, chyba se napíše přímo pod pole
+// a hodnoty se ukládají do správných polí ve správných jednotkách (procenta jako zlomky, text bez zbytečných mezer).
+
+const MAX_MONEY = 1e11; // 100 mld. Kč
+
+/** Text bez zbytečných mezer a řídicích znaků. */
+function cleanText(raw) {
+  return String(raw == null ? '' : raw)
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Číslo z textu pole: null = prázdné pole, NaN = není to číslo. */
+function readNumber(raw) {
+  const t = String(raw == null ? '' : raw)
+    .replace(/[\s ]/g, '')
+    .replace(/[−–]/g, '-')
+    .replace(',', '.');
+  if (t === '') return null;
+  if (!/^-?(\d+\.?\d*|\.\d+)$/.test(t)) return NaN;
+  return Number(t);
+}
+
+const RULE_UNIT = { money: ' Kč', percent: ' %' };
+
+/** Zkontroluje hodnotu podle pravidla. Vrací text chyby, nebo prázdný text, když je všechno v pořádku. */
+function checkValue(rule, raw) {
+  if (rule.kind === 'text') {
+    const t = cleanText(raw);
+    if (!t) return rule.required ? 'Vyplň toto pole.' : '';
+    if (rule.maxLen && t.length > rule.maxLen) return `Nejvýš ${rule.maxLen} znaků.`;
+    return '';
+  }
+  if (rule.kind === 'date') {
+    const iso = String(raw || '');
+    if (!iso) return rule.required ? 'Zadej datum.' : '';
+    const year = Number(iso.slice(0, 4));
+    if (!(year >= 1900 && year <= 2100)) return 'Rok data musí být mezi 1900 a 2100.';
+    return '';
+  }
+  const n = readNumber(raw);
+  if (n === null) return rule.required ? 'Vyplň toto pole.' : '';
+  if (!Number.isFinite(n)) return 'Zadej číslo.';
+  if (rule.integer && !Number.isInteger(n)) return 'Zadej celé číslo.';
+  const unit = rule.unit != null ? rule.unit : RULE_UNIT[rule.kind] || '';
+  if (rule.minExclusive != null && n <= rule.minExclusive) return `Musí být víc než ${fmtNumber(rule.minExclusive)}${unit}.`;
+  if (rule.min != null && rule.max != null && (n < rule.min || n > rule.max)) return `Zadej hodnotu od ${fmtNumber(rule.min)} do ${fmtNumber(rule.max)}${unit}.`;
+  if (rule.min != null && n < rule.min) return rule.min === 0 && rule.kind === 'money' ? 'Částka nesmí být záporná.' : `Nejméně ${fmtNumber(rule.min)}${unit}.`;
+  if (rule.max != null && n > rule.max) return `Nejvýš ${fmtNumber(rule.max)}${unit}.`;
+  if (rule.extra) return rule.extra(n) || '';
+  return '';
+}
+
+/** Viditelné pole: u data je to textové pole vedle průhledného nativního pole s kalendářem. */
+function visibleInput(el) {
+  if (el.classList && el.classList.contains('date-native')) {
+    const field = el.closest('.date-field');
+    return (field && field.querySelector('input[type="text"]')) || el;
+  }
+  return el;
+}
+
+/** Napíše chybu pod pole (nebo ji smaže, když je text prázdný) a označí pole červeně. */
+function setFieldError(el, message) {
+  const shown = visibleInput(el);
+  let node = shown.closest('.input-suffix-wrap, .number-stepper-wrap, .date-field') || shown;
+  const host = node.closest('label') || node.parentElement;
+  let box = host.querySelector(':scope > .field-error');
+  if (!message) {
+    if (box) box.remove();
+    shown.classList.remove('is-invalid');
+    shown.removeAttribute('aria-invalid');
+    return;
+  }
+  if (!box) {
+    box = document.createElement('p');
+    box.className = 'field-error';
+    box.setAttribute('role', 'alert');
+    host.appendChild(box);
+  }
+  box.textContent = message;
+  shown.classList.add('is-invalid');
+  shown.setAttribute('aria-invalid', 'true');
+}
+
+function clearFieldErrors(root) {
+  if (!root) return;
+  root.querySelectorAll('.field-error').forEach((box) => box.remove());
+  root.querySelectorAll('.is-invalid').forEach((input) => {
+    if (input.dataset.typedInvalid) return; // špatně napsané datum se smaže, až se pole opraví
+    input.classList.remove('is-invalid');
+    input.removeAttribute('aria-invalid');
+  });
+}
+
+/** Ukáže první chybné pole: rozbalí kartu, ve které je, a dá do něj kurzor. */
+function focusInvalid(el) {
+  const shown = visibleInput(el);
+  const details = shown.closest('details');
+  if (details) details.open = true;
+  shown.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  try {
+    shown.focus({ preventScroll: true });
+  } catch (e) {
+    /* pole nejde zaměřit - nevadí */
+  }
+}
+
+/** Sbírá chyby formuláře: field() zkontroluje pole podle pravidla, fail() přidá chybu ze vztahu mezi poli. */
+function makeValidator() {
+  const bad = [];
+  return {
+    field(rule) {
+      const el = rule.el;
+      if (!el) return;
+      let error;
+      const shown = visibleInput(el);
+      if (rule.kind === 'date' && shown !== el && shown.dataset.typedInvalid) error = 'Zadej datum, např. 1. 2. 2026.';
+      else if (el.validity && el.validity.badInput) error = 'Zadej číslo.'; // číselné pole s nesmyslem uvnitř vrací prázdnou hodnotu
+      else error = checkValue(rule, el.value);
+      setFieldError(el, error);
+      if (error) bad.push(el);
+    },
+    fail(el, message) {
+      if (!el || bad.includes(el)) return;
+      setFieldError(el, message);
+      bad.push(el);
+    },
+    done() {
+      if (!bad.length) return true;
+      bad.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+      focusInvalid(bad[0]);
+      return false;
+    },
+  };
+}
+
+function validateProperty(f) {
+  clearFieldErrors(f);
+  const v = makeValidator();
+  const el = (name) => f.elements[name];
+  v.field({ el: el('name'), kind: 'text', required: true, maxLen: 80 });
+  v.field({ el: el('rent'), kind: 'money', min: 0, max: 1e8 });
+  v.field({ el: el('market_value'), kind: 'money', required: true, minExclusive: 0, max: MAX_MONEY });
+  v.field({ el: el('acquisition_price'), kind: 'money', min: 0, max: MAX_MONEY });
+  v.field({ el: el('growth_rate'), kind: 'percent', min: -50, max: 100 });
+  v.field({ el: el('acquisition_date'), kind: 'date' });
+  v.field({ el: el('occupancy'), kind: 'percent', min: 0, max: 100 });
+  v.field({ el: el('monthly_costs'), kind: 'money', min: 0, max: 1e8 });
+  v.field({ el: el('rent_growth_rate'), kind: 'percent', min: -50, max: 100 });
+  if (el('has_lien').checked) {
+    v.field({ el: el('lien_bank'), kind: 'text', maxLen: 60 });
+    v.field({ el: el('lien_value'), kind: 'money', required: true, minExclusive: 0, max: MAX_MONEY });
+  }
+  for (const p of readPropertyPledges()) v.field({ el: p.row.querySelector('.ppledge-amount'), kind: 'money', required: true, minExclusive: 0, max: MAX_MONEY });
+  return v.done();
+}
+
+function validateLoan(f) {
+  clearFieldErrors(f);
+  const v = makeValidator();
+  const el = (name) => f.elements[name];
+  v.field({ el: el('bank'), kind: 'text', required: true, maxLen: 60 });
+  v.field({ el: el('amount'), kind: 'money', required: true, minExclusive: 0, max: MAX_MONEY });
+  v.field({ el: el('interest_rate'), kind: 'percent', required: true, min: 0, max: 100 });
+  v.field({ el: el('monthly_payment'), kind: 'money', min: 0, max: 1e8 });
+  v.field({ el: el('start_date'), kind: 'date' });
+  v.field({ el: el('fixation_years'), kind: 'number', min: 0, max: 50, unit: ' let' });
+  v.field({ el: el('fixation_end'), kind: 'date' });
+  v.field({ el: el('rate_after_fixation'), kind: 'percent', min: 0, max: 100 });
+  v.field({ el: el('payment_after_fixation'), kind: 'money', min: 0, max: 1e8 });
+  v.field({ el: el('maturity_date'), kind: 'date' });
+  v.field({ el: el('refinance_date'), kind: 'date' });
+  v.field({ el: el('refinance_rate'), kind: 'percent', min: 0, max: 100 });
+  v.field({ el: el('refinance_years'), kind: 'number', minExclusive: 0, max: 50, unit: ' let' });
+  v.field({ el: el('ltv_percent'), kind: 'percent', min: 0, max: 200 });
+  v.field({ el: el('own_funds'), kind: 'money', min: 0, max: MAX_MONEY });
+  v.field({ el: el('note'), kind: 'text', maxLen: 200 });
+
+  // vztahy mezi poli (bez data zřízení se počítá od dneška)
+  const start = el('start_date').value || toInputDate(new Date());
+  const fixationEnd = el('fixation_end').value;
+  const maturity = el('maturity_date').value;
+  if (fixationEnd && fixationEnd < start) v.fail(el('fixation_end'), 'Konec fixace nemůže být před zřízením úvěru.');
+  if (maturity && maturity <= start) v.fail(el('maturity_date'), 'Splatnost musí být po zřízení úvěru.');
+  const refinanceGiven = el('refinance_rate').value.trim() !== '' || el('refinance_years').value.trim() !== '';
+  if (refinanceGiven && !el('refinance_date').value) v.fail(el('refinance_date'), 'Zadej datum refinancování, jinak se nová sazba a doba nepoužijí.');
+  const afterFixationGiven = el('rate_after_fixation').value.trim() !== '' || el('payment_after_fixation').value.trim() !== '';
+  const fixationKnown = el('fixation_years').value.trim() !== '' || !!fixationEnd;
+  if (afterFixationGiven && !fixationKnown) v.fail(el('fixation_years'), 'Zadej dobu fixace nebo její konec, ať je jasné, odkdy platí nová sazba.');
+  return v.done();
+}
+
+function validateEvent(f) {
+  clearFieldErrors(f);
+  const v = makeValidator();
+  const type = f.elements['type'].value;
+  v.field({ el: f.elements['year_from'], kind: 'number', integer: true, required: true, min: 2000, max: 2100, unit: '' });
+  if (type !== 'one_time') v.field({ el: f.elements['year_to'], kind: 'number', integer: true, min: 2000, max: 2100, unit: '' });
+  const ranges = { growth: [-50, 100], rent_growth: [-50, 100], vacancy: [0, 100], inflation: [-20, 100], interest: [0, 100] };
+  if (type === 'one_time') {
+    v.field({
+      el: f.elements['value'],
+      kind: 'money',
+      required: true,
+      min: -MAX_MONEY,
+      max: MAX_MONEY,
+      extra: (n) => (n === 0 ? 'Zadej částku (příjem kladně, výdaj záporně).' : ''),
+    });
+  } else {
+    const [min, max] = ranges[type] || [-100, 100];
+    v.field({ el: f.elements['value'], kind: 'percent', required: true, min, max });
+  }
+  v.field({ el: f.elements['note'], kind: 'text', maxLen: 200 });
+  const from = readNumber(f.elements['year_from'].value);
+  const to = readNumber(f.elements['year_to'].value);
+  if (type !== 'one_time' && from != null && to != null && Number.isFinite(from) && Number.isFinite(to) && to < from) {
+    v.fail(f.elements['year_to'], 'Do roku nesmí být před rokem „Od“.');
+  }
+  return v.done();
 }
 
 /* ---------- MOJE NEMOVITOSTI ---------- */
@@ -1786,6 +2130,7 @@ function fillPropertyForm(id) {
   if (!p) return;
   const f = propertyForm();
   f.reset();
+  clearFieldErrors(f);
   showFormError('property-form-error', '');
   f.elements['id'].value = p.id;
   f.elements['name'].value = p.name;
@@ -1826,6 +2171,7 @@ function fillPropertyForm(id) {
 function resetPropertyForm() {
   const f = propertyForm();
   f.reset();
+  clearFieldErrors(f);
   f.elements['id'].value = '';
   showFormError('property-form-error', '');
   setLienFieldsVisible(false);
@@ -1859,6 +2205,7 @@ function submitPropertyForm(e) {
   e.preventDefault();
   const f = e.target;
   const id = f.elements['id'].value;
+  if (!validateProperty(f)) return;
   // zástavy nesmí přesáhnout hodnotu nemovitosti (vlastní zástava + zástavy za úvěry)
   const { market, lien, cross, free } = propertyFreeFromForm();
   if (free < 0) {
@@ -1880,16 +2227,16 @@ function submitPropertyForm(e) {
     // nepoužívané starší údaje (např. ručně zadaná splátka) zůstanou v datech beze změny
     ...(existing || {}),
     id: id || uid(),
-    name: f.elements['name'].value.trim(),
+    name: cleanText(f.elements['name'].value),
     rent: parseFormNumber(f.elements['rent'].value),
     market_value: parseFormNumber(f.elements['market_value'].value),
     acquisition_price: parseFormNumber(f.elements['acquisition_price'].value),
     growth_rate: parseFormNumber(f.elements['growth_rate'].value) / 100,
-    acquisition_date: f.elements['acquisition_date'].value || null,
+    acquisition_date: f.elements['acquisition_date'].value || toInputDate(new Date()),
     owner_type: f.elements['owner_type'].value === 'po' ? 'po' : 'fo',
     tax_exempt_years: [0, 5, 10].includes(years) ? years : 10,
     has_lien: f.elements['has_lien'].checked,
-    lien_bank: f.elements['has_lien'].checked ? f.elements['lien_bank'].value.trim() || null : null,
+    lien_bank: f.elements['has_lien'].checked ? cleanText(f.elements['lien_bank'].value) || null : null,
     lien_value: f.elements['has_lien'].checked && f.elements['lien_value'].value.trim() ? parseFormNumber(f.elements['lien_value'].value) : null,
     vacancy_rate: (100 - occupancy) / 100,
     monthly_costs: parseFormNumber(f.elements['monthly_costs'].value),
@@ -2080,13 +2427,15 @@ function wireFixationFields() {
   const end = f.elements['fixation_end'];
 
   const endFromYears = () => {
-    if (!start.value || years.value === '') return;
+    if (years.value === '') return;
+    if (!start.value) start.value = toInputDate(new Date()); // bez data zřízení se počítá od dneška
     const d = calc.toDate(start.value);
     if (isNaN(d)) return;
     end.value = toInputDate(calc.addMonths(d, Math.round((Number(years.value) || 0) * 12)));
   };
   const yearsFromEnd = () => {
-    if (!start.value || !end.value) return;
+    if (!end.value) return;
+    if (!start.value) start.value = toInputDate(new Date()); // bez data zřízení se počítá od dneška
     const a = calc.toDate(start.value);
     const b = calc.toDate(end.value);
     if (isNaN(a) || isNaN(b) || b < a) return;
@@ -2125,6 +2474,7 @@ function fillLoanForm(id) {
   if (!l) return;
   const f = loanForm();
   f.reset();
+  clearFieldErrors(f);
   showFormError('loan-form-error', '');
   f.elements['id'].value = l.id;
   f.elements['bank'].value = l.bank;
@@ -2167,6 +2517,7 @@ function fillLoanForm(id) {
 function resetLoanForm() {
   const f = loanForm();
   f.reset();
+  clearFieldErrors(f);
   f.elements['id'].value = '';
   showFormError('loan-form-error', '');
   f.querySelectorAll('details.acc').forEach((acc) => {
@@ -2200,6 +2551,7 @@ function submitLoanForm(e) {
   e.preventDefault();
   const f = e.target;
   const id = f.elements['id'].value;
+  if (!validateLoan(f)) return;
 
   // zástavy: částka u každé zaškrtnuté nemovitosti nesmí přesáhnout její volnou hodnotu
   const collateral = [];
@@ -2247,12 +2599,12 @@ function submitLoanForm(e) {
   const payload = {
     ...(existing || {}),
     id: id || uid(),
-    bank: f.elements['bank'].value.trim(),
+    bank: cleanText(f.elements['bank'].value),
     amount: parseFormNumber(f.elements['amount'].value),
     interest_rate: parseFormNumber(f.elements['interest_rate'].value) / 100,
     monthly_payment: parseFormNumber(f.elements['monthly_payment'].value),
     fixation_years: yearsRaw === '' ? null : Math.max(0, Number(yearsRaw) || 0),
-    start_date: f.elements['start_date'].value || null,
+    start_date: f.elements['start_date'].value || toInputDate(new Date()),
     fixation_end: f.elements['fixation_end'].value || null,
     rate_after_fixation: num('rate_after_fixation'),
     payment_after_fixation: num('payment_after_fixation'),
@@ -2260,7 +2612,7 @@ function submitLoanForm(e) {
     refinance_date: f.elements['refinance_date'].value || null,
     refinance_rate: num('refinance_rate'),
     refinance_years: f.elements['refinance_years'].value.trim() ? Math.max(0, Number(f.elements['refinance_years'].value) || 0) : null,
-    note: f.elements['note'].value.trim() || null,
+    note: cleanText(f.elements['note'].value) || null,
     ltv_percent: num('ltv_percent'),
     own_funds: num('own_funds'),
     property_id: f.elements['property_id'].value || null,
@@ -2298,6 +2650,7 @@ function renderSettings() {
   setFormattedValue(document.getElementById('pledge-max-ltv-input'), s.pledge_max_ltv);
   syncSettingsVisibility();
   updateRentGrowthPlaceholders();
+  clearFieldErrors(document.getElementById('tab-settings'));
 }
 
 /** Prázdné pole růstu nájmu = použije se výchozí z Nastavení, jinak inflace - její hodnota je vidět jako nápověda. */
@@ -2315,18 +2668,27 @@ function syncSettingsVisibility() {
 
 function wireSettingsInputs() {
   const el = (id) => document.getElementById(id);
+  // Pole nastavení: pravidlo a kam se hodnota uloží (procenta jako zlomek tam, kde to výpočet čeká).
+  // Chybná hodnota se do nastavení neuloží, platí dál poslední správná, a pod polem je vidět proč.
+  const fields = [
+    { id: 'inflation-input', rule: { kind: 'percent', required: true, min: -20, max: 100 }, apply: (n) => (state.settings.inflation_rate = n / 100) },
+    { id: 'rent-growth-input', rule: { kind: 'percent', min: -50, max: 100 }, apply: (n) => (state.settings.default_rent_growth = n == null ? null : n / 100) },
+    { id: 'capgains-tax-input', rule: { kind: 'percent', required: true, min: 0, max: 100 }, apply: (n) => (state.settings.capital_gains_tax_rate = n) },
+    { id: 'po-tax-input', rule: { kind: 'percent', required: true, min: 0, max: 100 }, apply: (n) => (state.settings.po_tax_rate = n) },
+    { id: 'sale-trigger-input', rule: { kind: 'money', min: 0, max: MAX_MONEY }, apply: (n) => (state.settings.sale_trigger_amount = n || 0) },
+    { id: 'min-portfolio-input', rule: { kind: 'money', min: 0, max: MAX_MONEY }, apply: (n) => (state.settings.min_portfolio_value = n || 0) },
+    { id: 'pledge-max-ltv-input', rule: { kind: 'percent', required: true, min: 1, max: 99 }, apply: (n) => (state.settings.pledge_max_ltv = n) },
+  ];
   const save = () => {
-    const rentGrowthRaw = el('rent-growth-input').value.trim();
-    state.settings.inflation_rate = parseFormNumber(el('inflation-input').value) / 100;
-    state.settings.default_rent_growth = rentGrowthRaw ? parseFormNumber(rentGrowthRaw) / 100 : null;
-    state.settings.capital_gains_tax_rate = parseFormNumber(el('capgains-tax-input').value);
-    state.settings.po_tax_rate = parseFormNumber(el('po-tax-input').value);
+    for (const field of fields) {
+      const input = el(field.id);
+      const error = checkValue(field.rule, input.value);
+      setFieldError(input, error);
+      if (!error) field.apply(readNumber(input.value));
+    }
     state.settings.auto_sell_enabled = el('auto-sell-enabled-input').checked;
     state.settings.po_sell_asap = el('po-sell-asap-input').checked;
-    state.settings.sale_trigger_amount = parseFormNumber(el('sale-trigger-input').value);
-    state.settings.min_portfolio_value = parseFormNumber(el('min-portfolio-input').value);
     state.settings.pledge_financing_enabled = el('pledge-financing-enabled-input').checked;
-    state.settings.pledge_max_ltv = parseFormNumber(el('pledge-max-ltv-input').value);
     saveState();
     syncSettingsVisibility();
     updateRentGrowthPlaceholders();
@@ -2344,6 +2706,8 @@ function wireSettingsInputs() {
     'pledge-financing-enabled-input',
     'pledge-max-ltv-input',
   ].forEach((id) => el(id).addEventListener('change', save));
+  // chyba zmizí, jakmile se pole začne opravovat; znovu se zkontroluje při potvrzení
+  fields.forEach((field) => el(field.id).addEventListener('input', () => setFieldError(el(field.id), '')));
 }
 
 /* ---------- SCÉNÁŘOVÉ UDÁLOSTI ---------- */
@@ -2547,6 +2911,7 @@ function fillEventForm(id) {
   const ev = state.events.find((x) => x.id === id);
   if (!ev) return;
   const f = document.getElementById('event-form');
+  clearFieldErrors(f);
   f.elements['id'].value = ev.id;
   f.elements['type'].value = ev.type;
   eventTargets = (ev.target_ids || []).slice();
@@ -2567,6 +2932,7 @@ function fillEventForm(id) {
 function resetEventForm() {
   const f = document.getElementById('event-form');
   f.reset();
+  clearFieldErrors(f);
   f.elements['id'].value = '';
   f.elements['year_from'].value = CURRENT_YEAR;
   eventTargets = [];
@@ -2587,6 +2953,7 @@ function submitEventForm(e) {
   e.preventDefault();
   const f = e.target;
   const id = f.elements['id'].value;
+  if (!validateEvent(f)) return;
   const type = f.elements['type'].value;
   const yearFrom = Number(f.elements['year_from'].value);
   const yearToRaw = f.elements['year_to'].value;
@@ -2600,7 +2967,7 @@ function submitEventForm(e) {
     year_to: yearTo,
     // obsazenost se zadává jako obsazenost, uložená je neobsazenost (stejně jako u nemovitosti)
     value: type === 'vacancy' ? 100 - input : input,
-    note: f.elements['note'].value.trim() || null,
+    note: cleanText(f.elements['note'].value) || null,
   };
   if (eventTargetKind(type)) payload.target_ids = eventTargets.slice();
   if (type === 'interest') payload.mode = 'set'; // nová sazba přepisuje (starší události bez mode přičítaly p. b.)
@@ -2633,12 +3000,6 @@ let scenarioRows = [];
 
 function shortEventLabel(ev) {
   return `${eventLabel(ev)} ${eventValueText(ev)}`;
-}
-
-/** Proč se nemovitost prodala (nápověda u štítku prodeje ve Scénářích). */
-function saleReasonTitle(s) {
-  if (s.reason === 'po') return 'PO: prodej co nejdřív';
-  return `Nejméně výkonná z těch, které už prošly časovým testem: výnos z nájmu ${fmtPercent(s.yieldPct)}, zhodnocení ${fmtPercent(s.growth)}`;
 }
 
 function renderScenario() {
@@ -2815,11 +3176,17 @@ function wireOverviewControls() {
   const yearInput = document.getElementById('overview-year');
   yearInput.value = overviewState.year;
   yearInput.addEventListener('input', () => {
-    overviewState.year = Number(yearInput.value) || CURRENT_YEAR;
+    const error = checkValue({ kind: 'number', integer: true, required: true, min: 2000, max: 2100, unit: '' }, yearInput.value);
+    setFieldError(yearInput, error);
+    if (error) return;
+    overviewState.year = Number(yearInput.value);
     saveState();
     renderOverview();
   });
-  yearInput.addEventListener('blur', renderOverview);
+  yearInput.addEventListener('blur', () => {
+    setFieldError(yearInput, '');
+    renderOverview();
+  });
   document.getElementById('overview-period-year').addEventListener('click', () => setOverviewPeriod('year'));
   document.getElementById('overview-period-month').addEventListener('click', () => setOverviewPeriod('month'));
   document.getElementById('overview-scenario-chip').addEventListener('click', () => showTab('tab-scenario'));
@@ -3069,8 +3436,15 @@ function wireForms() {
   ];
   for (const [id, handler] of forms) {
     const form = document.getElementById(id);
+    form.noValidate = true; // chyby píše appka přímo pod pole
     form.addEventListener('submit', handler);
     preventEnterSubmit(form);
+    const forgive = (e) => {
+      const input = e.target;
+      if (input && input.dataset && !input.dataset.typedInvalid) setFieldError(input, ''); // špatně napsané datum drží chybu, dokud se neopraví
+    };
+    form.addEventListener('input', forgive);
+    form.addEventListener('change', forgive);
   }
   document.getElementById('property-form-reset').addEventListener('click', resetPropertyForm);
   document.getElementById('loan-form-reset').addEventListener('click', resetLoanForm);

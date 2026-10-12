@@ -13,7 +13,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Investix</title>
-<link rel="icon" type="image/png" href="assets/logo.png?v=1791816600" />
+<link rel="icon" type="image/png" href="assets/logo.png?v=1791829097" />
 <script>
   /* Motiv se nastaví ještě před vykreslením, ať stránka neprobliká (volba motivu je jen vzhled, ne data). */
   try {
@@ -27,7 +27,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="css/style.css?v=1791816600" />
+<link rel="stylesheet" href="css/style.css?v=1791829097" />
 </head>
 <body class="min-h-screen">
 
@@ -35,7 +35,7 @@
     <header class="app-header">
       <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
         <h1 class="flex items-center gap-2">
-          <img src="assets/logo.png?v=1791816600" alt="" width="32" height="32" class="shrink-0" />
+          <img src="assets/logo.png?v=1791829097" alt="" width="32" height="32" class="shrink-0" />
           <span class="brand-name">Investix</span>
         </h1>
         <div class="flex items-center gap-2 ml-auto" id="header-controls">
@@ -185,7 +185,7 @@
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
               <label class="flex flex-col gap-1 col-span-2">
                 <span class="label">Název</span>
-                <input name="name" required class="input" />
+                <input name="name" required maxlength="80" autocomplete="off" class="input" />
               </label>
               <label class="flex flex-col gap-1">
                 <span class="label">Nájem</span>
@@ -205,7 +205,7 @@
               </label>
               <label class="flex flex-col gap-1">
                 <span class="label">Datum pořízení</span>
-                <input name="acquisition_date" type="date" class="input" />
+                <input name="acquisition_date" type="date" class="input" data-placeholder="dnes" />
               </label>
               <div class="flex flex-col gap-1">
                 <span class="label">Pořízeno na</span>
@@ -249,7 +249,7 @@
                   <div id="lien-fields" class="grid grid-cols-1 sm:grid-cols-2 gap-3 hidden">
                     <label class="flex flex-col gap-1">
                       <span class="label">Banka</span>
-                      <input name="lien_bank" data-combo="bank" class="input" autocomplete="off" />
+                      <input name="lien_bank" data-combo="bank" maxlength="60" class="input" autocomplete="off" />
                     </label>
                     <label class="flex flex-col gap-1">
                       <span class="label">Zastavená částka</span>
@@ -326,7 +326,7 @@
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
               <label class="flex flex-col gap-1 col-span-2 md:col-span-1">
                 <span class="label">Banka</span>
-                <input name="bank" data-combo="bank" required class="input" autocomplete="off" />
+                <input name="bank" data-combo="bank" required maxlength="60" class="input" autocomplete="off" />
               </label>
               <label class="flex flex-col gap-1">
                 <span class="label">Výše úvěru</span>
@@ -365,8 +365,8 @@
                 </summary>
                 <div class="acc-body grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <label class="flex flex-col gap-1">
-                    <span class="label">Fixace od</span>
-                    <input name="start_date" type="date" class="input" />
+                    <span class="label">Zřízení úvěru (fixace od)</span>
+                    <input name="start_date" type="date" class="input" data-placeholder="dnes" />
                   </label>
                   <label class="flex flex-col gap-1">
                     <span class="label">Doba fixace (roky)</span>
@@ -432,7 +432,7 @@
                   </label>
                   <label class="flex flex-col gap-1">
                     <span class="label">Poznámka</span>
-                    <input name="note" class="input" />
+                    <input name="note" maxlength="200" autocomplete="off" class="input" />
                   </label>
                   <label class="flex flex-col gap-1">
                     <span class="label">LTV</span>
@@ -562,7 +562,7 @@
             </div>
             <label class="flex flex-col gap-1">
               <span class="label">Poznámka</span>
-              <input name="note" class="input" />
+              <input name="note" maxlength="200" autocomplete="off" class="input" />
             </label>
             <div class="flex flex-wrap gap-2">
               <button type="submit" class="btn-primary">
@@ -739,9 +739,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/calc.js?v=1791816600"></script>
-  <script src="js/app.js?v=1791816600"></script>
-  <script src="js/cloud.js?v=1791816600"></script>
-  <script src="js/auth.js?v=1791816600"></script>
+  <script src="js/calc.js?v=1791829097"></script>
+  <script src="js/app.js?v=1791829097"></script>
+  <script src="js/cloud.js?v=1791829097"></script>
+  <script src="js/auth.js?v=1791829097"></script>
 </body>
 </html>
