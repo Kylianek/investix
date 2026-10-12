@@ -60,6 +60,10 @@ Simulace vývoje portfolia rok po roce:
 - **Pořadí prodeje FO nemovitostí** (z těch, které už prošly časovým testem): prodává se vždy nemovitost s **nejnižším hodnocením kvality**, při
   shodě ta s nižším výnosem z nájmu. V bublině u prodeje ve Scénářích je napsáno, **proč se vybrala právě tahle nemovitost** (včetně jejích
   nejslabších stránek), a tabulka s hodnocením, nájmem na 1 mil. a růstem všech ostatních (i těch, které ještě nemají za sebou časový test).
+- **Neprodávat**: nemovitost, kterou při umořování dluhu určitě prodat nechceš, se neprodá nikdy, ani kdyby se to hodilo (platí i pro PO
+  a pro "prodat co nejdřív"). Zapíná se přepínačem "Neprodávat na umoření dluhu" v bloku Stav a kvalita, nebo v Nastavení u Automatického
+  prodeje ("Nikdy neprodávat", výběr nemovitostí); je to jedno nastavení na dvou místech. V tabulce nemovitostí je u názvu zámek, v bublině
+  u prodeje je zamčená nemovitost mezi těmi, které se neprodávají.
 - **Scénářové události** (rok = rok, ve kterém se dějí; prázdné "do roku" = trvale):
   růst hodnoty, růst nájmu, obsazenost, **změna úrokové sazby** (zadáš novou sazbu, např. z 5 na 7 %, nebo níž;
   banka přepočítá splátku na zbývající dobu), inflace a jednorázový příjem/výdaj. Událost jde zacílit na **jednu, více nebo všechny
@@ -122,7 +126,9 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
 - V seznamu bank jsou původní loga (ikony z webů bank, `assets/banks`) a volba **Vlastní**, po které jde napsat libovolný název.
 - Dluh a splátka jednotlivých nemovitostí se berou z úvěrů, které se k nim vážou ("Financuje nemovitost"
   nebo zástava podle výše částek).
-- Tabulky mají hlavní sloupce a tlačítko "Více sloupců"; na telefonu jsou ve výchozím stavu kompaktní.
+- Tabulky mají hlavní sloupce a tlačítko "Více sloupců"; na telefonu jsou ve výchozím stavu kompaktní. V tabulce úvěrů (i v seznamu
+  refinancování) je každý úvěr na jednom řádku: poznámka a sloučení jsou v bublině "i", na telefonu se dlouhé jméno banky zkrátí
+  a poznámka je v kalendáři po rozbalení úvěru.
 
 ## Vzhled
 

@@ -1128,7 +1128,7 @@ function renderPropertiesTable() {
   const dash = '<span class="t-faint">—</span>';
 
   const columns = [
-    { label: 'Nemovitost', cell: (r) => `${rankDotHtml(r.q)}<span class="font-medium">${escapeHtml(r.p.name)}</span> ${ownerBadge(r.p)}`, total: () => 'Celkem' },
+    { label: 'Nemovitost', cell: (r) => `${rankDotHtml(r.q)}<span class="font-medium">${escapeHtml(r.p.name)}</span> ${ownerBadge(r.p)}${r.p.never_sell ? lockIconHtml() : ''}`, total: () => 'Celkem' },
     { label: 'Nájem', right: true, cell: (r) => (r.p.rent ? `<span class="rent-positive num">+${moneyHtml(r.p.rent)}</span>` : dash), total: () => moneyHtml(totals.rent) },
     { label: 'Tržní hodnota', right: true, cell: (r) => `<span class="num">${moneyHtml(r.marketValue)}</span>`, total: () => moneyHtml(totals.value) },
     {
@@ -1570,12 +1570,20 @@ function saleWhyHtml(sale) {
     .slice(0, 2)
     .map(qualityPartPhrase);
   if (weak.length) why += ` Nejvíc ji táhne dolů: ${weak.join(', ')}.`;
+  const skipNote = (r) =>
+    r.reason === 'locked'
+      ? 'neprodává se, nastaveno u nemovitosti'
+      : r.reason === 'po'
+        ? 'PO, prodává se zvlášť'
+        : r.reason === 'minimum'
+          ? 'prodej by srazil portfolio pod minimum'
+          : `před časovým testem, zbývá ${escapeHtml(r.timeTestText)}`;
   const table = `<table class="popover-table">
     <thead><tr><th>Nemovitost</th><th>Kvalita</th><th>Nájem /1 mil.</th><th>Růst</th></tr></thead>
     <tbody>${cmp.rows
       .map(
         (r) => `<tr class="${r.chosen ? 'is-chosen' : r.eligible ? '' : 'is-muted'}"><td>${escapeHtml(r.name)}${r.chosen ? ' <span class="chip-tag">prodáno</span>' : ''}${
-          r.eligible ? '' : `<span class="popover-sub-note">${r.owner === 'po' ? 'PO, prodává se zvlášť' : `před časovým testem, zbývá ${escapeHtml(r.timeTestText)}`}</span>`
+          r.eligible ? '' : `<span class="popover-sub-note">${skipNote(r)}</span>`
         }</td><td>${rankBadgeHtml(r.quality, false)}</td><td class="num">${fmtPerMillion(r.perMillion)}</td><td class="num">${fmtPercent(r.growth)}</td></tr>`
       )
       .join('')}</tbody></table>`;
@@ -1598,12 +1606,23 @@ function saleChipHtml(sale, year) {
   return `<button type="button" class="event-chip event-chip-sale" data-pop="${escapeHtml(id)}" aria-haspopup="dialog" aria-expanded="false" aria-label="Prodej: ${escapeHtml(sale.propertyName)}, detail" title="Detail prodeje">${escapeHtml(sale.propertyName)}</button>`;
 }
 
+/** Poznámky k úvěru (sloučení, vlastní poznámka) jsou v bublině po kliknutí na "i", aby byl řádek tabulky jednořádkový. */
+function loanInfoButton(loan, mergeText) {
+  const capitalized = mergeText ? mergeText.charAt(0).toUpperCase() + mergeText.slice(1) : '';
+  const id = registerPopover(
+    `loan:${loan.id}`,
+    `<div class="popover-title">${escapeHtml(loan.bank)}</div>${capitalized ? `<p>${escapeHtml(capitalized)}.</p>` : ''}${loan.note ? `<p>${escapeHtml(loan.note)}</p>` : ''}`
+  );
+  return `<button type="button" class="info-btn" data-pop="${escapeHtml(id)}" aria-haspopup="dialog" aria-expanded="false" aria-label="Poznámky k úvěru ${escapeHtml(loan.bank)}" title="Poznámky">i</button>`;
+}
+
 /** Splátkový kalendář úvěru (jako list "Roky" v bankovní kalkulačce): úrok, jistina a podíl úroku po letech. */
 function loanScheduleHtml(loan, expanded) {
   const sch = calc.loanSchedule(loan, { events: state.events, startYear: CURRENT_YEAR, maxYears: 40, loans: state.loans });
   if (!sch.rows.length) return '<p class="text-sm t-faint">Nic ke splácení</p>';
   const monthYear = (abs) => `${String((abs % 12) + 1).padStart(2, '0')}/${Math.floor(abs / 12)}`;
   const notes = [];
+  if (loan.note) notes.push(escapeHtml(loan.note));
   if (sch.mergedInto) {
     const to = state.loans.find((x) => x.id === sch.mergedInto.to);
     notes.push(`Od ${monthYear(sch.mergedInto.abs)} sloučeno do úvěru ${to ? escapeHtml(to.bank) : 'jiného úvěru'}, dál se neplatí.`);
@@ -1674,7 +1693,7 @@ function renderLoansTable() {
   const columns = [
     {
       label: 'Banka',
-      cell: (r) => `<button type="button" class="loan-toggle${expandedLoans.has(r.l.id) ? ' is-open' : ''}" data-loan-schedule="${r.l.id}" aria-expanded="${expandedLoans.has(r.l.id)}" title="Splátkový kalendář"><span class="year-chevron"></span>${bankLogoHtml(r.l.bank)}<span class="font-medium">${escapeHtml(r.l.bank)}</span></button>${r.mergeText ? `<br><span class="text-xs t-muted">${escapeHtml(r.mergeText)}</span>` : ''}${r.l.note ? `<br><span class="text-xs t-muted">${escapeHtml(r.l.note)}</span>` : ''}`,
+      cell: (r) => `<button type="button" class="loan-toggle${expandedLoans.has(r.l.id) ? ' is-open' : ''}" data-loan-schedule="${r.l.id}" aria-expanded="${expandedLoans.has(r.l.id)}" title="Splátkový kalendář"><span class="year-chevron"></span>${bankLogoHtml(r.l.bank)}<span class="font-medium loan-name" title="${escapeHtml(r.l.bank)}">${escapeHtml(r.l.bank)}</span></button>${expanded && (r.mergeText || r.l.note) ? loanInfoButton(r.l, r.mergeText) : ''}`,
       total: () => 'Celkem',
     },
     { label: 'Výše úvěru', right: true, cell: (r) => `<span class="num">${moneyHtml(r.l.amount)}</span>`, total: () => moneyHtml(totals.amount) },
@@ -1690,7 +1709,7 @@ function renderLoansTable() {
       x: true,
       cell: (r) => {
         const years = r.l.fixation_years != null && r.l.fixation_years !== '' ? `${fmtNumber(r.l.fixation_years, 1)} let` : '';
-        return r.end ? `<span class="num">${fmtDate(toInputDate(r.end))}</span>${years ? `<br><span class="text-xs t-muted">${years}</span>` : ''}` : years || dash;
+        return r.end ? `<span class="num">${fmtDate(toInputDate(r.end))}</span>${years ? ` <span class="text-xs t-muted">· ${years}</span>` : ''}` : years || dash;
       },
       total: () => '',
     },
@@ -2133,6 +2152,42 @@ function fillQualitySelects() {
   }
 }
 
+const LOCK_SVG =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+
+/** Zámek u nemovitosti, kterou uživatel při umořování dluhu určitě prodávat nechce. */
+function lockIconHtml() {
+  return `<span class="lock-icon" title="Neprodává se na umoření dluhu" role="img" aria-label="Neprodává se na umoření dluhu">${LOCK_SVG}</span>`;
+}
+
+function lockTagHtml() {
+  return `<span class="lock-tag" title="Neprodává se na umoření dluhu">${LOCK_SVG}<span>neprodávat</span></span>`;
+}
+
+/** Nemovitosti, které se při automatickém prodeji na umoření dluhu nikdy neprodají, i kdyby se to hodilo. */
+function renderNeverSellChips() {
+  const box = document.getElementById('never-sell-chips');
+  if (!box) return;
+  box.innerHTML = state.properties.length
+    ? state.properties
+        .map((p) => `<label class="chip"><input type="checkbox" value="${p.id}" ${p.never_sell ? 'checked' : ''} /><span>${escapeHtml(p.name)}</span></label>`)
+        .join('')
+    : '<span class="text-sm t-faint">Zatím žádné nemovitosti</span>';
+}
+
+function setNeverSell(propertyId, locked) {
+  const p = state.properties.find((x) => x.id === propertyId);
+  if (!p) return;
+  if (locked) p.never_sell = true;
+  else delete p.never_sell;
+  const f = propertyForm();
+  if (f.elements['id'].value === propertyId) f.elements['never_sell'].checked = !!locked; // právě otevřená karta té nemovitosti
+  saveState();
+  renderPropertiesTable();
+  updateQualityBadge();
+  renderCalculations();
+}
+
 /** Štítek celkového hodnocení: barva podle pásma (červená, oranžová, zelená), číslo 0 až 100 a slovní označení. */
 function rankBadgeHtml(q, withLabel = true) {
   const n = Math.round(q.score);
@@ -2211,13 +2266,14 @@ function propertyDraftFromForm() {
 function updateQualityBadge() {
   const draft = propertyDraftFromForm();
   const badge = document.getElementById('property-quality-badge');
+  const lock = propertyForm().elements['never_sell'].checked ? lockTagHtml() : '';
   if (!(draft.market_value > 0)) {
-    badge.textContent = '';
+    badge.innerHTML = lock;
     renderQualityBreakdown(null);
     return;
   }
   const q = calc.propertyQuality(draft);
-  badge.innerHTML = rankBadgeHtml(q);
+  badge.innerHTML = rankBadgeHtml(q) + lock;
   renderQualityBreakdown(q);
 }
 
@@ -2339,7 +2395,8 @@ function fillPropertyForm(id) {
   renderPropertyPledges(pledgeDraft);
   document.getElementById('property-acc-pledge').open = !!p.has_lien || pledgeDraft.length > 0;
   for (const key of ['condition', 'renovation', 'location', 'energy']) f.elements[key].value = qualityOptionLabel(key, p[key]) ? p[key] : '';
-  document.getElementById('property-acc-quality').open = ['condition', 'renovation', 'location', 'energy'].some((key) => qualityOptionLabel(key, p[key]));
+  f.elements['never_sell'].checked = !!p.never_sell;
+  document.getElementById('property-acc-quality').open = !!p.never_sell || ['condition', 'renovation', 'location', 'energy'].some((key) => qualityOptionLabel(key, p[key]));
   const opAcc = document.getElementById('property-rent-growth').closest('details');
   opAcc.open = vacancy > 0 || !!p.monthly_costs || p.rent_growth_rate != null;
   document.getElementById('property-form-title').textContent = 'Upravit nemovitost';
@@ -2427,6 +2484,8 @@ function submitPropertyForm(e) {
     location: f.elements['location'].value || null,
     energy: f.elements['energy'].value || null,
   };
+  if (f.elements['never_sell'].checked) payload.never_sell = true;
+  else delete payload.never_sell;
   if (id) {
     const idx = state.properties.findIndex((p) => p.id === id);
     if (idx !== -1) state.properties[idx] = payload;
@@ -2828,21 +2887,21 @@ function renderRefinancingTable() {
   const dash = '<span class="t-faint">—</span>';
   const now = new Date();
   const todayAbs = now.getFullYear() * 12 + now.getMonth();
+  const donorsOf = (ev) => (Array.isArray(ev.merge_ids) ? ev.merge_ids : []).map((id) => state.loans.find((l) => l.id === id)).filter(Boolean);
   const columns = [
     {
       label: 'Úvěr',
       cell: ({ loan, ev }) => {
-        const donors = (Array.isArray(ev.merge_ids) ? ev.merge_ids : []).map((id) => state.loans.find((l) => l.id === id)).filter(Boolean);
-        const sub = [fmtMoney(loan.amount), donors.length ? `slučuje ${donors.map((d) => d.bank).join(', ')}` : ''].filter(Boolean).join(' · ');
-        return `<span class="refi-loan">${bankLogoHtml(loan.bank)}<span class="font-medium">${escapeHtml(loan.bank)}</span></span><br><span class="text-xs t-muted">${escapeHtml(sub)}</span>`;
+        return `<span class="refi-loan">${bankLogoHtml(loan.bank)}<span class="font-medium loan-name" title="${escapeHtml(loan.bank)}">${escapeHtml(loan.bank)}</span></span>`;
       },
     },
+    { label: 'Výše úvěru', right: true, x: true, cell: ({ loan }) => `<span class="num">${moneyHtml(loan.amount)}</span>` },
     {
       label: 'Datum',
       cell: ({ ev }) => {
         const d = calc.toDate(ev.date);
         const past = !isNaN(d) && d.getFullYear() * 12 + d.getMonth() + (d.getDate() > 15 ? 1 : 0) < todayAbs;
-        return `<span class="num">${fmtDate(ev.date)}</span>${past ? '<br><span class="text-xs t-muted">už proběhlo</span>' : ''}`;
+        return `<span class="num">${fmtDate(ev.date)}</span>${past ? ' <span class="text-xs t-muted">· proběhlo</span>' : ''}`;
       },
     },
     {
@@ -2852,15 +2911,24 @@ function renderRefinancingTable() {
         const parts = [];
         if (ev.rate != null && ev.rate !== '') parts.push(`${fmtNumber(ev.rate)} %`);
         if (Number(ev.years) > 0) parts.push(`${fmtNumber(ev.years, 1)} let`);
-        return parts.length ? parts.map((p) => `<span class="num">${p}</span>`).join(' · ') : dash; // na úzké obrazovce se zalomí mezi sazbou a dobou
+        return parts.length ? parts.map((p) => `<span class="num">${p}</span>`).join(' · ') : dash;
+      },
+    },
+    {
+      label: 'Sloučení',
+      x: true,
+      cell: ({ ev }) => {
+        const names = donorsOf(ev).map((d) => d.bank).join(', ');
+        return names ? `<span class="ellipsis" title="${escapeHtml(names)}">${escapeHtml(names)}</span>` : dash;
       },
     },
     { label: '', right: true, actions: true, cell: ({ ev }) => actionButtons('data-edit-refi', 'data-delete-refi', ev.id) },
   ];
-  document.getElementById('refi-thead').innerHTML = headHtml(columns);
+  const cols = visibleColumns(columns, key);
+  document.getElementById('refi-thead').innerHTML = headHtml(cols);
   const tbody = document.getElementById('refi-tbody');
   tbody.innerHTML = rows
-    .map((r) => `<tr>${columns.map((c) => `<td class="${c.right ? 'text-right' : ''} ${c.actions ? 'whitespace-nowrap' : ''}">${c.cell(r)}</td>`).join('')}</tr>`)
+    .map((r) => `<tr>${cols.map((c) => `<td class="${c.right ? 'text-right' : ''} ${c.actions ? 'whitespace-nowrap' : ''}">${c.cell(r)}</td>`).join('')}</tr>`)
     .join('');
   tbody.querySelectorAll('[data-edit-refi]').forEach((btn) => btn.addEventListener('click', () => fillRefiForm(btn.dataset.editRefi)));
   tbody.querySelectorAll('[data-delete-refi]').forEach((btn) => btn.addEventListener('click', () => deleteRefinancing(btn.dataset.deleteRefi)));
@@ -2975,6 +3043,7 @@ function renderSettings() {
   setFormattedValue(document.getElementById('min-portfolio-input'), s.min_portfolio_value || '');
   syncSettingsVisibility();
   updateRentGrowthPlaceholders();
+  renderNeverSellChips();
   clearFieldErrors(document.getElementById('tab-settings'));
 }
 
@@ -3028,6 +3097,9 @@ function wireSettingsInputs() {
   ].forEach((id) => el(id).addEventListener('change', save));
   // chyba zmizí, jakmile se pole začne opravovat; znovu se zkontroluje při potvrzení
   fields.forEach((field) => el(field.id).addEventListener('input', () => setFieldError(el(field.id), '')));
+  el('never-sell-chips').addEventListener('change', (e) => {
+    if (e.target.type === 'checkbox') setNeverSell(e.target.value, e.target.checked);
+  });
 }
 
 /* ---------- SCÉNÁŘOVÉ UDÁLOSTI ---------- */
@@ -3158,7 +3230,7 @@ function derivedEvents() {
     const base = { derived: true, targets: p.name, source: { kind: 'property', id: p.id }, from: p.name };
     if (vacancy > 0) out.push({ ...base, type: 'vacancy', period: 'trvale', value: `${fmtNumber((1 - vacancy) * 100)} %` });
     if (p.rent_growth_rate != null) out.push({ ...base, type: 'rent_growth', period: 'trvale', value: `${fmtNumber(p.rent_growth_rate * 100)} %` });
-    if (calc.isPO(p) && autoSell) out.push({ ...base, type: 'sale', period: `${CURRENT_YEAR}`, value: '—' });
+    if (calc.isPO(p) && autoSell && !p.never_sell) out.push({ ...base, type: 'sale', period: `${CURRENT_YEAR}`, value: '—' });
   }
   for (const l of state.loans) {
     const base = { derived: true, targets: l.bank, source: { kind: 'loan', id: l.id }, from: l.bank };

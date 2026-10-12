@@ -951,7 +951,7 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
       // 1) PO: prodat co nejdřív
       if (poSellAsap) {
         for (const p of activeProps) {
-          if (!isPO(p) || soldProperties.has(p.id) || curValue[p.id] <= 0) continue;
+          if (!isPO(p) || soldProperties.has(p.id) || curValue[p.id] <= 0 || p.never_sell) continue;
           const remainingValue = activeProps.filter((x) => !soldProperties.has(x.id)).reduce((s, x) => s + curValue[x.id], 0);
           if (remainingValue - curValue[p.id] < minPortfolioValue) continue;
           sell(scoreSaleCandidate(p, curValue[p.id], capGainsTaxRate, saleDate, poTaxRate, performanceOf(p)), 'po');
@@ -965,7 +965,9 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
       // Kandidát na prodej smí být jen nemovitost, jejíž prodej NESRAZÍ hodnotu
       // zbývajících nemovitostí pod minPortfolioValue, A ZÁROVEŇ u ní musí být už
       // splněný časový test - nemovitost se NIKDY neprodává před jeho splněním.
+      // Nemovitost s příznakem never_sell ("neprodávat") se neprodává vůbec.
       const unsold = stillOwned.filter((p) => {
+        if (p.never_sell) return false; // uživatel ji určitě prodávat nechce
         if (curValue[p.id] <= 0) return false;
         if (realEstateValueNow - curValue[p.id] < minPortfolioValue) return false;
         return timeTestInfo(p, saleDate).done;
@@ -1147,6 +1149,7 @@ function scoreSaleCandidate(property, marketValue, capGainsTaxRate, today, poTax
  * Řádek = nemovitost, perMillion = čistý nájem za rok v Kč na 1 mil. hodnoty, quality = { score, band }. Nejdřív způsobilé
  * nemovitosti v pořadí prodeje, pak ty, které ještě neprošly časovým testem (s textem, kolik jim zbývá).
  * decidedBy: 'only' = jediná způsobilá, 'quality' = nejnižší celkové hodnocení. parts = složky hodnocení prodané nemovitosti.
+ * Nezpůsobilé řádky mají `reason` (locked, po, minimum, test).
  */
 function describeSaleChoice(chosen, eligible, notEligible) {
   const row = (c, isEligible) => ({
@@ -1158,6 +1161,9 @@ function describeSaleChoice(chosen, eligible, notEligible) {
     growth: c.growth,
     quality: { score: c.quality.score, band: c.quality.band },
     eligible: isEligible,
+    // proč není kandidát: locked = uživatel ji neprodává, po = PO se prodává zvlášť, minimum = prodej by srazil portfolio
+    // pod minimální hodnotu, test = ještě neuplynul časový test
+    reason: isEligible ? '' : c.property.never_sell ? 'locked' : isPO(c.property) ? 'po' : c.taxExempt ? 'minimum' : 'test',
     timeTestText: isEligible ? '' : c.timeTestText,
     chosen: c === chosen,
   });
