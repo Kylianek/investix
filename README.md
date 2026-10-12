@@ -52,14 +52,15 @@ Simulace vývoje portfolia rok po roce:
 - **FO / PO**: nemovitost pořízená na právnickou osobu nemá časový test a daň z prodeje se platí vždy,
   proto se při zapnutém automatickém prodeji prodá co nejdřív (první rok simulace). FO nemovitost se
   automaticky neprodá, dokud neuplyne časový test.
+- **Pořadí prodeje FO nemovitostí** (z těch, které už prošly časovým testem): prodává se vždy nejméně výkonná. Přednější je
+  **výnosnost z nájmu** (čistý roční výnos ÷ hodnota, nižší se prodává dřív), druhé kritérium je **zhodnocení** (nižší dřív).
+  Výnosnosti do 0,25 procentního bodu se berou jako stejné, pak rozhoduje zhodnocení. U prodeje ve Scénářích je v nápovědě vidět výnos a růst.
 - **Scénářové události** (rok = rok, ve kterém se dějí; prázdné "do roku" = trvale):
   růst hodnoty, růst nájmu, obsazenost, **změna úrokové sazby** (zadáš novou sazbu, např. z 5 na 7 %, nebo níž;
   banka přepočítá splátku na zbývající dobu), inflace a jednorázový příjem/výdaj. Událost jde zacílit na **jednu, více nebo všechny
   nemovitosti** (u sazeb na vybrané úvěry); konkrétní cíl má přednost před celoportfoliovou událostí.
 - Co zadáš v kartě nemovitosti nebo úvěru (obsazenost, vlastní růst nájmu, prodej PO, sazba po fixaci),
   se ve Scénářích objeví jako událost s odkazem zpět na kartu.
-- Kliknutím na **rok** v tabulce se rozbalí stejné veličiny po jednotlivých nemovitostech a úvěrech.
-  Dluh a splátka nemovitosti se znají, jen když je u úvěru vyplněné "Financuje nemovitost".
 
 V **Nastavení** je inflace, výchozí růst nájmu, daň z prodeje (FO / PO), automatický prodej,
 financování zástavou a záloha dat. Daň je zjednodušení pro účely predikce, ne daňové poradenství;
@@ -84,14 +85,20 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
   tabulkami ukazují běžnou roční hodnotu.
 - **Refinancování** (datum, nová sazba, nová doba): ze zbývající jistiny se spočítá nová anuita - "kolo od
   začátku", takže se zase platí hlavně úrok, i když úvěr předtím už běžel.
+- **Sloučení úvěrů**: při refinancování jde zvolit "Sloučit s úvěry". Zůstatky vybraných úvěrů se k datu refinancování splatí
+  a přičtou k tomuto úvěru, který pak splácí jedna nová anuita z celé částky (nová sazba a doba jsou povinné, datum musí být
+  v budoucnosti). Sloučené úvěry se od toho měsíce neplatí, v tabulce a v kalendáři je vidět, kdy a kolik se převzalo.
 - Scénářová událost **změna úrokové sazby** přepíše sazbu vybraných (nebo všech) úvěrů na zadanou hodnotu (nahoru i dolů)
   a splátka se přepočte do stejné splatnosti; po skončení události se vrací původní sazba. Starší události "růst sazeb"
   (o p. b.) fungují dál a jsou označené jako starší.
 - Prodej nemovitosti splatí nejdřív úvěry vázané na ni, zbytek úvěr s nejvyšší sazbou; doba splácení zůstává
   a banka sníží splátku (cashflow tak neklesne víc, než činí ztracený nájem).
 - U každého úvěru jde rozbalit **splátkový kalendář** po letech (úrok, jistina, podíl úroku, zůstatek).
-- **Zástava**: u úvěru se k nemovitosti zadává částka a hlídá se, že nepřesáhne volnou hodnotu (hodnota −
-  vlastní zástava − zástavy za jiné úvěry); stejné pravidlo platí i při úpravě nemovitosti.
+- **Zástava** je vazba nemovitost + úvěr + částka. Zadává se u úvěru (které nemovitosti zastavuje) i u nemovitosti
+  ("Zastaveno za úvěry": úvěr a částka), obě strany upravují totéž. Hlídá se, že součet zástav nepřesáhne hodnotu
+  nemovitosti. "Jiná zástava" slouží pro úvěr, který v aplikaci není.
+- **LTV a vlastní zdroje** se zadávají ručně v "Další údaje" u úvěru (jeden úvěr může financovat víc nemovitostí).
+- V seznamu bank jsou původní loga (ikony z webů bank, `assets/banks`) a volba **Vlastní**, po které jde napsat libovolný název.
 - Dluh a splátka jednotlivých nemovitostí se berou z úvěrů, které se k nim vážou ("Financuje nemovitost"
   nebo zástava podle výše částek).
 - Tabulky mají hlavní sloupce a tlačítko "Více sloupců"; na telefonu jsou ve výchozím stavu kompaktní.

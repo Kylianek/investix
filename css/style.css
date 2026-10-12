@@ -2014,6 +2014,59 @@ input[type='date'].input {
     grid-column: auto;
   }
 }
+/* Zástavy ve formuláři nemovitosti: řádek = úvěr + částka */
+.ppledge-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 11rem) auto;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--primary-2);
+  border-radius: 0.8rem;
+  background: var(--primary-soft);
+}
+.ppledge-row .pledge-msg {
+  grid-column: 1 / -1;
+}
+.ppledge-logo {
+  display: flex;
+}
+.ppledge-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.ppledge-remove:hover {
+  background: var(--surface);
+  color: var(--neg);
+}
+@media (max-width: 559px) {
+  .ppledge-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .ppledge-amount-wrap {
+    grid-column: 1 / -1;
+    order: 5;
+  }
+}
+.bank-logo-sm {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 0.28rem;
+  margin-right: 0.35rem;
+  vertical-align: middle;
+  font-size: 0.6rem;
+}
+.pledge-line {
+  display: inline-flex;
+  align-items: center;
+}
 .pledge-readout {
   font-size: 0.9rem;
   color: var(--text);

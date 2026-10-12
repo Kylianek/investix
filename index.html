@@ -13,7 +13,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Investix</title>
-<link rel="icon" type="image/png" href="assets/logo.png?v=1791810037" />
+<link rel="icon" type="image/png" href="assets/logo.png?v=1791810405" />
 <script>
   /* Motiv se nastaví ještě před vykreslením, ať stránka neprobliká (volba motivu je jen vzhled, ne data). */
   try {
@@ -27,7 +27,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="css/style.css?v=1791810037" />
+<link rel="stylesheet" href="css/style.css?v=1791810405" />
 </head>
 <body class="min-h-screen">
 
@@ -35,7 +35,7 @@
     <header class="app-header">
       <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
         <h1 class="flex items-center gap-2">
-          <img src="assets/logo.png?v=1791810037" alt="" width="32" height="32" class="shrink-0" />
+          <img src="assets/logo.png?v=1791810405" alt="" width="32" height="32" class="shrink-0" />
           <span class="brand-name">Investix</span>
         </h1>
         <div class="flex items-center gap-2 ml-auto" id="header-controls">
@@ -233,10 +233,18 @@
                   <span class="acc-chevron"></span>
                 </summary>
                 <div class="acc-body grid gap-3">
+                  <div class="flex flex-col gap-2">
+                    <span class="label">Zastaveno za úvěry</span>
+                    <div id="property-pledge-list" class="grid gap-2"></div>
+                    <button type="button" id="property-pledge-add" class="btn-secondary btn-sm self-start">
+                      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                      <span>Přidat zástavu</span>
+                    </button>
+                  </div>
                   <label class="switch">
                     <input name="has_lien" id="property-has-lien" type="checkbox" />
                     <span class="switch-ui"></span>
-                    <span>Zastaveno</span>
+                    <span>Jiná zástava (úvěr mimo aplikaci)</span>
                   </label>
                   <div id="lien-fields" class="grid grid-cols-1 sm:grid-cols-2 gap-3 hidden">
                     <label class="flex flex-col gap-1">
@@ -730,9 +738,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/calc.js?v=1791810037"></script>
-  <script src="js/app.js?v=1791810037"></script>
-  <script src="js/cloud.js?v=1791810037"></script>
-  <script src="js/auth.js?v=1791810037"></script>
+  <script src="js/calc.js?v=1791810405"></script>
+  <script src="js/app.js?v=1791810405"></script>
+  <script src="js/cloud.js?v=1791810405"></script>
+  <script src="js/auth.js?v=1791810405"></script>
 </body>
 </html>
