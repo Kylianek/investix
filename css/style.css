@@ -2156,6 +2156,11 @@ button.event-chip.is-open {
   border-color: var(--neg);
   box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
 }
+.refi-loan {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
 .field-error {
   margin: 0.15rem 0 0;
   font-size: 0.78rem;

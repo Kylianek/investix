@@ -931,6 +931,7 @@ function rerenderTable(key) {
 function renderAllTables() {
   renderPropertiesTable();
   renderLoansTable();
+  renderRefinancingTable();
   renderEvents();
   renderScenarioTable();
 }
@@ -974,10 +975,31 @@ function actionButtons(editAttr, deleteAttr, id) {
  * částku (loan.collateral = [{ property_id, amount }]): u starých záznamů se převezme tehdy volná
  * hodnota nemovitosti, takže se jejich dosavadní výpočty nemění.
  */
+const LEGACY_REFINANCE_KEYS = ['refinance_date', 'refinance_rate', 'refinance_years', 'refinance_merge_ids'];
+
+/** Starší úvěr měl jedno refinancování v polích refinance_*; převede se na seznam událostí `refinancings` (stejné id pro stejný úvěr). */
+function migrateLegacyRefinancing(loan) {
+  if (!LEGACY_REFINANCE_KEYS.some((k) => k in loan)) return loan;
+  const copy = { ...loan };
+  const list = Array.isArray(copy.refinancings) ? copy.refinancings.slice() : [];
+  if (copy.refinance_date) {
+    list.push({
+      id: 'refi-' + copy.id,
+      date: copy.refinance_date,
+      rate: copy.refinance_rate != null && copy.refinance_rate !== '' ? Number(copy.refinance_rate) : null,
+      years: Number(copy.refinance_years) > 0 ? Number(copy.refinance_years) : null,
+      merge_ids: Array.isArray(copy.refinance_merge_ids) ? copy.refinance_merge_ids.slice() : [],
+    });
+  }
+  for (const k of LEGACY_REFINANCE_KEYS) delete copy[k];
+  if (list.length) copy.refinancings = list;
+  return copy;
+}
+
 function normalizeLoanList(loans, properties) {
   const alloc = {};
   const byId = new Map(properties.map((p) => [p.id, p]));
-  return loans.map((l) => {
+  const list = loans.map((l) => {
     if (Array.isArray(l.collateral) && !('additional_collateral_ids' in l)) {
       for (const c of l.collateral) alloc[c.property_id] = (alloc[c.property_id] || 0) + (Number(c.amount) || 0);
       return l;
@@ -999,6 +1021,7 @@ function normalizeLoanList(loans, properties) {
     delete copy.additional_collateral_ids;
     return copy;
   });
+  return list.map(migrateLegacyRefinancing);
 }
 
 /**
@@ -1336,6 +1359,8 @@ function wirePledgeChecklist() {
   container.addEventListener('change', (e) => {
     const row = e.target.closest('.pledge-row');
     if (!row) return;
+    loanPledgeAuto = false; // ruční úprava přebíjí automatické zástavy
+    showLoanPledgeNote('');
     if (e.target.classList.contains('loan-collateral-checkbox')) {
       const free = Number(row.dataset.free) || 0;
       if (e.target.checked && free < 1) {
@@ -1354,7 +1379,10 @@ function wirePledgeChecklist() {
     showFormError('loan-form-error', '');
   });
   container.addEventListener('input', (e) => {
-    if (e.target.classList.contains('loan-collateral-amount')) updateLoanBadges();
+    if (!e.target.classList.contains('loan-collateral-amount')) return;
+    loanPledgeAuto = false;
+    showLoanPledgeNote('');
+    updateLoanBadges();
   });
 }
 
@@ -1721,6 +1749,7 @@ function init() {
   document.querySelectorAll('[data-combo="bank"]').forEach((input) => makeCombobox(input, bankOptions));
   wirePropertyFormUi();
   wireLoanFormUi();
+  wireRefiFormUi();
   wireEventFormUi();
   wireKpiFormulaToggles();
   wirePdfExportButtons();
@@ -1740,6 +1769,7 @@ function init() {
   });
   resetPropertyForm();
   resetLoanForm();
+  resetRefiForm();
   resetEventForm();
   renderAll();
 }
@@ -1994,9 +2024,6 @@ function validateLoan(f) {
   v.field({ el: el('rate_after_fixation'), kind: 'percent', min: 0, max: 100 });
   v.field({ el: el('payment_after_fixation'), kind: 'money', min: 0, max: 1e8 });
   v.field({ el: el('maturity_date'), kind: 'date' });
-  v.field({ el: el('refinance_date'), kind: 'date' });
-  v.field({ el: el('refinance_rate'), kind: 'percent', min: 0, max: 100 });
-  v.field({ el: el('refinance_years'), kind: 'number', minExclusive: 0, max: 50, unit: ' let' });
   v.field({ el: el('ltv_percent'), kind: 'percent', min: 0, max: 200 });
   v.field({ el: el('own_funds'), kind: 'money', min: 0, max: MAX_MONEY });
   v.field({ el: el('note'), kind: 'text', maxLen: 200 });
@@ -2007,11 +2034,35 @@ function validateLoan(f) {
   const maturity = el('maturity_date').value;
   if (fixationEnd && fixationEnd < start) v.fail(el('fixation_end'), 'Konec fixace nemůže být před zřízením úvěru.');
   if (maturity && maturity <= start) v.fail(el('maturity_date'), 'Splatnost musí být po zřízení úvěru.');
-  const refinanceGiven = el('refinance_rate').value.trim() !== '' || el('refinance_years').value.trim() !== '';
-  if (refinanceGiven && !el('refinance_date').value) v.fail(el('refinance_date'), 'Zadej datum refinancování, jinak se nová sazba a doba nepoužijí.');
   const afterFixationGiven = el('rate_after_fixation').value.trim() !== '' || el('payment_after_fixation').value.trim() !== '';
   const fixationKnown = el('fixation_years').value.trim() !== '' || !!fixationEnd;
   if (afterFixationGiven && !fixationKnown) v.fail(el('fixation_years'), 'Zadej dobu fixace nebo její konec, ať je jasné, odkdy platí nová sazba.');
+  return v.done();
+}
+
+/** Refinancování: úvěr, datum v budoucnosti, nová sazba / doba / sloučení (aspoň něco z toho; sloučení potřebuje novou dobu). */
+function validateRefinancing(f) {
+  clearFieldErrors(f);
+  const v = makeValidator();
+  const el = (name) => f.elements[name];
+  if (!el('loan_id').value) v.fail(el('loan_id'), 'Vyber úvěr.');
+  v.field({ el: el('date'), kind: 'date', required: true });
+  v.field({ el: el('rate'), kind: 'percent', min: 0, max: 100 });
+  v.field({ el: el('years'), kind: 'number', minExclusive: 0, max: 50, unit: ' let' });
+  const date = el('date').value;
+  if (date) {
+    const d = calc.toDate(date);
+    const now = new Date();
+    // refinancování, které už proběhlo, je v zadaném úvěru (částka, sazba, splátka) zahrnuté - jako událost by nic neudělalo
+    if (!isNaN(d) && d.getFullYear() * 12 + d.getMonth() + (d.getDate() > 15 ? 1 : 0) < now.getFullYear() * 12 + now.getMonth()) {
+      v.fail(el('date'), 'Datum musí být v budoucnosti. Zadaný úvěr už je po dřívějším refinancování.');
+    }
+  }
+  const merge = readRefiMergeDraft() || new Set();
+  const hasRate = el('rate').value.trim() !== '';
+  const hasYears = el('years').value.trim() !== '';
+  if (!hasRate && !hasYears && !merge.size) v.fail(el('rate'), 'Zadej novou sazbu, novou dobu nebo úvěry ke sloučení.');
+  if (merge.size && !hasYears) v.fail(el('years'), 'Pro sloučení úvěrů zadej novou dobu splácení.');
   return v.done();
 }
 
@@ -2327,42 +2378,33 @@ function renderLoanCollateralChecklist(draft) {
 }
 
 /**
- * Úvěry, které jde při refinancování sloučit s upravovaným úvěrem: jejich zůstatky se k datu refinancování splatí a
- * přičtou k tomuto úvěru. Nejde vybrat úvěr, který už se slučuje jinam nebo sám něco slučuje (bez řetězení).
+ * Zástavy ve formuláři úvěru se doplňují samy podle "Financuje nemovitost", dokud je uživatel ručně nepřepíše:
+ * bance se dá financovaná nemovitost (do výše její volné hodnoty) a zbytek potřebné zástavy (úvěr ÷ LTV) se vezme
+ * z volné hodnoty ostatních nemovitostí. U staršího úvěru se zástavy samy nemění, dokud se nezmění financovaná nemovitost.
  */
-function renderLoanMergeChecklist(selected) {
-  const container = document.getElementById('loan-merge-checklist');
-  if (!container) return;
-  const editId = loanForm().elements['id'].value;
-  const editing = editId ? state.loans.find((l) => l.id === editId) : null;
-  const chosen = selected || new Set(editing && Array.isArray(editing.refinance_merge_ids) ? editing.refinance_merge_ids : []);
-  const others = state.loans.filter((l) => l.id !== editId);
-  const takenBy = new Map();
-  for (const l of others) for (const id of l.refinance_merge_ids || []) takenBy.set(id, l);
-  if (editId && takenBy.has(editId)) {
-    container.innerHTML = `<span class="text-sm t-faint">Tento úvěr se slučuje do úvěru ${escapeHtml(takenBy.get(editId).bank)}, sám nic slučovat nemůže.</span>`;
-    return;
-  }
-  if (!others.length) {
-    container.innerHTML = '<span class="text-sm t-faint">Zatím žádné další úvěry</span>';
-    return;
-  }
-  const mergers = new Set(others.filter((l) => (l.refinance_merge_ids || []).length).map((l) => l.id));
-  container.innerHTML = others
-    .map((l) => {
-      let blocked = '';
-      if (takenBy.has(l.id)) blocked = `Už se slučuje do úvěru ${takenBy.get(l.id).bank}`;
-      else if (mergers.has(l.id)) blocked = 'Tento úvěr sám něco slučuje';
-      return `<label class="chip"${blocked ? ` title="${escapeHtml(blocked)}"` : ''}><input type="checkbox" value="${l.id}" ${chosen.has(l.id) && !blocked ? 'checked' : ''} ${blocked ? 'disabled' : ''} /><span class="chip-with-logo">${bankLogoHtml(l.bank)}${escapeHtml(l.bank)} · ${fmtMoney(l.amount)}</span></label>`;
-    })
-    .join('');
+let loanPledgeAuto = true;
+
+function showLoanPledgeNote(text) {
+  const note = document.getElementById('loan-pledge-note');
+  note.textContent = text || '';
+  note.classList.toggle('hidden', !text);
 }
 
-/** Vybrané úvěry ke sloučení tak, jak jsou právě ve formuláři (null = seznam ještě nebyl vykreslen). */
-function readMergeDraft() {
-  const boxes = document.querySelectorAll('#loan-merge-checklist input[type="checkbox"]');
-  if (!boxes.length) return null;
-  return new Set(Array.from(boxes).filter((b) => b.checked).map((b) => b.value));
+function autoPledgeFromFinancedProperty() {
+  const f = loanForm();
+  const propertyId = f.elements['property_id'].value;
+  const amount = parseFormNumber(f.elements['amount'].value);
+  if (!propertyId || !(amount > 0)) {
+    showLoanPledgeNote('');
+    return;
+  }
+  const ltvRaw = f.elements['ltv_percent'].value.trim();
+  const ltv = ltvRaw ? parseFormNumber(ltvRaw) : Number(state.settings.pledge_max_ltv) || 80;
+  const res = calc.autoCollateral({ amount, ltv, propertyId, properties: state.properties, loans: state.loans, excludeLoanId: f.elements['id'].value });
+  loanPledgeAuto = true;
+  renderLoanCollateralChecklist(new Map(res.pledges.map((p) => [p.property_id, p.amount])));
+  if (res.pledges.length) document.getElementById('loan-acc-pledge').open = true;
+  showLoanPledgeNote(res.shortfall > 0 ? `Chybí ${fmtMoney(res.shortfall)} zástavy na LTV ${fmtNumber(ltv)} %, volná hodnota nemovitostí nestačí.` : '');
 }
 
 function renderLoanPropertySelect() {
@@ -2387,19 +2429,6 @@ function updateLoanBadges() {
     start && end ? `${fmtDate(start)} → ${fmtDate(end)}` : end ? `do ${fmtDate(end)}` : years !== '' ? `${years} let` : '',
     f.elements['rate_after_fixation'].value.trim() ? `po fixaci ${fmtNumber(parseFormNumber(f.elements['rate_after_fixation'].value))} %` : '',
     maturity ? `splatnost ${fmtDate(maturity)}` : '',
-  ]
-    .filter(Boolean)
-    .join(' · ');
-
-  const refDate = f.elements['refinance_date'].value;
-  const refRate = f.elements['refinance_rate'].value.trim();
-  const refYears = f.elements['refinance_years'].value.trim();
-  const mergeCount = (readMergeDraft() || new Set()).size;
-  document.getElementById('loan-refinance-badge').textContent = [
-    refDate ? fmtDate(refDate) : '',
-    refRate ? `${fmtNumber(parseFormNumber(refRate))} %` : '',
-    refYears ? `${refYears} let` : '',
-    mergeCount ? `+${mergeCount} ${mergeCount === 1 ? 'úvěr' : mergeCount < 5 ? 'úvěry' : 'úvěrů'}` : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -2454,16 +2483,32 @@ function wireFixationFields() {
 function wireLoanFormUi() {
   const f = loanForm();
   f.elements['fixation_years'].step = 'any';
-  f.elements['refinance_years'].step = 'any';
   wireFixationFields();
   wirePledgeChecklist();
+  f.elements['property_id'].addEventListener('change', () => {
+    if (f.elements['property_id'].value) {
+      loanPledgeAuto = true;
+      autoPledgeFromFinancedProperty();
+    } else if (loanPledgeAuto) {
+      renderLoanCollateralChecklist(new Map()); // bez financované nemovitosti se automatické zástavy odeberou
+      showLoanPledgeNote('');
+    }
+    updateLoanBadges();
+  });
+  const refreshAutoPledge = () => {
+    if (!loanPledgeAuto || !f.elements['property_id'].value) return;
+    autoPledgeFromFinancedProperty();
+    updateLoanBadges();
+  };
+  f.elements['amount'].addEventListener('input', refreshAutoPledge);
+  f.elements['ltv_percent'].addEventListener('input', refreshAutoPledge);
   f.addEventListener('input', updateLoanBadges);
   f.addEventListener('change', updateLoanBadges);
 }
 
 function renderLoans() {
   renderLoansTable();
-  renderLoanMergeChecklist(readMergeDraft());
+  renderRefinancings();
   renderLoanCollateralChecklist(readPledgeDraft());
   renderLoanPropertySelect();
   renderEventTargets();
@@ -2477,6 +2522,8 @@ function fillLoanForm(id) {
   clearFieldErrors(f);
   showFormError('loan-form-error', '');
   f.elements['id'].value = l.id;
+  loanPledgeAuto = false;
+  showLoanPledgeNote('');
   f.elements['bank'].value = l.bank;
   if (f.elements['bank']._comboRefresh) f.elements['bank']._comboRefresh();
   setFormattedValue(f.elements['amount'], l.amount);
@@ -2489,9 +2536,6 @@ function fillLoanForm(id) {
   setFormattedValue(f.elements['rate_after_fixation'], l.rate_after_fixation != null ? l.rate_after_fixation : '');
   setFormattedValue(f.elements['payment_after_fixation'], l.payment_after_fixation || '');
   f.elements['maturity_date'].value = l.maturity_date || '';
-  f.elements['refinance_date'].value = l.refinance_date || '';
-  setFormattedValue(f.elements['refinance_rate'], l.refinance_rate != null ? l.refinance_rate : '');
-  f.elements['refinance_years'].value = l.refinance_years != null ? l.refinance_years : '';
   f.elements['note'].value = l.note || '';
   // LTV a vlastní zdroje: ruční hodnoty, u staršího záznamu se předvyplní z hodnoty nemovitosti při sjednání
   const ltv = ltvInfo(l);
@@ -2499,13 +2543,11 @@ function fillLoanForm(id) {
   setFormattedValue(f.elements['own_funds'], l.own_funds != null ? l.own_funds : ltv && ltv.own != null ? Math.round(ltv.own) : '');
   renderLoanPropertySelect();
   f.elements['property_id'].value = l.property_id || '';
-  renderLoanMergeChecklist(null);
   renderLoanCollateralChecklist(null);
   document.getElementById('loan-acc-pledge').open = calc.loanCollateral(l).length > 0;
   const accordions = Array.from(f.querySelectorAll('details.acc:not(.acc-pledge)'));
-  const [fixationAcc, refinanceAcc, detailsAcc] = accordions;
+  const [fixationAcc, detailsAcc] = accordions;
   fixationAcc.open = !!(l.start_date || end || l.fixation_years != null || l.rate_after_fixation != null || l.maturity_date || l.payment_after_fixation);
-  refinanceAcc.open = !!(l.refinance_date || l.refinance_rate != null || l.refinance_years || (l.refinance_merge_ids || []).length);
   detailsAcc.open = !!(l.ltv_percent != null || l.own_funds != null || l.property_value_at_origination || l.property_id || l.note);
   document.getElementById('loan-form-title').textContent = 'Upravit úvěr';
   document.getElementById('loan-submit-label').textContent = 'Uložit změny';
@@ -2519,6 +2561,8 @@ function resetLoanForm() {
   f.reset();
   clearFieldErrors(f);
   f.elements['id'].value = '';
+  loanPledgeAuto = true;
+  showLoanPledgeNote('');
   showFormError('loan-form-error', '');
   f.querySelectorAll('details.acc').forEach((acc) => {
     acc.open = false;
@@ -2526,7 +2570,6 @@ function resetLoanForm() {
   document.getElementById('loan-form-title').textContent = 'Přidat úvěr';
   document.getElementById('loan-submit-label').textContent = 'Přidat úvěr';
   document.getElementById('loan-form-card').classList.remove('is-editing');
-  renderLoanMergeChecklist(null);
   renderLoanCollateralChecklist(null);
   renderLoanPropertySelect();
   updateLoanBadges();
@@ -2535,11 +2578,11 @@ function resetLoanForm() {
 async function deleteLoan(id) {
   if (!(await customConfirm('Opravdu smazat tento úvěr?', 'Smazat'))) return;
   state.loans = state.loans.filter((l) => l.id !== id);
-  // ať po úvěru nezůstávají viset odkazy ze sloučení
+  // ať po úvěru nezůstávají viset odkazy ze sloučení (jeho vlastní refinancování zmizí spolu s ním)
   state.loans.forEach((l) => {
-    if (!Array.isArray(l.refinance_merge_ids)) return;
-    l.refinance_merge_ids = l.refinance_merge_ids.filter((x) => x !== id);
-    if (!l.refinance_merge_ids.length) delete l.refinance_merge_ids;
+    (Array.isArray(l.refinancings) ? l.refinancings : []).forEach((ev) => {
+      if (Array.isArray(ev.merge_ids)) ev.merge_ids = ev.merge_ids.filter((x) => x !== id);
+    });
   });
   expandedLoans.delete(id);
   pruneEventTargets(id, 'loan');
@@ -2568,26 +2611,6 @@ function submitLoanForm(e) {
     }
     collateral.push({ property_id: row.dataset.pid, amount: Math.round(amount) });
   }
-  // sloučení úvěrů při refinancování potřebuje datum v budoucnosti a novou dobu splácení
-  const mergeIds = Array.from(readMergeDraft() || []);
-  if (mergeIds.length) {
-    const refDateValue = f.elements['refinance_date'].value;
-    let mergeError = '';
-    if (!refDateValue) mergeError = 'Pro sloučení úvěrů zadej datum refinancování.';
-    else if (!(Number(f.elements['refinance_years'].value) > 0)) mergeError = 'Pro sloučení úvěrů zadej novou dobu splácení.';
-    else {
-      const d = calc.toDate(refDateValue);
-      const now = new Date();
-      if (d.getFullYear() * 12 + d.getMonth() + (d.getDate() > 15 ? 1 : 0) < now.getFullYear() * 12 + now.getMonth()) {
-        mergeError = 'Sloučení musí být v budoucnosti, dnešní zůstatky už jsou sloučené.';
-      }
-    }
-    if (mergeError) {
-      f.querySelectorAll('details.acc:not(.acc-pledge)')[1].open = true;
-      showFormError('loan-form-error', mergeError);
-      return;
-    }
-  }
   showFormError('loan-form-error', '');
 
   const num = (name) => {
@@ -2609,9 +2632,6 @@ function submitLoanForm(e) {
     rate_after_fixation: num('rate_after_fixation'),
     payment_after_fixation: num('payment_after_fixation'),
     maturity_date: f.elements['maturity_date'].value || null,
-    refinance_date: f.elements['refinance_date'].value || null,
-    refinance_rate: num('refinance_rate'),
-    refinance_years: f.elements['refinance_years'].value.trim() ? Math.max(0, Number(f.elements['refinance_years'].value) || 0) : null,
     note: cleanText(f.elements['note'].value) || null,
     ltv_percent: num('ltv_percent'),
     own_funds: num('own_funds'),
@@ -2620,8 +2640,6 @@ function submitLoanForm(e) {
   };
   delete payload.additional_collateral_ids;
   delete payload.keep_payment_after_fixation; // starší volba "ponechat splátku" už neexistuje
-  if (mergeIds.length) payload.refinance_merge_ids = mergeIds;
-  else delete payload.refinance_merge_ids;
   if (id) {
     const idx = state.loans.findIndex((l) => l.id === id);
     if (idx !== -1) state.loans[idx] = payload;
@@ -2632,6 +2650,232 @@ function submitLoanForm(e) {
   resetLoanForm();
   renderAll();
   showSuccessToast(id ? 'Úvěr upraven' : 'Úvěr přidán');
+}
+
+/* ---------- REFINANCOVÁNÍ: samostatné události nad seznamem úvěrů (u úvěru jich může být víc) ---------- */
+
+const refiForm = () => document.getElementById('refi-form');
+
+/** Všechna refinancování ze všech úvěrů: [{ loan, ev }] podle data. */
+function refinancingRows() {
+  const rows = [];
+  for (const loan of state.loans) for (const ev of Array.isArray(loan.refinancings) ? loan.refinancings : []) rows.push({ loan, ev });
+  return rows.sort((a, b) => String(a.ev.date).localeCompare(String(b.ev.date)));
+}
+
+function findRefinancing(id) {
+  return refinancingRows().find((r) => r.ev.id === id) || null;
+}
+
+/** Které úvěry se už slučují (a do kterého) a které úvěry něco slučují; `exceptEventId` = právě upravované refinancování. */
+function mergeUsage(exceptEventId) {
+  const takenBy = new Map();
+  const mergers = new Set();
+  for (const { loan, ev } of refinancingRows()) {
+    if (ev.id === exceptEventId) continue;
+    const ids = Array.isArray(ev.merge_ids) ? ev.merge_ids : [];
+    if (ids.length) mergers.add(loan.id);
+    for (const id of ids) takenBy.set(id, loan);
+  }
+  return { takenBy, mergers };
+}
+
+function renderRefiLoanSelect() {
+  const select = document.getElementById('refi-loan-select');
+  if (!select) return;
+  const previous = select.value;
+  select.innerHTML =
+    (state.loans.length > 1 ? '<option value="">Vyber úvěr</option>' : '') +
+    state.loans.map((l) => `<option value="${l.id}">${escapeHtml(l.bank)} · ${fmtMoney(l.amount)}</option>`).join('');
+  select.value = state.loans.some((l) => l.id === previous) ? previous : state.loans.length === 1 ? state.loans[0].id : '';
+}
+
+/**
+ * Úvěry, které jde při refinancování sloučit s vybraným úvěrem: jejich zůstatky se k datu refinancování splatí a přičtou
+ * k němu. Nejde vybrat úvěr, který už se slučuje jinam nebo sám něco slučuje (bez řetězení).
+ */
+function renderRefiMergeChecklist(selected) {
+  const container = document.getElementById('refi-merge-checklist');
+  const wrap = document.getElementById('refi-merge-wrap');
+  if (!container) return;
+  const f = refiForm();
+  const loanId = f.elements['loan_id'].value;
+  const editId = f.elements['id'].value;
+  const others = state.loans.filter((l) => l.id !== loanId);
+  wrap.classList.toggle('hidden', state.loans.length < 2); // jediný úvěr: není co slučovat
+  if (state.loans.length < 2) {
+    container.innerHTML = '';
+    return;
+  }
+  if (!loanId) {
+    container.innerHTML = '<span class="text-sm t-faint">Nejdřív vyber úvěr</span>';
+    return;
+  }
+  const { takenBy, mergers } = mergeUsage(editId);
+  if (takenBy.has(loanId)) {
+    container.innerHTML = `<span class="text-sm t-faint">Tento úvěr se slučuje do úvěru ${escapeHtml(takenBy.get(loanId).bank)}, sám nic slučovat nemůže.</span>`;
+    return;
+  }
+  const editing = editId ? findRefinancing(editId) : null;
+  const chosen = selected || new Set(editing && editing.loan.id === loanId ? editing.ev.merge_ids || [] : []);
+  container.innerHTML = others
+    .map((l) => {
+      let blocked = '';
+      if (takenBy.has(l.id)) blocked = `Už se slučuje do úvěru ${takenBy.get(l.id).bank}`;
+      else if (mergers.has(l.id)) blocked = 'Tento úvěr sám něco slučuje';
+      return `<label class="chip"${blocked ? ` title="${escapeHtml(blocked)}"` : ''}><input type="checkbox" value="${l.id}" ${chosen.has(l.id) && !blocked ? 'checked' : ''} ${blocked ? 'disabled' : ''} /><span class="chip-with-logo">${bankLogoHtml(l.bank)}${escapeHtml(l.bank)} · ${fmtMoney(l.amount)}</span></label>`;
+    })
+    .join('');
+}
+
+/** Vybrané úvěry ke sloučení tak, jak jsou právě ve formuláři (null = seznam ještě nebyl vykreslen). */
+function readRefiMergeDraft() {
+  const boxes = document.querySelectorAll('#refi-merge-checklist input[type="checkbox"]');
+  if (!boxes.length) return null;
+  return new Set(Array.from(boxes).filter((b) => b.checked).map((b) => b.value));
+}
+
+function renderRefinancingTable() {
+  const card = document.getElementById('refi-card');
+  if (!card) return;
+  const key = 'refi';
+  const rows = refinancingRows();
+  card.classList.toggle('hidden', !rows.length);
+  applyTableMode(key);
+  const dash = '<span class="t-faint">—</span>';
+  const now = new Date();
+  const todayAbs = now.getFullYear() * 12 + now.getMonth();
+  const columns = [
+    {
+      label: 'Úvěr',
+      cell: ({ loan, ev }) => {
+        const donors = (Array.isArray(ev.merge_ids) ? ev.merge_ids : []).map((id) => state.loans.find((l) => l.id === id)).filter(Boolean);
+        const sub = [fmtMoney(loan.amount), donors.length ? `slučuje ${donors.map((d) => d.bank).join(', ')}` : ''].filter(Boolean).join(' · ');
+        return `<span class="refi-loan">${bankLogoHtml(loan.bank)}<span class="font-medium">${escapeHtml(loan.bank)}</span></span><br><span class="text-xs t-muted">${escapeHtml(sub)}</span>`;
+      },
+    },
+    {
+      label: 'Datum',
+      cell: ({ ev }) => {
+        const d = calc.toDate(ev.date);
+        const past = !isNaN(d) && d.getFullYear() * 12 + d.getMonth() + (d.getDate() > 15 ? 1 : 0) < todayAbs;
+        return `<span class="num">${fmtDate(ev.date)}</span>${past ? '<br><span class="text-xs t-muted">už proběhlo</span>' : ''}`;
+      },
+    },
+    {
+      label: 'Nově',
+      right: true,
+      cell: ({ ev }) => {
+        const parts = [];
+        if (ev.rate != null && ev.rate !== '') parts.push(`${fmtNumber(ev.rate)} %`);
+        if (Number(ev.years) > 0) parts.push(`${fmtNumber(ev.years, 1)} let`);
+        return parts.length ? parts.map((p) => `<span class="num">${p}</span>`).join(' · ') : dash; // na úzké obrazovce se zalomí mezi sazbou a dobou
+      },
+    },
+    { label: '', right: true, actions: true, cell: ({ ev }) => actionButtons('data-edit-refi', 'data-delete-refi', ev.id) },
+  ];
+  document.getElementById('refi-thead').innerHTML = headHtml(columns);
+  const tbody = document.getElementById('refi-tbody');
+  tbody.innerHTML = rows
+    .map((r) => `<tr>${columns.map((c) => `<td class="${c.right ? 'text-right' : ''} ${c.actions ? 'whitespace-nowrap' : ''}">${c.cell(r)}</td>`).join('')}</tr>`)
+    .join('');
+  tbody.querySelectorAll('[data-edit-refi]').forEach((btn) => btn.addEventListener('click', () => fillRefiForm(btn.dataset.editRefi)));
+  tbody.querySelectorAll('[data-delete-refi]').forEach((btn) => btn.addEventListener('click', () => deleteRefinancing(btn.dataset.deleteRefi)));
+}
+
+function renderRefinancings() {
+  const formCard = document.getElementById('refi-form-card');
+  if (!formCard) return;
+  formCard.classList.toggle('hidden', !state.loans.length); // bez úvěru není co refinancovat
+  // upravované refinancování (nebo jeho úvěr) mezitím zmizelo: formulář se vrátí do stavu "Přidat"
+  const editId = refiForm().elements['id'].value;
+  if (editId && !findRefinancing(editId)) resetRefiForm();
+  renderRefiLoanSelect();
+  renderRefiMergeChecklist(readRefiMergeDraft());
+  renderRefinancingTable();
+}
+
+/** Refinancuje se nejčastěji po konci fixace: prázdné datum se předvyplní koncem fixace vybraného úvěru (je-li v budoucnu). */
+function prefillRefiDate() {
+  const f = refiForm();
+  if (f.elements['date'].value) return;
+  const loan = state.loans.find((l) => l.id === f.elements['loan_id'].value);
+  const end = loan ? calc.fixationEndDate(loan) : null;
+  if (end && end > new Date()) f.elements['date'].value = toInputDate(end);
+}
+
+function wireRefiFormUi() {
+  const f = refiForm();
+  f.elements['loan_id'].addEventListener('change', () => {
+    renderRefiMergeChecklist(new Set());
+    prefillRefiDate();
+  });
+}
+
+function fillRefiForm(id) {
+  const found = findRefinancing(id);
+  if (!found) return;
+  const { loan, ev } = found;
+  const f = refiForm();
+  f.reset();
+  clearFieldErrors(f);
+  showFormError('refi-form-error', '');
+  f.elements['id'].value = ev.id;
+  renderRefiLoanSelect();
+  f.elements['loan_id'].value = loan.id;
+  f.elements['date'].value = ev.date || '';
+  setFormattedValue(f.elements['rate'], ev.rate != null && ev.rate !== '' ? ev.rate : '');
+  f.elements['years'].value = ev.years != null && ev.years !== '' ? ev.years : '';
+  renderRefiMergeChecklist(new Set(Array.isArray(ev.merge_ids) ? ev.merge_ids : []));
+  document.getElementById('refi-form-title').textContent = 'Upravit refinancování';
+  document.getElementById('refi-submit-label').textContent = 'Uložit změny';
+  document.getElementById('refi-form-card').classList.add('is-editing');
+  revealForm('refi-form-card');
+}
+
+function resetRefiForm() {
+  const f = refiForm();
+  f.reset();
+  clearFieldErrors(f);
+  f.elements['id'].value = '';
+  showFormError('refi-form-error', '');
+  renderRefiLoanSelect();
+  renderRefiMergeChecklist(new Set());
+  document.getElementById('refi-form-title').textContent = 'Přidat refinancování';
+  document.getElementById('refi-submit-label').textContent = 'Přidat refinancování';
+  document.getElementById('refi-form-card').classList.remove('is-editing');
+}
+
+async function deleteRefinancing(id) {
+  if (!(await customConfirm('Smazat toto refinancování?', 'Smazat'))) return;
+  for (const l of state.loans) if (Array.isArray(l.refinancings)) l.refinancings = l.refinancings.filter((x) => x.id !== id);
+  saveState();
+  renderAll();
+}
+
+function submitRefiForm(e) {
+  e.preventDefault();
+  const f = e.target;
+  if (!validateRefinancing(f)) return;
+  const id = f.elements['id'].value;
+  const loan = state.loans.find((l) => l.id === f.elements['loan_id'].value);
+  if (!loan) return;
+  const rateRaw = f.elements['rate'].value.trim();
+  const yearsRaw = f.elements['years'].value.trim();
+  const ev = {
+    id: id || uid(),
+    date: f.elements['date'].value,
+    rate: rateRaw ? parseFormNumber(rateRaw) : null,
+    years: yearsRaw ? Number(yearsRaw) : null,
+    merge_ids: Array.from(readRefiMergeDraft() || []),
+  };
+  // upravené refinancování může přejít na jiný úvěr: ze starého se odebere
+  for (const l of state.loans) if (Array.isArray(l.refinancings)) l.refinancings = l.refinancings.filter((x) => x.id !== ev.id);
+  loan.refinancings = [...(Array.isArray(loan.refinancings) ? loan.refinancings : []), ev];
+  saveState();
+  resetRefiForm();
+  renderAll();
+  showSuccessToast(id ? 'Refinancování upraveno' : 'Refinancování přidáno');
 }
 
 /* ---------- NASTAVENÍ ---------- */
@@ -2846,10 +3090,11 @@ function derivedEvents() {
       const end = calc.fixationEndDate(l);
       out.push({ ...base, type: 'rate_after_fixation', period: end ? `od ${end.getFullYear()}` : '—', value: `${fmtNumber(l.rate_after_fixation)} %` });
     }
-    if (l.refinance_date) {
-      const rate = l.refinance_rate != null ? `${fmtNumber(l.refinance_rate)} %` : '';
-      const years = l.refinance_years ? `${fmtNumber(l.refinance_years, 1)} let` : '';
-      out.push({ ...base, type: 'refinance', period: fmtDate(l.refinance_date), value: [rate, years].filter(Boolean).join(' · ') || '—' });
+    for (const r of Array.isArray(l.refinancings) ? l.refinancings : []) {
+      if (!r.date) continue;
+      const rate = r.rate != null && r.rate !== '' ? `${fmtNumber(r.rate)} %` : '';
+      const years = Number(r.years) > 0 ? `${fmtNumber(r.years, 1)} let` : '';
+      out.push({ ...base, source: { kind: 'refi', id: r.id }, type: 'refinance', period: fmtDate(r.date), value: [rate, years].filter(Boolean).join(' · ') || '—' });
     }
   }
   return out;
@@ -2899,6 +3144,9 @@ function renderEvents() {
       if (kind === 'property') {
         showTab('tab-properties');
         fillPropertyForm(id);
+      } else if (kind === 'refi') {
+        showTab('tab-loans');
+        fillRefiForm(id);
       } else {
         showTab('tab-loans');
         fillLoanForm(id);
@@ -3352,6 +3600,7 @@ function importBackup(e) {
       saveState();
       resetPropertyForm();
       resetLoanForm();
+      resetRefiForm();
       resetEventForm();
       renderAll();
       showSuccessToast('Záloha nahrána');
@@ -3377,6 +3626,7 @@ async function clearAllData() {
   saveState();
   resetPropertyForm();
   resetLoanForm();
+  resetRefiForm();
   resetEventForm();
   renderAll();
 }
@@ -3432,6 +3682,7 @@ function wireForms() {
   const forms = [
     ['property-form', submitPropertyForm],
     ['loan-form', submitLoanForm],
+    ['refi-form', submitRefiForm],
     ['event-form', submitEventForm],
   ];
   for (const [id, handler] of forms) {
@@ -3448,6 +3699,7 @@ function wireForms() {
   }
   document.getElementById('property-form-reset').addEventListener('click', resetPropertyForm);
   document.getElementById('loan-form-reset').addEventListener('click', resetLoanForm);
+  document.getElementById('refi-form-reset').addEventListener('click', resetRefiForm);
   document.getElementById('event-form-reset').addEventListener('click', resetEventForm);
 }
 

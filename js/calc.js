@@ -290,10 +290,12 @@ function projectLoanAmount(loan, targetYear, currentYear, events, startMonth) {
  * Co se s úvěrem může stát:
  * - Konec fixace (od měsíce konce fixace): nová sazba (rate_after_fixation); banka přepočítá splátku
  *   na zbývající dobu (nebo platí zadaná payment_after_fixation).
- * - Refinancování (refinance_date): "kolo od začátku" - ze zbývající jistiny se podle nové
- *   sazby a nové doby (refinance_years) spočítá nová anuita, takže se zase platí hlavně úrok.
- *   Při refinancování se dají sloučit i další úvěry (refinance_merge_ids): jejich zůstatky se k tomu měsíci splatí
- *   a přičtou k refinancovanému úvěru, který je dál splácí jednou novou anuitou.
+ * - Refinancování (samostatné události loan.refinancings = [{ date, rate, years, merge_ids }], u úvěru jich může být víc):
+ *   "kolo od začátku" - ze zbývající jistiny se podle nové sazby a nové doby (years) spočítá nová anuita, takže se zase
+ *   platí hlavně úrok. Nová smlouva nahrazuje původní, takže sazba po fixaci té staré už neplatí. Při refinancování se
+ *   dají sloučit i další úvěry (merge_ids): jejich zůstatky se k tomu měsíci splatí a přičtou k refinancovanému úvěru,
+ *   který je dál splácí jednou novou anuitou. (Starší záznam má jedno refinancování v polích refinance_date,
+ *   refinance_rate, refinance_years a refinance_merge_ids - čte se také.)
  * - Scénářová událost "změna úrokové sazby": sazba úvěru se po dobu události přepíše na zadanou hodnotu (nahoru i dolů),
  *   banka přepočítá splátku tak, aby se úvěr splatil ve stejném termínu. Po skončení události se sazba vrací.
  * - Mimořádné splacení z prodeje nemovitosti: doba splácení zůstává, banka sníží splátku.
@@ -367,6 +369,35 @@ function remainingTermMonths(principal, payment, annualRate) {
   return -Math.log(x) / Math.log(1 + r);
 }
 
+/**
+ * Refinancování úvěru jako seznam událostí: loan.refinancings = [{ id, date, rate (%), years, merge_ids }].
+ * Starší záznam má jedno refinancování v polích refinance_date / refinance_rate / refinance_years / refinance_merge_ids.
+ * Vrací [{ id, date, abs, rate (zlomek | null), term (měsíce | null), mergeIds }] seřazené podle měsíce.
+ */
+function refinancingList(loan) {
+  const hasNumber = (v) => v != null && v !== '' && !isNaN(Number(v));
+  const raw = Array.isArray(loan.refinancings)
+    ? loan.refinancings
+    : loan.refinance_date
+      ? [{ id: 'refi-' + loan.id, date: loan.refinance_date, rate: loan.refinance_rate, years: loan.refinance_years, merge_ids: loan.refinance_merge_ids }]
+      : [];
+  const list = [];
+  for (const r of raw) {
+    if (!r || !r.date) continue;
+    const date = toDate(r.date);
+    if (isNaN(date)) continue;
+    list.push({
+      id: r.id,
+      date,
+      abs: monthAfter(date),
+      rate: hasNumber(r.rate) ? Number(r.rate) / 100 : null,
+      term: Number(r.years) > 0 ? Number(r.years) * 12 : null,
+      mergeIds: Array.isArray(r.merge_ids) ? r.merge_ids : [],
+    });
+  }
+  return list.sort((a, b) => a.abs - b.abs);
+}
+
 /** Počáteční stav úvěru v prvním simulovaném roce (splátka, zbývající doba, plánované změny). */
 function initLoanState(loan, ls, firstYear) {
   // v prvním simulovaném roce (letošek) se začíná od dnešního měsíce, jinak od ledna
@@ -378,10 +409,7 @@ function initLoanState(loan, ls, firstYear) {
   ls.afterPay = Number(loan.payment_after_fixation) > 0 ? Number(loan.payment_after_fixation) : null;
   ls.keepPay = false;
   ls.fixAbs = fixationChangeMonth(loan, ls.startYear, ls.startYear === ls.projYear ? ls.startMonth || 0 : 0);
-  const refDate = loan.refinance_date ? toDate(loan.refinance_date) : null;
-  ls.refAbs = refDate && !isNaN(refDate) ? monthAfter(refDate) : null;
-  ls.refRate = hasNumber(loan.refinance_rate) ? Number(loan.refinance_rate) / 100 : null;
-  ls.refTerm = Number(loan.refinance_years) > 0 ? Number(loan.refinance_years) * 12 : null;
+  ls.refQueue = refinancingList(loan);
 
   let rate = Number(loan.interest_rate) || 0;
   let pay = Number(loan.monthly_payment) || 0;
@@ -392,7 +420,8 @@ function initLoanState(loan, ls, firstYear) {
     if (ls.afterPay != null) pay = ls.afterPay;
     ls.fixAbs = null;
   }
-  if (ls.refAbs != null && ls.refAbs < firstAbs) ls.refAbs = null;
+  // refinancování, které už proběhlo, je ve vstupních údajích úvěru (částka, sazba, splátka) zahrnuté
+  ls.refQueue = ls.refQueue.filter((r) => r.abs >= firstAbs);
 
   // Zadaná splátka má přednost: splatnost se bere jen tehdy, když splátka není zadaná (jinak by si zadaná splátka a splatnost
   // odporovaly a po konci fixace by splátka klesla, i když sazba roste).
@@ -415,7 +444,7 @@ function initLoanState(loan, ls, firstYear) {
 }
 
 /**
- * Plán sloučení úvěrů při refinancování. Úvěr s `refinance_merge_ids` a datem refinancování převezme k tomu měsíci
+ * Plán sloučení úvěrů při refinancování. Úvěr, jehož refinancování má `merge_ids`, převezme k měsíci refinancování
  * zůstatky vybraných úvěrů ("dárců"), ty se splatí a dál se neplatí. Slučuje se jen do budoucnosti (u minulého
  * data jsou dnešní zůstatky už sloučené). Úvěr je buď dárce, nebo úvěr, který slučuje, ne obojí (řetězení se
  * ignoruje). Vrací { mergeInto: { [idDárce]: { to, abs } } }.
@@ -425,15 +454,12 @@ function mergePlan(loans, projYear, projMonth) {
   const todayAbs = projYear * 12 + (projMonth || 0);
   const mergeInto = {};
   for (const l of loans) {
-    const donors = Array.isArray(l.refinance_merge_ids) ? l.refinance_merge_ids : [];
-    if (!donors.length || !l.refinance_date) continue;
-    const date = toDate(l.refinance_date);
-    if (isNaN(date)) continue;
-    const abs = monthAfter(date);
-    if (abs < todayAbs) continue;
-    for (const id of donors) {
-      if (id === l.id || !ids.has(id) || mergeInto[id]) continue;
-      mergeInto[id] = { to: l.id, abs };
+    for (const ev of refinancingList(l)) {
+      if (!ev.mergeIds.length || ev.abs < todayAbs) continue;
+      for (const id of ev.mergeIds) {
+        if (id === l.id || !ids.has(id) || mergeInto[id]) continue;
+        mergeInto[id] = { to: l.id, abs: ev.abs };
+      }
     }
   }
   // žádné řetězení: úvěr, který něco slučuje, se sám nesloučí do jiného (a naopak)
@@ -494,7 +520,7 @@ function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0, rate
     let recompute = false;
     let forceAnnuity = false;
     let payFixed = false;
-    if (ls.refAbs === abs) {
+    if (ls.refQueue && ls.refQueue.length && ls.refQueue[0].abs === abs) {
       // refinancování: nová anuita ze zbývající jistiny (nová sazba, nová doba)
       const incoming = book ? book[loan.id + ':' + abs] || 0 : 0;
       if (incoming > 0) {
@@ -503,12 +529,18 @@ function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0, rate
         ls.remainingPrincipal += incoming;
         delete book[loan.id + ':' + abs];
       }
-      if (ls.refRate != null) ls.rate = ls.refRate;
-      if (ls.refTerm != null) {
-        ls.term = ls.refTerm;
-        forceAnnuity = true;
+      // víc refinancování v jednom měsíci se použije popořadě
+      while (ls.refQueue.length && ls.refQueue[0].abs === abs) {
+        const ev = ls.refQueue.shift();
+        if (ev.rate != null) {
+          ls.rate = ev.rate;
+          ls.fixAbs = null; // nová smlouva nahrazuje původní: sazba (a splátka) po fixaci staré smlouvy už neplatí
+        }
+        if (ev.term != null) {
+          ls.term = ev.term;
+          forceAnnuity = true;
+        }
       }
-      ls.refAbs = null;
       if (ls.fixAbs === abs) ls.fixAbs = null;
       recompute = true;
     } else if (ls.fixAbs === abs) {
@@ -1138,6 +1170,45 @@ function loanPropertyShares(loan, properties) {
 }
 
 /**
+ * Zástavy, které si banka vezme za úvěr, který financuje nemovitost: nejdřív sama financovaná nemovitost, zbytek
+ * z volné hodnoty ostatních nemovitostí v poměru jejich volné hodnoty. Potřebná zástava = výše úvěru ÷ LTV.
+ *   úvěr 3 M, LTV 80 % => zástava za 3,75 M: financovaná nemovitost (do výše své volné hodnoty) + zbytek z ostatních
+ * Volná hodnota se počítá bez zástav úvěru `excludeLoanId` (typicky toho, který se právě upravuje).
+ * Vrací { pledges: [{ property_id, amount }], needed, shortfall } (shortfall = kolik zástavy chybí, když volné hodnoty nestačí).
+ */
+function autoCollateral({ amount, ltv, propertyId, properties, loans, excludeLoanId }) {
+  const loanAmount = Number(amount) || 0;
+  const ratio = Number(ltv) > 0 ? Number(ltv) / 100 : 0.8;
+  const needed = loanAmount / ratio;
+  const free = (p) => freePledgeValue(p, loans, excludeLoanId);
+  const pledges = [];
+  let rest = needed;
+  const financed = properties.find((p) => p.id === propertyId);
+  if (financed && rest > 0) {
+    const take = Math.min(Math.floor(free(financed)), rest);
+    if (take > 0) {
+      pledges.push({ property_id: financed.id, amount: Math.round(take) });
+      rest -= take;
+    }
+  }
+  if (rest > 0.5) {
+    const others = properties.filter((p) => p.id !== propertyId).map((p) => ({ p, free: Math.floor(free(p)) })).filter((x) => x.free > 0);
+    const totalFree = others.reduce((sum, x) => sum + x.free, 0);
+    if (totalFree > 0) {
+      const share = Math.min(1, rest / totalFree);
+      for (const x of others) {
+        const part = Math.min(x.free, Math.round(x.free * share));
+        if (part > 0) {
+          pledges.push({ property_id: x.p.id, amount: part });
+          rest -= part;
+        }
+      }
+    }
+  }
+  return { pledges, needed: Math.round(needed), shortfall: Math.max(0, Math.round(rest)) };
+}
+
+/**
  * Úvěry, které v daném období (řádku simulace) drží zástavy: nesplacené úvěry. Po splacení banka zástavu uvolní.
  * Sloučený úvěr předal své zástavy úvěru, do kterého se sloučil, takže je drží, dokud běží ten.
  * `outstandingIds` = id úvěrů se zůstatkem na začátku řádku, `rowStartAbs` = měsíc začátku řádku (rok·12 + měsíc),
@@ -1230,6 +1301,8 @@ window.calc = {
   loanTerms,
   loanSchedule,
   mergePlan,
+  refinancingList,
+  autoCollateral,
   fixationChangeMonth,
   defaultStartMonth,
   annuityPayment,

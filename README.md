@@ -85,10 +85,14 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
   měsíce roku (od října 3 měsíce, označeno "říj–pro"); zhodnocení v něm se počítá poměrně. Nájem a náklady se indexují 1. ledna.
   Konec fixace, refinancování i splatnost připadnou přímo na svůj měsíc. Měsíční zobrazení dělí počtem měsíců řádku, pruhy nad
   tabulkami ukazují běžnou roční hodnotu.
-- **Refinancování** (datum, nová sazba, nová doba): ze zbývající jistiny se spočítá nová anuita - "kolo od
-  začátku", takže se zase platí hlavně úrok, i když úvěr předtím už běžel.
-- **Sloučení úvěrů**: při refinancování jde zvolit "Sloučit s úvěry". Zůstatky vybraných úvěrů se k datu refinancování splatí
-  a přičtou k tomuto úvěru, který pak splácí jedna nová anuita z celé částky (nová sazba a doba jsou povinné, datum musí být
+- **Refinancování** je samostatná událost, podobně jako scénářové události: na záložce Úvěry nad seznamem úvěrů se přidá
+  (úvěr, datum v budoucnosti, nová sazba, nová doba, případně sloučení) a je v seznamu naplánovaných refinancování. U jednoho
+  úvěru jich může být víc. Ze zbývající jistiny se k datu spočítá nová anuita - "kolo od začátku", takže se zase platí hlavně
+  úrok, i když úvěr předtím už běžel. Nová smlouva nahrazuje původní: refinancování s novou sazbou ruší pozdější přechod na
+  sazbu po fixaci staré smlouvy. Prázdné datum se předvyplní koncem fixace vybraného úvěru. Ve Scénářích je refinancování
+  i mezi událostmi s odkazem zpět.
+- **Sloučení úvěrů**: u refinancování jde zvolit "Sloučit s úvěry". Zůstatky vybraných úvěrů se k datu refinancování splatí
+  a přičtou k refinancovanému úvěru, který pak splácí jedna nová anuita z celé částky (nová doba je povinná, datum musí být
   v budoucnosti). Sloučené úvěry se od toho měsíce neplatí, v tabulce a v kalendáři je vidět, kdy a kolik se převzalo.
 - Scénářová událost **změna úrokové sazby** přepíše sazbu vybraných (nebo všech) úvěrů na zadanou hodnotu (nahoru i dolů)
   a splátka se přepočte do stejné splatnosti; po skončení události se vrací původní sazba. Starší události "růst sazeb"
@@ -100,6 +104,10 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
   nemovitosti. Zadává se u úvěru ("Které nemovitosti jistí tenhle úvěr") i u nemovitosti ("Které úvěry tahle nemovitost
   jistí"), obě strany upravují totéž. Hlídá se, že součet zástav nepřesáhne hodnotu nemovitosti; zbytek je "volné k
   zastavení". Zástava trvá, dokud je úvěr nesplacený. "Jistí i úvěr, který v aplikaci nemám" slouží pro úvěr mimo aplikaci.
+  Když u úvěru vybereš **Financuje nemovitost**, zástavy se doplní samy: banka si vezme financovanou nemovitost (do výše její
+  volné hodnoty) a zbytek potřebné jistoty (výše úvěru ÷ LTV; LTV z úvěru, jinak z Nastavení) z volné hodnoty ostatních
+  nemovitostí v poměru jejich volné hodnoty. Když volná hodnota nestačí, formulář ukáže, kolik chybí. Ručně upravené zástavy
+  se už samy nepřepisují.
 - Ve Scénářích je prodej jen štítek s názvem nemovitosti, podrobnosti (cena, daň, výtěžek, proč se prodala a porovnání s ostatními)
   jsou v bublině po kliknutí. Dlouhá bublina se vejde na obrazovku a obsah v ní jde posouvat. Neúplný letošní rok je označený malým "i", které po kliknutí řekne, za jaké měsíce řádek je.
 - **Prázdné datum** pořízení nemovitosti nebo zřízení úvěru se bere jako **dnešní den** a uloží se (u dat, která už v aplikaci jsou,

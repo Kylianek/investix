@@ -13,7 +13,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Investix</title>
-<link rel="icon" type="image/png" href="assets/logo.png?v=1791829097" />
+<link rel="icon" type="image/png" href="assets/logo.png?v=1791831782" />
 <script>
   /* Motiv se nastaví ještě před vykreslením, ať stránka neprobliká (volba motivu je jen vzhled, ne data). */
   try {
@@ -27,7 +27,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="css/style.css?v=1791829097" />
+<link rel="stylesheet" href="css/style.css?v=1791831782" />
 </head>
 <body class="min-h-screen">
 
@@ -35,7 +35,7 @@
     <header class="app-header">
       <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
         <h1 class="flex items-center gap-2">
-          <img src="assets/logo.png?v=1791829097" alt="" width="32" height="32" class="shrink-0" />
+          <img src="assets/logo.png?v=1791831782" alt="" width="32" height="32" class="shrink-0" />
           <span class="brand-name">Investix</span>
         </h1>
         <div class="flex items-center gap-2 ml-auto" id="header-controls">
@@ -353,6 +353,7 @@
                 <div class="acc-body grid gap-2">
                   <span class="label">Které nemovitosti jistí tenhle úvěr</span>
                   <div id="loan-collateral-checklist" class="grid gap-2"></div>
+                  <p id="loan-pledge-note" class="text-sm t-neg hidden" role="status"></p>
                 </div>
               </details>
 
@@ -388,33 +389,6 @@
                     <span class="label">Splatnost do</span>
                     <input name="maturity_date" type="date" class="input" />
                   </label>
-                </div>
-              </details>
-
-              <details class="acc">
-                <summary>
-                  <span class="acc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></svg></span>
-                  <span class="acc-title">Refinancování</span>
-                  <span class="acc-badge" id="loan-refinance-badge"></span>
-                  <span class="acc-chevron"></span>
-                </summary>
-                <div class="acc-body grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <label class="flex flex-col gap-1">
-                    <span class="label">Datum refinancování</span>
-                    <input name="refinance_date" type="date" class="input" />
-                  </label>
-                  <label class="flex flex-col gap-1">
-                    <span class="label">Nová sazba</span>
-                    <input name="refinance_rate" data-unit="percent" class="input" />
-                  </label>
-                  <label class="flex flex-col gap-1">
-                    <span class="label">Nová doba (roky)</span>
-                    <input name="refinance_years" type="number" step="1" min="0" class="input" />
-                  </label>
-                  <div class="flex flex-col gap-1 sm:col-span-3" id="loan-merge-wrap">
-                    <span class="label">Sloučit s úvěry</span>
-                    <div id="loan-merge-checklist" class="chips"></div>
-                  </div>
                 </div>
               </details>
 
@@ -456,6 +430,53 @@
               <button type="button" id="loan-form-reset" class="btn-secondary">Zrušit</button>
             </div>
           </form>
+        </div>
+
+        <div id="refi-form-card" class="form-card add-form-card mb-6">
+          <div class="form-card-head">
+            <span class="form-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></svg></span>
+            <h2 id="refi-form-title" class="form-card-title">Přidat refinancování</h2>
+          </div>
+          <form id="refi-form" class="grid gap-4 text-sm">
+            <input type="hidden" name="id" />
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <label class="flex flex-col gap-1 col-span-2 md:col-span-1">
+                <span class="label">Úvěr</span>
+                <select name="loan_id" id="refi-loan-select" class="input"></select>
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="label">Datum</span>
+                <input name="date" type="date" class="input" />
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="label">Nová sazba</span>
+                <input name="rate" data-unit="percent" class="input" />
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="label">Nová doba (roky)</span>
+                <input name="years" type="number" step="any" min="0" class="input" />
+              </label>
+            </div>
+            <div id="refi-merge-wrap" class="flex flex-col gap-1">
+              <span class="label">Sloučit s úvěry</span>
+              <div id="refi-merge-checklist" class="chips"></div>
+            </div>
+            <p id="refi-form-error" class="form-error hidden" role="alert"></p>
+            <div class="flex flex-wrap gap-2">
+              <button type="submit" class="btn-primary">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>
+                <span id="refi-submit-label">Přidat refinancování</span>
+              </button>
+              <button type="button" id="refi-form-reset" class="btn-secondary">Zrušit</button>
+            </div>
+          </form>
+        </div>
+
+        <div id="refi-card" class="card tbl-card mb-6 hidden" data-table-card="refi">
+          <div class="tbl-scroll"><table class="tbl">
+            <thead id="refi-thead"></thead>
+            <tbody id="refi-tbody"></tbody>
+          </table></div>
         </div>
 
         <div class="card tbl-card" data-table-card="loans">
@@ -739,9 +760,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/calc.js?v=1791829097"></script>
-  <script src="js/app.js?v=1791829097"></script>
-  <script src="js/cloud.js?v=1791829097"></script>
-  <script src="js/auth.js?v=1791829097"></script>
+  <script src="js/calc.js?v=1791831782"></script>
+  <script src="js/app.js?v=1791831782"></script>
+  <script src="js/cloud.js?v=1791831782"></script>
+  <script src="js/auth.js?v=1791831782"></script>
 </body>
 </html>
