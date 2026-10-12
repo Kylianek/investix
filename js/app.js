@@ -2160,10 +2160,6 @@ function lockIconHtml() {
   return `<span class="lock-icon" title="Neprodává se na umoření dluhu" role="img" aria-label="Neprodává se na umoření dluhu">${LOCK_SVG}</span>`;
 }
 
-function lockTagHtml() {
-  return `<span class="lock-tag" title="Neprodává se na umoření dluhu">${LOCK_SVG}<span>neprodávat</span></span>`;
-}
-
 /** Nemovitosti, které se při automatickém prodeji na umoření dluhu nikdy neprodají, i kdyby se to hodilo. */
 function renderNeverSellChips() {
   const box = document.getElementById('never-sell-chips');
@@ -2180,11 +2176,8 @@ function setNeverSell(propertyId, locked) {
   if (!p) return;
   if (locked) p.never_sell = true;
   else delete p.never_sell;
-  const f = propertyForm();
-  if (f.elements['id'].value === propertyId) f.elements['never_sell'].checked = !!locked; // právě otevřená karta té nemovitosti
   saveState();
   renderPropertiesTable();
-  updateQualityBadge();
   renderCalculations();
 }
 
@@ -2266,14 +2259,13 @@ function propertyDraftFromForm() {
 function updateQualityBadge() {
   const draft = propertyDraftFromForm();
   const badge = document.getElementById('property-quality-badge');
-  const lock = propertyForm().elements['never_sell'].checked ? lockTagHtml() : '';
   if (!(draft.market_value > 0)) {
-    badge.innerHTML = lock;
+    badge.textContent = '';
     renderQualityBreakdown(null);
     return;
   }
   const q = calc.propertyQuality(draft);
-  badge.innerHTML = rankBadgeHtml(q) + lock;
+  badge.innerHTML = rankBadgeHtml(q);
   renderQualityBreakdown(q);
 }
 
@@ -2395,8 +2387,7 @@ function fillPropertyForm(id) {
   renderPropertyPledges(pledgeDraft);
   document.getElementById('property-acc-pledge').open = !!p.has_lien || pledgeDraft.length > 0;
   for (const key of ['condition', 'renovation', 'location', 'energy']) f.elements[key].value = qualityOptionLabel(key, p[key]) ? p[key] : '';
-  f.elements['never_sell'].checked = !!p.never_sell;
-  document.getElementById('property-acc-quality').open = !!p.never_sell || ['condition', 'renovation', 'location', 'energy'].some((key) => qualityOptionLabel(key, p[key]));
+  document.getElementById('property-acc-quality').open = ['condition', 'renovation', 'location', 'energy'].some((key) => qualityOptionLabel(key, p[key]));
   const opAcc = document.getElementById('property-rent-growth').closest('details');
   opAcc.open = vacancy > 0 || !!p.monthly_costs || p.rent_growth_rate != null;
   document.getElementById('property-form-title').textContent = 'Upravit nemovitost';
@@ -2484,8 +2475,6 @@ function submitPropertyForm(e) {
     location: f.elements['location'].value || null,
     energy: f.elements['energy'].value || null,
   };
-  if (f.elements['never_sell'].checked) payload.never_sell = true;
-  else delete payload.never_sell;
   if (id) {
     const idx = state.properties.findIndex((p) => p.id === id);
     if (idx !== -1) state.properties[idx] = payload;

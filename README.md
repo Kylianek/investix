@@ -61,9 +61,8 @@ Simulace vývoje portfolia rok po roce:
   shodě ta s nižším výnosem z nájmu. V bublině u prodeje ve Scénářích je napsáno, **proč se vybrala právě tahle nemovitost** (včetně jejích
   nejslabších stránek), a tabulka s hodnocením, nájmem na 1 mil. a růstem všech ostatních (i těch, které ještě nemají za sebou časový test).
 - **Neprodávat**: nemovitost, kterou při umořování dluhu určitě prodat nechceš, se neprodá nikdy, ani kdyby se to hodilo (platí i pro PO
-  a pro "prodat co nejdřív"). Zapíná se přepínačem "Neprodávat na umoření dluhu" v bloku Stav a kvalita, nebo v Nastavení u Automatického
-  prodeje ("Nikdy neprodávat", výběr nemovitostí); je to jedno nastavení na dvou místech. V tabulce nemovitostí je u názvu zámek, v bublině
-  u prodeje je zamčená nemovitost mezi těmi, které se neprodávají.
+  a pro "prodat co nejdřív"). Vybírá se jen v Nastavení u Automatického prodeje ("Nikdy neprodávat", výběr nemovitostí). V tabulce
+  nemovitostí je u názvu zámek, v bublině u prodeje je zamčená nemovitost mezi těmi, které se neprodávají.
 - **Scénářové události** (rok = rok, ve kterém se dějí; prázdné "do roku" = trvale):
   růst hodnoty, růst nájmu, obsazenost, **změna úrokové sazby** (zadáš novou sazbu, např. z 5 na 7 %, nebo níž;
   banka přepočítá splátku na zbývající dobu), inflace a jednorázový příjem/výdaj. Událost jde zacílit na **jednu, více nebo všechny
