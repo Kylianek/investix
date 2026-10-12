@@ -13,7 +13,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Investix</title>
-<link rel="icon" type="image/png" href="assets/logo.png?v=1791831782" />
+<link rel="icon" type="image/png" href="assets/logo.png?v=1791836828" />
 <script>
   /* Motiv se nastaví ještě před vykreslením, ať stránka neprobliká (volba motivu je jen vzhled, ne data). */
   try {
@@ -27,7 +27,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="css/style.css?v=1791831782" />
+<link rel="stylesheet" href="css/style.css?v=1791836828" />
 </head>
 <body class="min-h-screen">
 
@@ -35,7 +35,7 @@
     <header class="app-header">
       <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
         <h1 class="flex items-center gap-2">
-          <img src="assets/logo.png?v=1791831782" alt="" width="32" height="32" class="shrink-0" />
+          <img src="assets/logo.png?v=1791836828" alt="" width="32" height="32" class="shrink-0" />
           <span class="brand-name">Investix</span>
         </h1>
         <div class="flex items-center gap-2 ml-auto" id="header-controls">
@@ -158,19 +158,6 @@
           </div>
         </div>
 
-        <div id="pledge-purchase-card" class="card hidden">
-          <h2 class="card-title mb-3">Nákup bez hotovosti</h2>
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <div class="kpi-label">Volná hodnota k zastavení</div>
-              <div id="pledge-free-collateral" class="kpi-value">—</div>
-            </div>
-            <div>
-              <div class="kpi-label">Max. kupní cena bez hotovosti</div>
-              <div id="pledge-max-purchase" class="kpi-value">—</div>
-            </div>
-          </div>
-        </div>
       </section>
 
       <!-- MOJE NEMOVITOSTI -->
@@ -283,6 +270,36 @@
                 </div>
               </details>
 
+              <details class="acc" id="property-acc-quality">
+                <summary>
+                  <span class="acc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.7 5.5 6 .9-4.4 4.2 1 6-5.3-2.8-5.3 2.8 1-6L3.3 9.4l6-.9z"/></svg></span>
+                  <span class="acc-title">Stav a kvalita</span>
+                  <span class="acc-badge" id="property-quality-badge"></span>
+                  <span class="acc-chevron"></span>
+                </summary>
+                <div class="acc-body grid gap-3">
+                  <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                    <label class="flex flex-col gap-1">
+                      <span class="label">Stav</span>
+                      <select name="condition" class="input"></select>
+                    </label>
+                    <label class="flex flex-col gap-1">
+                      <span class="label">Rekonstrukce</span>
+                      <select name="renovation" class="input"></select>
+                    </label>
+                    <label class="flex flex-col gap-1">
+                      <span class="label">Atraktivita lokality</span>
+                      <select name="location" class="input"></select>
+                    </label>
+                    <label class="flex flex-col gap-1">
+                      <span class="label">Energetický štítek</span>
+                      <select name="energy" class="input"></select>
+                    </label>
+                  </div>
+                  <div id="property-quality-breakdown" class="quality-breakdown"></div>
+                </div>
+              </details>
+
             </div>
 
             <p id="property-form-error" class="form-error hidden" role="alert"></p>
@@ -353,7 +370,6 @@
                 <div class="acc-body grid gap-2">
                   <span class="label">Které nemovitosti jistí tenhle úvěr</span>
                   <div id="loan-collateral-checklist" class="grid gap-2"></div>
-                  <p id="loan-pledge-note" class="text-sm t-neg hidden" role="status"></p>
                 </div>
               </details>
 
@@ -696,26 +712,6 @@
             </div>
           </div>
 
-          <div class="setting-card">
-            <div class="setting-head">
-              <span class="setting-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 4.5 3.2 8 8 9 4.8-1 8-4.5 8-9V6l-8-3z"/><path d="m9 12 2 2 4-4"/></svg></span>
-              <h3 class="setting-title">Nákup bez hotovosti</h3>
-            </div>
-            <div class="setting-body">
-              <label class="switch">
-                <input id="pledge-financing-enabled-input" type="checkbox" />
-                <span class="switch-ui"></span>
-                <span>Počítat, kolik jde koupit jen na zástavu</span>
-              </label>
-              <div id="pledge-financing-options" class="setting-fields">
-                <label class="flex flex-col gap-1">
-                  <span class="label">Maximální LTV</span>
-                  <input id="pledge-max-ltv-input" data-unit="percent" class="input" />
-                </label>
-              </div>
-            </div>
-          </div>
-
           <div class="setting-card md:col-span-2">
             <div class="setting-head">
               <span class="setting-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></span>
@@ -760,9 +756,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/calc.js?v=1791831782"></script>
-  <script src="js/app.js?v=1791831782"></script>
-  <script src="js/cloud.js?v=1791831782"></script>
-  <script src="js/auth.js?v=1791831782"></script>
+  <script src="js/calc.js?v=1791836828"></script>
+  <script src="js/app.js?v=1791836828"></script>
+  <script src="js/cloud.js?v=1791836828"></script>
+  <script src="js/auth.js?v=1791836828"></script>
 </body>
 </html>

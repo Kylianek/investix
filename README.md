@@ -52,11 +52,14 @@ Simulace vývoje portfolia rok po roce:
 - **FO / PO**: nemovitost pořízená na právnickou osobu nemá časový test a daň z prodeje se platí vždy,
   proto se při zapnutém automatickém prodeji prodá co nejdřív (první rok simulace). FO nemovitost se
   automaticky neprodá, dokud neuplyne časový test.
-- **Pořadí prodeje FO nemovitostí** (z těch, které už prošly časovým testem): prodává se vždy nejméně výkonná. Přednější je
-  **výnosnost z nájmu**: kolik Kč čistého nájmu (po obsazenosti a nákladech) nemovitost za rok vydělá na **1 mil. Kč hodnoty**, nižší
-  se prodává dřív. Druhé kritérium je **zhodnocení** (nižší dřív). Výnosy do 0,25 procentního bodu (2 500 Kč na 1 mil. ročně) se berou
-  jako stejné, pak rozhoduje zhodnocení. V bublině u prodeje ve Scénářích je napsáno, **proč se vybrala právě tahle nemovitost**, a tabulka
-  s nájmem na 1 mil. a růstem všech ostatních (včetně těch, které ještě nemají za sebou časový test).
+- **Hodnocení kvality nemovitosti** (0 až 100, červená / oranžová / zelená): v kartě nemovitosti je rozbalovací blok **Stav a kvalita**
+  (stav: novostavba, výborný, dobrý, průměrný, špatný; rekonstrukce: po / bez nutnosti / před; atraktivita lokality; energetický štítek A až G).
+  Hodnocení je vážený průměr: **výnos z nájmu** (kolik Kč čistého nájmu ročně vydělá na 1 mil. hodnoty) 30 %, **zhodnocení** 20 %,
+  stav 15 %, lokalita 15 %, rekonstrukce 10 %, energetický štítek 10 %. Neuvedený údaj se bere jako průměr (50 bodů). Do 39 bodů je červená,
+  40 až 64 oranžová, od 65 zelená. V tabulce nemovitostí je u názvu barevná tečka a ve sloupci Kvalita štítek s číslem.
+- **Pořadí prodeje FO nemovitostí** (z těch, které už prošly časovým testem): prodává se vždy nemovitost s **nejnižším hodnocením kvality**, při
+  shodě ta s nižším výnosem z nájmu. V bublině u prodeje ve Scénářích je napsáno, **proč se vybrala právě tahle nemovitost** (včetně jejích
+  nejslabších stránek), a tabulka s hodnocením, nájmem na 1 mil. a růstem všech ostatních (i těch, které ještě nemají za sebou časový test).
 - **Scénářové události** (rok = rok, ve kterém se dějí; prázdné "do roku" = trvale):
   růst hodnoty, růst nájmu, obsazenost, **změna úrokové sazby** (zadáš novou sazbu, např. z 5 na 7 %, nebo níž;
   banka přepočítá splátku na zbývající dobu), inflace a jednorázový příjem/výdaj. Událost jde zacílit na **jednu, více nebo všechny
@@ -64,8 +67,8 @@ Simulace vývoje portfolia rok po roce:
 - Co zadáš v kartě nemovitosti nebo úvěru (obsazenost, vlastní růst nájmu, prodej PO, sazba po fixaci),
   se ve Scénářích objeví jako událost s odkazem zpět na kartu.
 
-V **Nastavení** je inflace, výchozí růst nájmu, daň z prodeje (FO / PO), automatický prodej,
-financování zástavou a záloha dat. Daň je zjednodušení pro účely predikce, ne daňové poradenství;
+V **Nastavení** je inflace, výchozí růst nájmu, daň z prodeje (FO / PO), automatický prodej
+a záloha dat. Daň je zjednodušení pro účely predikce, ne daňové poradenství;
 daň z příjmu z pronájmu a odpisy appka nepočítá.
 
 ## Úvěry a splácení
@@ -103,11 +106,9 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
 - **Zástava** = nemovitost, kterou dáš bance jako jistotu za úvěr. Je to vazba nemovitost + úvěr + částka z hodnoty
   nemovitosti. Zadává se u úvěru ("Které nemovitosti jistí tenhle úvěr") i u nemovitosti ("Které úvěry tahle nemovitost
   jistí"), obě strany upravují totéž. Hlídá se, že součet zástav nepřesáhne hodnotu nemovitosti; zbytek je "volné k
-  zastavení". Zástava trvá, dokud je úvěr nesplacený. "Jistí i úvěr, který v aplikaci nemám" slouží pro úvěr mimo aplikaci.
-  Když u úvěru vybereš **Financuje nemovitost**, zástavy se doplní samy: banka si vezme financovanou nemovitost (do výše její
-  volné hodnoty) a zbytek potřebné jistoty (výše úvěru ÷ LTV; LTV z úvěru, jinak z Nastavení) z volné hodnoty ostatních
-  nemovitostí v poměru jejich volné hodnoty. Když volná hodnota nestačí, formulář ukáže, kolik chybí. Ručně upravené zástavy
-  se už samy nepřepisují.
+  zastavení". "Jistí i úvěr, který v aplikaci nemám" slouží pro úvěr mimo aplikaci. Zástavy jsou jen informace (co je zastavené
+  a kolik zbývá volné); při prodeji nemovitosti podle nich aplikace pozná, které úvěry jsou na ni vázané. Žádný nákup nemovitosti
+  se podle zástav nepočítá.
 - Ve Scénářích je prodej jen štítek s názvem nemovitosti, podrobnosti (cena, daň, výtěžek, proč se prodala a porovnání s ostatními)
   jsou v bublině po kliknutí. Dlouhá bublina se vejde na obrazovku a obsah v ní jde posouvat. Neúplný letošní rok je označený malým "i", které po kliknutí řekne, za jaké měsíce řádek je.
 - **Prázdné datum** pořízení nemovitosti nebo zřízení úvěru se bere jako **dnešní den** a uloží se (u dat, která už v aplikaci jsou,

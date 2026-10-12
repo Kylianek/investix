@@ -35,6 +35,9 @@
   --warn-text: #92400e;
   --warn-soft: #fffbeb;
   --warn-border: #fde68a;
+  --rank-low: #dc2626;
+  --rank-mid: #f97316;
+  --rank-high: #16a34a;
   --input-bg: #ffffff;
   --header-bg: #ffffff;
   --header-text: #1e293b;
@@ -79,6 +82,9 @@
     --warn-text: #fcd34d;
     --warn-soft: #2b2310;
     --warn-border: #5c4a16;
+    --rank-low: #f87171;
+    --rank-mid: #fb923c;
+    --rank-high: #4ade80;
     --input-bg: #0e1629;
     --header-bg: #0f1829;
     --header-text: #dfe7f5;
@@ -2155,6 +2161,93 @@ button.event-chip.is-open {
 .input.is-invalid {
   border-color: var(--neg);
   box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
+}
+/* Hodnocení kvality nemovitosti: červená (slabá), oranžová (průměrná), zelená (dobrá) */
+.rank-badge {
+  --rank: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.05rem 0.6rem 0.05rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-strong);
+  background: var(--surface-2);
+  background: color-mix(in srgb, var(--rank) 14%, var(--surface));
+  border: 1px solid var(--border-strong);
+  border-color: color-mix(in srgb, var(--rank) 50%, var(--surface));
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.rank-badge::before,
+.rank-dot {
+  content: '';
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--rank, var(--muted));
+  flex-shrink: 0;
+}
+.rank-dot {
+  margin-right: 0.4rem;
+  vertical-align: middle;
+}
+.rank-low {
+  --rank: var(--rank-low);
+}
+.rank-mid {
+  --rank: var(--rank-mid);
+}
+.rank-high {
+  --rank: var(--rank-high);
+}
+.tbl-card.is-expanded .rank-dot {
+  display: none;
+}
+.quality-breakdown {
+  display: grid;
+  gap: 0.4rem;
+}
+.qrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 6rem 2rem;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+}
+.qname {
+  color: var(--text);
+}
+.qname small {
+  margin-left: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.qbar {
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.qbar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--rank);
+}
+.qrow.is-unknown .qbar > i {
+  background: var(--border-strong);
+}
+.qpts {
+  text-align: right;
+  color: var(--muted);
+}
+.qnote {
+  margin: 0.2rem 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
 }
 .refi-loan {
   display: inline-flex;

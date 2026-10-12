@@ -976,8 +976,8 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
         // cena nejlevnější dostupné nemovitosti - "kolik reálně stojí náhrada".
         const threshold = saleTriggerAmount > 0 ? saleTriggerAmount : cheapestValue;
         if (cumulativeGain >= threshold) {
-          // Prodává se nejméně výkonná nemovitost: nejdřív podle výnosnosti z nájmu (nižší se prodává dřív),
-          // při podobné výnosnosti podle zhodnocení (nižší dřív). Viz compareSaleCandidates.
+          // Prodává se nemovitost s nejnižším celkovým hodnocením kvality (výnos z nájmu, zhodnocení, stav, lokalita,
+          // rekonstrukce, energetický štítek), při shodě ta s nižším výnosem. Viz propertyQuality a compareSaleCandidates.
           const score = (p) => scoreSaleCandidate(p, curValue[p.id], capGainsTaxRate, saleDate, poTaxRate, performanceOf(p));
           const candidates = unsold.map(score).sort(compareSaleCandidates);
           const eligibleIds = new Set(unsold.map((p) => p.id));
@@ -1045,11 +1045,79 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
   };
 }
 
+/* =========================================================================
+ * KVALITA NEMOVITOSTI - celkové hodnocení 0 až 100 (červená, oranžová, zelená)
+ *
+ * Skládá se z výnosu z nájmu na hodnotu, zhodnocení a údajů z karty nemovitosti (stav, lokalita, rekonstrukce,
+ * energetický štítek). Každá složka dostane 0 až 100 bodů, celek je vážený průměr. Neuvedený údaj se bere jako
+ * průměr (50 bodů), aby nemovitost bez vyplněných údajů nebyla ani zvýhodněná, ani potrestaná.
+ * Podle hodnocení se při automatickém prodeji na umoření dluhu vybírá, co se prodá první: nejnižší.
+ * ========================================================================= */
+
+const QUALITY_WEIGHTS = { yield: 30, growth: 20, condition: 15, location: 15, renovation: 10, energy: 10 };
+
+/** Body za zvolenou možnost u složek, které se vybírají z nabídky karty nemovitosti. */
+const QUALITY_SCORES = {
+  condition: { new: 100, excellent: 85, good: 65, fair: 40, poor: 15 },
+  location: { top: 100, good: 75, avg: 50, weak: 20 },
+  renovation: { after: 100, none: 90, before: 20 },
+  energy: { A: 100, B: 90, C: 75, D: 55, E: 35, F: 20, G: 5 },
+};
+const QUALITY_NEUTRAL = 50;
+
+/** Pásmo hodnocení podle zaokrouhleného čísla, které se zobrazuje: pod 40 červená (low), do 64 oranžová (mid), od 65 zelená (high). */
+function qualityBand(score) {
+  const points = Math.round(score);
+  return points < 40 ? 'low' : points < 65 ? 'mid' : 'high';
+}
+
+/** Čistá výnosnost z nájmu dnes: (nájem za rok po neobsazenosti − náklady za rok) ÷ tržní hodnota. */
+function propertyNetYield(property) {
+  const value = Number(property.market_value) || 0;
+  if (!(value > 0)) return 0;
+  const rent = (Number(property.rent) || 0) * 12 * (1 - (Number(property.vacancy_rate) || 0));
+  return (rent - (Number(property.monthly_costs) || 0) * 12) / value;
+}
+
 /**
- * Podklady pro rozhodnutí o prodeji nemovitosti: výnosnost z nájmu, zhodnocení a odhad daně z prodeje.
+ * Hodnocení kvality nemovitosti. `perf` = { yieldPct, growth } (v simulaci hodnoty z roku prodeje), bez něj se bere
+ * výnos a zhodnocení zadané u nemovitosti.
+ *   výnos z nájmu:  1 % = 0 bodů, 7 % = 100 bodů (lineárně)
+ *   zhodnocení:    -2 % = 0 bodů, 6 % = 100 bodů (lineárně)
+ * Vrací { score, band, parts: [{ key, weight, score, known, value }] }, složky v pořadí výnos, zhodnocení, stav, lokalita,
+ * rekonstrukce, energetický štítek (known = údaj je uvedený, value = výnos / zhodnocení / zvolená možnost).
+ */
+function propertyQuality(property, perf) {
+  const p = property || {};
+  const yieldPct = perf && perf.yieldPct != null ? perf.yieldPct : propertyNetYield(p);
+  const growth = perf && perf.growth != null ? perf.growth : Number(p.growth_rate) || 0;
+  const clamp = (x) => Math.max(0, Math.min(100, x));
+  const parts = [
+    { key: 'yield', score: clamp(((yieldPct - 0.01) / 0.06) * 100), known: true, value: yieldPct },
+    { key: 'growth', score: clamp(((growth + 0.02) / 0.08) * 100), known: true, value: growth },
+  ];
+  for (const key of ['condition', 'location', 'renovation', 'energy']) {
+    const option = p[key];
+    const known = typeof option === 'string' && Object.prototype.hasOwnProperty.call(QUALITY_SCORES[key], option);
+    parts.push({ key, score: known ? QUALITY_SCORES[key][option] : QUALITY_NEUTRAL, known, value: known ? option : null });
+  }
+  let total = 0;
+  let weights = 0;
+  for (const part of parts) {
+    part.weight = QUALITY_WEIGHTS[part.key];
+    total += part.weight * part.score;
+    weights += part.weight;
+  }
+  const score = total / weights;
+  return { score, band: qualityBand(score), parts };
+}
+
+/**
+ * Podklady pro rozhodnutí o prodeji nemovitosti: výnosnost z nájmu, zhodnocení, hodnocení kvality a odhad daně z prodeje.
  *
  * yieldPct = čistá výnosnost z nájmu = (nájem za rok po neobsazenosti − náklady za rok) ÷ hodnota na začátku roku.
  * Počítá se z nájmu, nákladů a hodnoty v roce prodeje (`perf`), jinak z údajů zadaných u nemovitosti. growth = roční zhodnocení.
+ * quality = celkové hodnocení nemovitosti (viz propertyQuality) s výnosem a zhodnocením z roku prodeje.
  *
  * estimatedSaleTax = odhad daně z příjmu z PRODEJE, KDYBY se nemovitost prodala
  * teď. Platí se jen jednou při prodeji a jen pokud ještě neuplynul časový test -
@@ -1070,15 +1138,15 @@ function scoreSaleCandidate(property, marketValue, capGainsTaxRate, today, poTax
   const yieldPct = valueBase > 0 ? (rentMonthly * 12 * (1 - vacancy) - costsAnnual) / valueBase : 0;
   const estimatedSaleTax = tt.done ? 0 : Math.max(gain, 0) * taxRate;
   const netProceeds = marketValue - estimatedSaleTax;
-  return { property, marketValue, gain, gainPct, taxExempt: tt.done, timeTestText: tt.text, yieldPct, growth, estimatedSaleTax, netProceeds };
+  const quality = propertyQuality(property, { yieldPct, growth });
+  return { property, marketValue, gain, gainPct, taxExempt: tt.done, timeTestText: tt.text, yieldPct, growth, quality, estimatedSaleTax, netProceeds };
 }
 
 /**
  * Srovnání nemovitostí při rozhodnutí o prodeji, z něj se v aplikaci skládá vysvětlení, proč se prodala právě tahle.
- * Řádek = nemovitost, perMillion = čistý nájem za rok v Kč na 1 mil. hodnoty. Nejdřív způsobilé nemovitosti v pořadí
- * prodeje, pak ty, které ještě neprošly časovým testem (s textem, kolik jim zbývá).
- * decidedBy: 'only' = jediná způsobilá, 'yield' = nejnižší výnos ze všech, 'growth' = výnos podobný jako u dalších
- * (do jednoho pásma), rozhodlo nižší zhodnocení (podobné nemovitosti jsou v `similar`).
+ * Řádek = nemovitost, perMillion = čistý nájem za rok v Kč na 1 mil. hodnoty, quality = { score, band }. Nejdřív způsobilé
+ * nemovitosti v pořadí prodeje, pak ty, které ještě neprošly časovým testem (s textem, kolik jim zbývá).
+ * decidedBy: 'only' = jediná způsobilá, 'quality' = nejnižší celkové hodnocení. parts = složky hodnocení prodané nemovitosti.
  */
 function describeSaleChoice(chosen, eligible, notEligible) {
   const row = (c, isEligible) => ({
@@ -1088,35 +1156,29 @@ function describeSaleChoice(chosen, eligible, notEligible) {
     perMillion: Math.round(c.yieldPct * 1e6),
     yieldPct: c.yieldPct,
     growth: c.growth,
+    quality: { score: c.quality.score, band: c.quality.band },
     eligible: isEligible,
     timeTestText: isEligible ? '' : c.timeTestText,
     chosen: c === chosen,
   });
-  const band = (c) => Math.round(c.yieldPct / SALE_YIELD_BAND);
-  const similar = eligible.filter((c) => c !== chosen && band(c) === band(chosen));
-  let decidedBy = 'yield';
-  if (eligible.length <= 1) decidedBy = 'only';
-  else if (similar.length) decidedBy = 'growth';
   return {
-    decidedBy,
-    similar: similar.map((c) => c.property.name),
+    decidedBy: eligible.length <= 1 ? 'only' : 'quality',
+    parts: chosen.quality.parts.map(({ key, weight, score, known, value }) => ({ key, weight, score, known, value })),
     rows: eligible.map((c) => row(c, true)).concat(notEligible.map((c) => row(c, false))),
   };
 }
 
-/** Výnosnosti se porovnávají po pásmech této šířky (0,25 p. b.): v rámci pásma se berou jako stejné a rozhoduje zhodnocení. */
-const SALE_YIELD_BAND = 0.0025;
-
 /**
- * Pořadí prodeje: nejméně výkonná nemovitost první. Přednější kritérium je výnosnost z nájmu (nižší se prodává dřív),
- * druhé kritérium zhodnocení (nižší dřív). Při úplné shodě rozhoduje přesná výnosnost.
+ * Pořadí prodeje: nemovitost s nejnižším celkovým hodnocením kvality první. Při shodě rozhoduje nižší výnosnost z nájmu,
+ * pak nižší zhodnocení. Kandidát bez vypočteného hodnocení se ohodnotí z výnosnosti a zhodnocení.
  */
 function compareSaleCandidates(a, b) {
-  const bandA = Math.round(a.yieldPct / SALE_YIELD_BAND);
-  const bandB = Math.round(b.yieldPct / SALE_YIELD_BAND);
-  if (bandA !== bandB) return bandA - bandB;
-  if (a.growth !== b.growth) return a.growth - b.growth;
-  return a.yieldPct - b.yieldPct;
+  const scoreOf = (c) => (c.quality ? c.quality.score : propertyQuality(c.property || {}, { yieldPct: c.yieldPct, growth: c.growth }).score);
+  const qa = scoreOf(a);
+  const qb = scoreOf(b);
+  if (qa !== qb) return qa - qb;
+  if (a.yieldPct !== b.yieldPct) return a.yieldPct - b.yieldPct;
+  return a.growth - b.growth;
 }
 
 /* =========================================================================
@@ -1167,72 +1229,6 @@ function loanPropertyShares(loan, properties) {
   const shares = {};
   if (total > 0) for (const c of pledges) shares[c.property_id] = (shares[c.property_id] || 0) + c.amount / total;
   return shares;
-}
-
-/**
- * Zástavy, které si banka vezme za úvěr, který financuje nemovitost: nejdřív sama financovaná nemovitost, zbytek
- * z volné hodnoty ostatních nemovitostí v poměru jejich volné hodnoty. Potřebná zástava = výše úvěru ÷ LTV.
- *   úvěr 3 M, LTV 80 % => zástava za 3,75 M: financovaná nemovitost (do výše své volné hodnoty) + zbytek z ostatních
- * Volná hodnota se počítá bez zástav úvěru `excludeLoanId` (typicky toho, který se právě upravuje).
- * Vrací { pledges: [{ property_id, amount }], needed, shortfall } (shortfall = kolik zástavy chybí, když volné hodnoty nestačí).
- */
-function autoCollateral({ amount, ltv, propertyId, properties, loans, excludeLoanId }) {
-  const loanAmount = Number(amount) || 0;
-  const ratio = Number(ltv) > 0 ? Number(ltv) / 100 : 0.8;
-  const needed = loanAmount / ratio;
-  const free = (p) => freePledgeValue(p, loans, excludeLoanId);
-  const pledges = [];
-  let rest = needed;
-  const financed = properties.find((p) => p.id === propertyId);
-  if (financed && rest > 0) {
-    const take = Math.min(Math.floor(free(financed)), rest);
-    if (take > 0) {
-      pledges.push({ property_id: financed.id, amount: Math.round(take) });
-      rest -= take;
-    }
-  }
-  if (rest > 0.5) {
-    const others = properties.filter((p) => p.id !== propertyId).map((p) => ({ p, free: Math.floor(free(p)) })).filter((x) => x.free > 0);
-    const totalFree = others.reduce((sum, x) => sum + x.free, 0);
-    if (totalFree > 0) {
-      const share = Math.min(1, rest / totalFree);
-      for (const x of others) {
-        const part = Math.min(x.free, Math.round(x.free * share));
-        if (part > 0) {
-          pledges.push({ property_id: x.p.id, amount: part });
-          rest -= part;
-        }
-      }
-    }
-  }
-  return { pledges, needed: Math.round(needed), shortfall: Math.max(0, Math.round(rest)) };
-}
-
-/**
- * Úvěry, které v daném období (řádku simulace) drží zástavy: nesplacené úvěry. Po splacení banka zástavu uvolní.
- * Sloučený úvěr předal své zástavy úvěru, do kterého se sloučil, takže je drží, dokud běží ten.
- * `outstandingIds` = id úvěrů se zůstatkem na začátku řádku, `rowStartAbs` = měsíc začátku řádku (rok·12 + měsíc),
- * `mergeInto` = plán sloučení (viz mergePlan).
- */
-function loansHoldingPledges(loans, outstandingIds, rowStartAbs, mergeInto) {
-  return loans.filter((l) => {
-    if (outstandingIds.has(l.id)) return true;
-    const m = mergeInto && mergeInto[l.id];
-    return !!(m && m.abs <= rowStartAbs && outstandingIds.has(m.to));
-  });
-}
-
-/**
- * Kolik nejdražší nemovitost lze koupit BEZ vlastní hotovosti, když banku
- * kryješ kombinovanou zástavou - kupovaná nemovitost + volná (nezastavená)
- * hodnota už vlastněných nemovitostí. Půjčka = 100 % kupní ceny (P), banka
- * počítá LTV z CELKOVÉ zástavy (kupovaná + volná stávající):
- *   maxLtv = P / (P + volnáZástava)  =>  P = volnáZástava × maxLtv / (1 − maxLtv)
- */
-function pledgePurchaseCapacity(properties, maxLtv, loans) {
-  const freeCollateral = properties.reduce((sum, p) => sum + freePledgeValue(p, loans), 0);
-  const maxPurchasePrice = maxLtv > 0 && maxLtv < 1 ? (freeCollateral * maxLtv) / (1 - maxLtv) : 0;
-  return { freeCollateral, maxPurchasePrice };
 }
 
 /**
@@ -1302,7 +1298,6 @@ window.calc = {
   loanSchedule,
   mergePlan,
   refinancingList,
-  autoCollateral,
   fixationChangeMonth,
   defaultStartMonth,
   annuityPayment,
@@ -1317,10 +1312,12 @@ window.calc = {
   scoreSaleCandidate,
   compareSaleCandidates,
   describeSaleChoice,
-  SALE_YIELD_BAND,
+  propertyQuality,
+  propertyNetYield,
+  qualityBand,
+  QUALITY_WEIGHTS,
+  QUALITY_SCORES,
   projectPortfolio,
-  pledgePurchaseCapacity,
-  loansHoldingPledges,
   payDownDebtWithCash,
   rebaseToYear,
   projectLoanAmount,

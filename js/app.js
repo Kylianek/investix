@@ -30,9 +30,10 @@ const DEFAULT_SETTINGS = {
   auto_sell_enabled: true,
   po_sell_asap: true,
   sale_trigger_amount: 0,
-  pledge_financing_enabled: false,
-  pledge_max_ltv: 80,
 };
+
+// zrušené volby (dřív "Nákup bez hotovosti" v Nastavení): ze starších záloh a z účtu se při načtení odstraní
+const REMOVED_SETTING_KEYS = ['pledge_financing_enabled', 'pledge_max_ltv'];
 
 function defaultState() {
   return {
@@ -1048,6 +1049,7 @@ function stampMissingDates() {
 
 function normalizeStateData() {
   state.loans = normalizeLoanList(state.loans, state.properties);
+  for (const key of REMOVED_SETTING_KEYS) delete state.settings[key];
   return stampMissingDates();
 }
 
@@ -1055,6 +1057,7 @@ function normalizeStateData() {
 function normalizeSnapshot(snapshot) {
   const copy = JSON.parse(JSON.stringify(snapshot || {}));
   copy.loans = normalizeLoanList(Array.isArray(copy.loans) ? copy.loans : [], Array.isArray(copy.properties) ? copy.properties : []);
+  if (copy.settings) for (const key of REMOVED_SETTING_KEYS) delete copy.settings[key];
   return copy;
 }
 
@@ -1083,7 +1086,7 @@ function renderPropertiesTable() {
   const key = 'properties';
   applyTableMode(key);
   const infos = loanInfos();
-  const totals = { rent: 0, payment: 0, debt: 0, value: 0, lien: 0, freed: 0, appreciated: 0, growthWeighted: 0, yield: 0 };
+  const totals = { rent: 0, payment: 0, debt: 0, value: 0, lien: 0, freed: 0, appreciated: 0, growthWeighted: 0, yield: 0, quality: 0 };
 
   const rows = state.properties.map((p) => {
     const marketValue = Number(p.market_value) || 0;
@@ -1106,6 +1109,8 @@ function renderPropertiesTable() {
       figs: propertyLoanFigures(p, infos),
     };
     r.yield = (Number(p.rent) || 0) * 12 * (1 - (Number(p.vacancy_rate) || 0)) - (Number(p.monthly_costs) || 0) * 12;
+    r.q = calc.propertyQuality(p);
+    totals.quality += r.q.score * marketValue;
     totals.yield += r.yield;
     totals.rent += Number(p.rent) || 0;
     totals.value += marketValue;
@@ -1123,9 +1128,19 @@ function renderPropertiesTable() {
   const dash = '<span class="t-faint">—</span>';
 
   const columns = [
-    { label: 'Nemovitost', cell: (r) => `<span class="font-medium">${escapeHtml(r.p.name)}</span> ${ownerBadge(r.p)}`, total: () => 'Celkem' },
+    { label: 'Nemovitost', cell: (r) => `${rankDotHtml(r.q)}<span class="font-medium">${escapeHtml(r.p.name)}</span> ${ownerBadge(r.p)}`, total: () => 'Celkem' },
     { label: 'Nájem', right: true, cell: (r) => (r.p.rent ? `<span class="rent-positive num">+${moneyHtml(r.p.rent)}</span>` : dash), total: () => moneyHtml(totals.rent) },
     { label: 'Tržní hodnota', right: true, cell: (r) => `<span class="num">${moneyHtml(r.marketValue)}</span>`, total: () => moneyHtml(totals.value) },
+    {
+      label: 'Kvalita',
+      x: true,
+      cell: (r) => rankBadgeHtml(r.q),
+      total: () => {
+        if (!(totals.value > 0)) return '';
+        const score = totals.quality / totals.value;
+        return rankBadgeHtml({ score, band: calc.qualityBand(score) });
+      },
+    },
     { label: 'Čistý výnos /rok', right: true, x: true, cell: (r) => `<span class="num ${r.yield < 0 ? 'figure-negative' : 'figure-positive'}">${moneyHtml(r.yield)}</span>`, total: () => moneyHtml(totals.yield) },
     {
       label: 'Splátka',
@@ -1359,8 +1374,6 @@ function wirePledgeChecklist() {
   container.addEventListener('change', (e) => {
     const row = e.target.closest('.pledge-row');
     if (!row) return;
-    loanPledgeAuto = false; // ruční úprava přebíjí automatické zástavy
-    showLoanPledgeNote('');
     if (e.target.classList.contains('loan-collateral-checkbox')) {
       const free = Number(row.dataset.free) || 0;
       if (e.target.checked && free < 1) {
@@ -1379,10 +1392,7 @@ function wirePledgeChecklist() {
     showFormError('loan-form-error', '');
   });
   container.addEventListener('input', (e) => {
-    if (!e.target.classList.contains('loan-collateral-amount')) return;
-    loanPledgeAuto = false;
-    showLoanPledgeNote('');
-    updateLoanBadges();
+    if (e.target.classList.contains('loan-collateral-amount')) updateLoanBadges();
   });
 }
 
@@ -1526,8 +1536,8 @@ function periodInfoButton(months) {
 const fmtPerMillion = (n) => `${fmtNumber(n, 0)} Kč`;
 
 /**
- * Vysvětlení v bublině prodeje: proč se prodala právě tahle nemovitost a jak dopadla proti ostatním. Výkon se bere
- * z víc pohledů: kolik Kč ročně nájem vydělá na 1 mil. hodnoty (hlavní) a roční zhodnocení (druhé).
+ * Vysvětlení v bublině prodeje: proč se prodala právě tahle nemovitost a jak dopadla proti ostatním. Rozhoduje celkové
+ * hodnocení kvality (výnos z nájmu na 1 mil. hodnoty, zhodnocení, stav, lokalita, rekonstrukce, energetický štítek).
  */
 function saleWhyHtml(sale) {
   if (sale.reason === 'po') {
@@ -1544,32 +1554,29 @@ function saleWhyHtml(sale) {
   const eligible = cmp.rows.filter((r) => r.eligible);
   const me = cmp.rows.find((r) => r.chosen);
   const others = eligible.filter((r) => !r.chosen);
+  const points = (r) => Math.round(r.quality.score);
   let why;
   if (cmp.decidedBy === 'only') {
-    why = `Jediná nemovitost, která už prošla časovým testem. Nájem vydělává ${fmtPerMillion(me.perMillion)} ročně na 1 mil. hodnoty, zhodnocení ${fmtPercent(me.growth)}.`;
-  } else if (cmp.decidedBy === 'yield') {
-    const values = others.map((r) => r.perMillion);
-    const low = Math.min(...values);
-    const high = Math.max(...values);
-    const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
-    const rest =
-      others.length === 1
-        ? `u ${escapeHtml(others[0].name)} ${fmtPerMillion(low)}`
-        : fmtPerMillion(low) === fmtPerMillion(high)
-          ? `u ostatních ${fmtPerMillion(low)}`
-          : `u ostatních ${fmtPerMillion(low)} až ${fmtPerMillion(high)} (průměr ${fmtPerMillion(avg)})`;
-    why = `Nejnižší výnos z nájmu ze ${eligible.length} nemovitostí po časovém testu: ${fmtPerMillion(me.perMillion)} ročně na 1 mil. hodnoty, ${rest}. Zhodnocení ${fmtPercent(me.growth)}.`;
+    why = `Jediná nemovitost, která už prošla časovým testem. Hodnocení kvality ${points(me)} z 100.`;
   } else {
-    const similar = others.filter((r) => cmp.similar.includes(r.name));
-    why = `Výnos z nájmu je podobný jako u ${similar.map((r) => escapeHtml(r.name)).join(', ')} (rozdíl do ${fmtPerMillion(calc.SALE_YIELD_BAND * 1e6)} na 1 mil. ročně), proto rozhodlo nižší zhodnocení: ${fmtPercent(me.growth)} proti ${similar.map((r) => `${fmtPercent(r.growth)} u ${escapeHtml(r.name)}`).join(', ')}.`;
+    const scores = others.map(points);
+    const low = Math.min(...scores);
+    const high = Math.max(...scores);
+    why = `Nejnižší hodnocení kvality ze ${eligible.length} nemovitostí po časovém testu: ${points(me)} z 100 (ostatní ${low === high ? low : `${low} až ${high}`}).`;
   }
+  const weak = cmp.parts
+    .filter((p) => p.known && p.score < 60)
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 2)
+    .map(qualityPartPhrase);
+  if (weak.length) why += ` Nejvíc ji táhne dolů: ${weak.join(', ')}.`;
   const table = `<table class="popover-table">
-    <thead><tr><th>Nemovitost</th><th>Nájem na 1 mil. ročně</th><th>Růst</th></tr></thead>
+    <thead><tr><th>Nemovitost</th><th>Kvalita</th><th>Nájem /1 mil.</th><th>Růst</th></tr></thead>
     <tbody>${cmp.rows
       .map(
         (r) => `<tr class="${r.chosen ? 'is-chosen' : r.eligible ? '' : 'is-muted'}"><td>${escapeHtml(r.name)}${r.chosen ? ' <span class="chip-tag">prodáno</span>' : ''}${
           r.eligible ? '' : `<span class="popover-sub-note">${r.owner === 'po' ? 'PO, prodává se zvlášť' : `před časovým testem, zbývá ${escapeHtml(r.timeTestText)}`}</span>`
-        }</td><td class="num">${fmtPerMillion(r.perMillion)}</td><td class="num">${fmtPercent(r.growth)}</td></tr>`
+        }</td><td>${rankBadgeHtml(r.quality, false)}</td><td class="num">${fmtPerMillion(r.perMillion)}</td><td class="num">${fmtPercent(r.growth)}</td></tr>`
       )
       .join('')}</tbody></table>`;
   return `<div class="popover-sub">Proč se prodala</div><p>${why}</p><div class="popover-sub">Porovnání s ostatními</div>${table}${trigger}`;
@@ -2095,6 +2102,125 @@ function validateEvent(f) {
   return v.done();
 }
 
+/* ---------- Kvalita nemovitosti: stav, rekonstrukce, lokalita, energetický štítek a celkové hodnocení ---------- */
+
+const QUALITY_LABELS = {
+  yield: 'Výnos z nájmu',
+  growth: 'Zhodnocení',
+  condition: 'Stav',
+  location: 'Lokalita',
+  renovation: 'Rekonstrukce',
+  energy: 'Energetický štítek',
+};
+const QUALITY_OPTIONS = {
+  condition: [['new', 'Novostavba'], ['excellent', 'Výborný'], ['good', 'Dobrý'], ['fair', 'Průměrný'], ['poor', 'Špatný']],
+  renovation: [['after', 'Po rekonstrukci'], ['none', 'Bez nutnosti'], ['before', 'Před rekonstrukcí']],
+  location: [['top', 'Výborná'], ['good', 'Dobrá'], ['avg', 'Průměrná'], ['weak', 'Slabá']],
+  energy: ['A', 'B', 'C', 'D', 'E', 'F', 'G'].map((x) => [x, x]),
+};
+const QUALITY_BAND_LABELS = { low: 'slabá', mid: 'průměrná', high: 'dobrá' };
+
+function qualityOptionLabel(key, value) {
+  const found = (QUALITY_OPTIONS[key] || []).find(([v]) => v === value);
+  return found ? found[1] : '';
+}
+
+/** Výběry v kartě nemovitosti (stav, rekonstrukce, lokalita, energetický štítek) se plní z jednoho seznamu možností. */
+function fillQualitySelects() {
+  const f = propertyForm();
+  for (const key of Object.keys(QUALITY_OPTIONS)) {
+    f.elements[key].innerHTML = '<option value="">—</option>' + QUALITY_OPTIONS[key].map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+  }
+}
+
+/** Štítek celkového hodnocení: barva podle pásma (červená, oranžová, zelená), číslo 0 až 100 a slovní označení. */
+function rankBadgeHtml(q, withLabel = true) {
+  const n = Math.round(q.score);
+  const text = `Kvalita ${n} z 100 · ${QUALITY_BAND_LABELS[q.band]}`;
+  return `<span class="rank-badge rank-${q.band}" title="${text}">${n}${withLabel ? ` · ${QUALITY_BAND_LABELS[q.band]}` : ''}</span>`;
+}
+
+/** Malá barevná tečka u názvu nemovitosti (v úzké tabulce na telefonu). */
+function rankDotHtml(q) {
+  const text = `Kvalita ${Math.round(q.score)} z 100 · ${QUALITY_BAND_LABELS[q.band]}`;
+  return `<span class="rank-dot rank-${q.band}" title="${text}" role="img" aria-label="${text}"></span>`;
+}
+
+/** Hodnota složky hodnocení jako text: výnos a zhodnocení v %, ostatní zvolená možnost, jinak "neuvedeno". */
+function qualityValueText(part) {
+  if (part.key === 'yield' || part.key === 'growth') return `${fmtNumber(part.value * 100)} %`;
+  return part.known ? qualityOptionLabel(part.key, part.value) : 'neuvedeno';
+}
+
+/** Složka hodnocení do věty ("stav špatný", "výnos z nájmu 2,4 %"). */
+function qualityPartPhrase(part) {
+  const text = qualityValueText(part);
+  switch (part.key) {
+    case 'yield':
+      return `výnos z nájmu ${text}`;
+    case 'growth':
+      return `zhodnocení ${text}`;
+    case 'condition':
+      return `stav ${text.toLowerCase()}`;
+    case 'location':
+      return `lokalita ${text.toLowerCase()}`;
+    case 'renovation':
+      return `rekonstrukce: ${text.toLowerCase()}`;
+    default:
+      return `energetický štítek ${text}`;
+  }
+}
+
+/** Rozpis hodnocení po složkách: název, hodnota, barevný pruh a body. */
+function renderQualityBreakdown(q) {
+  const box = document.getElementById('property-quality-breakdown');
+  if (!q) {
+    box.innerHTML = '';
+    return;
+  }
+  box.innerHTML =
+    q.parts
+      .map(
+        (part) => `<div class="qrow rank-${calc.qualityBand(part.score)}${part.known ? '' : ' is-unknown'}" title="Váha ${part.weight} %">
+        <span class="qname">${QUALITY_LABELS[part.key]}<small>${escapeHtml(qualityValueText(part))}</small></span>
+        <span class="qbar"><i style="width:${Math.round(part.score)}%"></i></span>
+        <span class="qpts num">${Math.round(part.score)}</span>
+      </div>`
+      )
+      .join('') + '<p class="qnote">Při automatickém prodeji na umoření dluhu se prodává nemovitost s nejnižším hodnocením.</p>';
+}
+
+/** Nemovitost podle hodnot ve formuláři (pro živé hodnocení, ještě neuložená). */
+function propertyDraftFromForm() {
+  const f = propertyForm();
+  const occRaw = f.elements['occupancy'].value.trim();
+  const occupancy = occRaw ? Math.min(100, Math.max(0, parseFormNumber(occRaw))) : 100;
+  return {
+    rent: parseFormNumber(f.elements['rent'].value),
+    market_value: parseFormNumber(f.elements['market_value'].value),
+    monthly_costs: parseFormNumber(f.elements['monthly_costs'].value),
+    vacancy_rate: (100 - occupancy) / 100,
+    growth_rate: parseFormNumber(f.elements['growth_rate'].value) / 100,
+    condition: f.elements['condition'].value,
+    renovation: f.elements['renovation'].value,
+    location: f.elements['location'].value,
+    energy: f.elements['energy'].value,
+  };
+}
+
+function updateQualityBadge() {
+  const draft = propertyDraftFromForm();
+  const badge = document.getElementById('property-quality-badge');
+  if (!(draft.market_value > 0)) {
+    badge.textContent = '';
+    renderQualityBreakdown(null);
+    return;
+  }
+  const q = calc.propertyQuality(draft);
+  badge.innerHTML = rankBadgeHtml(q);
+  renderQualityBreakdown(q);
+}
+
 /* ---------- MOJE NEMOVITOSTI ---------- */
 
 function renderProperties() {
@@ -2135,6 +2261,7 @@ function updatePropertyBadges() {
   const occupancy = occRaw ? parseFormNumber(occRaw) : 100;
   const costs = parseFormNumber(f.elements['monthly_costs'].value);
   const rentGrowth = f.elements['rent_growth_rate'].value.trim();
+  updateQualityBadge();
   document.getElementById('property-operation-badge').textContent = [
     occupancy < 100 ? `Obsazenost ${fmtNumber(occupancy)} %` : '',
     costs ? `Náklady ${fmtMoney(costs)}` : '',
@@ -2147,6 +2274,7 @@ function updatePropertyBadges() {
 
 function wirePropertyFormUi() {
   const f = propertyForm();
+  fillQualitySelects();
   f.elements['has_lien'].addEventListener('change', () => setLienFieldsVisible(f.elements['has_lien'].checked));
   const pledgeList = document.getElementById('property-pledge-list');
   document.getElementById('property-pledge-add').addEventListener('click', addPropertyPledge);
@@ -2210,6 +2338,8 @@ function fillPropertyForm(id) {
   );
   renderPropertyPledges(pledgeDraft);
   document.getElementById('property-acc-pledge').open = !!p.has_lien || pledgeDraft.length > 0;
+  for (const key of ['condition', 'renovation', 'location', 'energy']) f.elements[key].value = qualityOptionLabel(key, p[key]) ? p[key] : '';
+  document.getElementById('property-acc-quality').open = ['condition', 'renovation', 'location', 'energy'].some((key) => qualityOptionLabel(key, p[key]));
   const opAcc = document.getElementById('property-rent-growth').closest('details');
   opAcc.open = vacancy > 0 || !!p.monthly_costs || p.rent_growth_rate != null;
   document.getElementById('property-form-title').textContent = 'Upravit nemovitost';
@@ -2292,6 +2422,10 @@ function submitPropertyForm(e) {
     vacancy_rate: (100 - occupancy) / 100,
     monthly_costs: parseFormNumber(f.elements['monthly_costs'].value),
     rent_growth_rate: rentGrowthRaw ? parseFormNumber(rentGrowthRaw) / 100 : null,
+    condition: f.elements['condition'].value || null,
+    renovation: f.elements['renovation'].value || null,
+    location: f.elements['location'].value || null,
+    energy: f.elements['energy'].value || null,
   };
   if (id) {
     const idx = state.properties.findIndex((p) => p.id === id);
@@ -2377,36 +2511,6 @@ function renderLoanCollateralChecklist(draft) {
   updateLoanBadges();
 }
 
-/**
- * Zástavy ve formuláři úvěru se doplňují samy podle "Financuje nemovitost", dokud je uživatel ručně nepřepíše:
- * bance se dá financovaná nemovitost (do výše její volné hodnoty) a zbytek potřebné zástavy (úvěr ÷ LTV) se vezme
- * z volné hodnoty ostatních nemovitostí. U staršího úvěru se zástavy samy nemění, dokud se nezmění financovaná nemovitost.
- */
-let loanPledgeAuto = true;
-
-function showLoanPledgeNote(text) {
-  const note = document.getElementById('loan-pledge-note');
-  note.textContent = text || '';
-  note.classList.toggle('hidden', !text);
-}
-
-function autoPledgeFromFinancedProperty() {
-  const f = loanForm();
-  const propertyId = f.elements['property_id'].value;
-  const amount = parseFormNumber(f.elements['amount'].value);
-  if (!propertyId || !(amount > 0)) {
-    showLoanPledgeNote('');
-    return;
-  }
-  const ltvRaw = f.elements['ltv_percent'].value.trim();
-  const ltv = ltvRaw ? parseFormNumber(ltvRaw) : Number(state.settings.pledge_max_ltv) || 80;
-  const res = calc.autoCollateral({ amount, ltv, propertyId, properties: state.properties, loans: state.loans, excludeLoanId: f.elements['id'].value });
-  loanPledgeAuto = true;
-  renderLoanCollateralChecklist(new Map(res.pledges.map((p) => [p.property_id, p.amount])));
-  if (res.pledges.length) document.getElementById('loan-acc-pledge').open = true;
-  showLoanPledgeNote(res.shortfall > 0 ? `Chybí ${fmtMoney(res.shortfall)} zástavy na LTV ${fmtNumber(ltv)} %, volná hodnota nemovitostí nestačí.` : '');
-}
-
 function renderLoanPropertySelect() {
   const select = document.getElementById('loan-property-select');
   if (!select) return;
@@ -2485,23 +2589,6 @@ function wireLoanFormUi() {
   f.elements['fixation_years'].step = 'any';
   wireFixationFields();
   wirePledgeChecklist();
-  f.elements['property_id'].addEventListener('change', () => {
-    if (f.elements['property_id'].value) {
-      loanPledgeAuto = true;
-      autoPledgeFromFinancedProperty();
-    } else if (loanPledgeAuto) {
-      renderLoanCollateralChecklist(new Map()); // bez financované nemovitosti se automatické zástavy odeberou
-      showLoanPledgeNote('');
-    }
-    updateLoanBadges();
-  });
-  const refreshAutoPledge = () => {
-    if (!loanPledgeAuto || !f.elements['property_id'].value) return;
-    autoPledgeFromFinancedProperty();
-    updateLoanBadges();
-  };
-  f.elements['amount'].addEventListener('input', refreshAutoPledge);
-  f.elements['ltv_percent'].addEventListener('input', refreshAutoPledge);
   f.addEventListener('input', updateLoanBadges);
   f.addEventListener('change', updateLoanBadges);
 }
@@ -2522,8 +2609,6 @@ function fillLoanForm(id) {
   clearFieldErrors(f);
   showFormError('loan-form-error', '');
   f.elements['id'].value = l.id;
-  loanPledgeAuto = false;
-  showLoanPledgeNote('');
   f.elements['bank'].value = l.bank;
   if (f.elements['bank']._comboRefresh) f.elements['bank']._comboRefresh();
   setFormattedValue(f.elements['amount'], l.amount);
@@ -2561,8 +2646,6 @@ function resetLoanForm() {
   f.reset();
   clearFieldErrors(f);
   f.elements['id'].value = '';
-  loanPledgeAuto = true;
-  showLoanPledgeNote('');
   showFormError('loan-form-error', '');
   f.querySelectorAll('details.acc').forEach((acc) => {
     acc.open = false;
@@ -2890,8 +2973,6 @@ function renderSettings() {
   document.getElementById('po-sell-asap-input').checked = s.po_sell_asap !== false;
   setFormattedValue(document.getElementById('sale-trigger-input'), s.sale_trigger_amount || '');
   setFormattedValue(document.getElementById('min-portfolio-input'), s.min_portfolio_value || '');
-  document.getElementById('pledge-financing-enabled-input').checked = !!s.pledge_financing_enabled;
-  setFormattedValue(document.getElementById('pledge-max-ltv-input'), s.pledge_max_ltv);
   syncSettingsVisibility();
   updateRentGrowthPlaceholders();
   clearFieldErrors(document.getElementById('tab-settings'));
@@ -2907,7 +2988,6 @@ function updateRentGrowthPlaceholders() {
 
 function syncSettingsVisibility() {
   document.getElementById('auto-sell-options').classList.toggle('hidden', !document.getElementById('auto-sell-enabled-input').checked);
-  document.getElementById('pledge-financing-options').classList.toggle('hidden', !document.getElementById('pledge-financing-enabled-input').checked);
 }
 
 function wireSettingsInputs() {
@@ -2921,7 +3001,6 @@ function wireSettingsInputs() {
     { id: 'po-tax-input', rule: { kind: 'percent', required: true, min: 0, max: 100 }, apply: (n) => (state.settings.po_tax_rate = n) },
     { id: 'sale-trigger-input', rule: { kind: 'money', min: 0, max: MAX_MONEY }, apply: (n) => (state.settings.sale_trigger_amount = n || 0) },
     { id: 'min-portfolio-input', rule: { kind: 'money', min: 0, max: MAX_MONEY }, apply: (n) => (state.settings.min_portfolio_value = n || 0) },
-    { id: 'pledge-max-ltv-input', rule: { kind: 'percent', required: true, min: 1, max: 99 }, apply: (n) => (state.settings.pledge_max_ltv = n) },
   ];
   const save = () => {
     for (const field of fields) {
@@ -2932,7 +3011,6 @@ function wireSettingsInputs() {
     }
     state.settings.auto_sell_enabled = el('auto-sell-enabled-input').checked;
     state.settings.po_sell_asap = el('po-sell-asap-input').checked;
-    state.settings.pledge_financing_enabled = el('pledge-financing-enabled-input').checked;
     saveState();
     syncSettingsVisibility();
     updateRentGrowthPlaceholders();
@@ -2947,8 +3025,6 @@ function wireSettingsInputs() {
     'po-sell-asap-input',
     'sale-trigger-input',
     'min-portfolio-input',
-    'pledge-financing-enabled-input',
-    'pledge-max-ltv-input',
   ].forEach((id) => el(id).addEventListener('change', save));
   // chyba zmizí, jakmile se pole začne opravovat; znovu se zkontroluje při potvrzení
   fields.forEach((field) => el(field.id).addEventListener('input', () => setFieldError(el(field.id), '')));
@@ -3538,33 +3614,6 @@ function renderOverview() {
   realAppEl.classList.toggle('t-neg', (row.realAppreciation || 0) < 0);
   realAppEl.classList.toggle('t-pos', (row.realAppreciation || 0) >= 0);
 
-  renderPledgeCapacity(row, selectedYear);
-}
-
-function renderPledgeCapacity(row, selectedYear) {
-  const card = document.getElementById('pledge-purchase-card');
-  const enabled = !!state.settings.pledge_financing_enabled;
-  card.classList.toggle('hidden', !enabled);
-  if (!enabled) return;
-  const maxLtv = (Number(state.settings.pledge_max_ltv) || 0) / 100;
-  // Zástava je pevná Kč částka (banka ji nezmenšuje jen proto, že hodnota
-  // nemovitosti mezitím vzrostla) - proto se pro vybraný rok přebírá jen
-  // PROJEKTOVANÁ tržní hodnota (row.perProperty), zatímco has_lien/lien_value
-  // zůstává tak, jak je zadané u nemovitosti dnes.
-  const projectedProperties = (row.perProperty || []).map((rp) => {
-    const original = state.properties.find((p) => p.id === rp.id) || {};
-    return { id: rp.id, market_value: rp.value, has_lien: original.has_lien, lien_value: original.lien_value };
-  });
-  // Zástavu drží jen úvěry, které v tom roce ještě běží (po splacení ji banka uvolní; úvěr, který ještě nebyl
-  // sjednaný, ji ještě nespotřeboval). Sloučený úvěr předal zástavy tomu, do kterého se sloučil.
-  const now = new Date();
-  const outstanding = new Set((row.perLoan || []).map((l) => l.id));
-  const rowStartAbs = selectedYear * 12 + (selectedYear === CURRENT_YEAR ? now.getMonth() : 0);
-  const merging = calc.mergePlan(state.loans, CURRENT_YEAR, now.getMonth()).mergeInto;
-  const activeLoans = calc.loansHoldingPledges(state.loans, outstanding, rowStartAbs, merging);
-  const { freeCollateral, maxPurchasePrice } = calc.pledgePurchaseCapacity(projectedProperties, maxLtv, activeLoans);
-  document.getElementById('pledge-free-collateral').textContent = fmtMoney(freeCollateral);
-  document.getElementById('pledge-max-purchase').textContent = fmtMoney(maxPurchasePrice);
 }
 
 /* ---------- Záloha (export / import / smazání) ---------- */
