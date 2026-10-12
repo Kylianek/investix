@@ -1085,8 +1085,7 @@ function propertyLoanFigures(p, infos) {
 function renderPropertiesTable() {
   const key = 'properties';
   applyTableMode(key);
-  const infos = loanInfos();
-  const totals = { rent: 0, payment: 0, debt: 0, value: 0, lien: 0, freed: 0, appreciated: 0, growthWeighted: 0, yield: 0, quality: 0 };
+  const totals = { rent: 0, value: 0, lien: 0, freed: 0, appreciated: 0, growthWeighted: 0, yield: 0, quality: 0 };
 
   const rows = state.properties.map((p) => {
     const marketValue = Number(p.market_value) || 0;
@@ -1106,7 +1105,6 @@ function renderPropertiesTable() {
       freed: calc.freePledgeValue(p, state.loans),
       av: calc.appreciatedValue(marketValue, Number(p.growth_rate)),
       tt: calc.timeTestInfo(p),
-      figs: propertyLoanFigures(p, infos),
     };
     r.yield = (Number(p.rent) || 0) * 12 * (1 - (Number(p.vacancy_rate) || 0)) - (Number(p.monthly_costs) || 0) * 12;
     r.q = calc.propertyQuality(p);
@@ -1118,17 +1116,13 @@ function renderPropertiesTable() {
     totals.freed += r.freed;
     totals.appreciated += r.av;
     totals.growthWeighted += marketValue * (Number(p.growth_rate) || 0);
-    if (r.figs.known) {
-      totals.payment += r.figs.payment;
-      totals.debt += r.figs.debt;
-    }
     return r;
   });
   const avgGrowth = totals.value > 0 ? totals.growthWeighted / totals.value : 0;
   const dash = '<span class="t-faint">—</span>';
 
   const columns = [
-    { label: 'Nemovitost', cell: (r) => `${rankDotHtml(r.q)}<span class="font-medium">${escapeHtml(r.p.name)}</span> ${ownerBadge(r.p)}${r.p.never_sell ? lockIconHtml() : ''}`, total: () => 'Celkem' },
+    { label: 'Nemovitost', cell: (r) => `${rankDotHtml(r.q)}${r.p.never_sell ? lockIconHtml() : ''}<span class="font-medium">${escapeHtml(r.p.name)}</span> ${ownerBadge(r.p)}`, total: () => 'Celkem' },
     { label: 'Nájem', right: true, cell: (r) => (r.p.rent ? `<span class="rent-positive num">+${moneyHtml(r.p.rent)}</span>` : dash), total: () => moneyHtml(totals.rent) },
     { label: 'Tržní hodnota', right: true, cell: (r) => `<span class="num">${moneyHtml(r.marketValue)}</span>`, total: () => moneyHtml(totals.value) },
     {
@@ -1142,14 +1136,6 @@ function renderPropertiesTable() {
       },
     },
     { label: 'Čistý výnos /rok', right: true, x: true, cell: (r) => `<span class="num ${r.yield < 0 ? 'figure-negative' : 'figure-positive'}">${moneyHtml(r.yield)}</span>`, total: () => moneyHtml(totals.yield) },
-    {
-      label: 'Splátka',
-      right: true,
-      x: true,
-      cell: (r) => (r.figs.known && r.figs.payment ? `<span class="payment-negative num">-${moneyHtml(r.figs.payment)}</span>` : dash),
-      total: () => moneyHtml(totals.payment),
-    },
-    { label: 'Dluh', right: true, x: true, cell: (r) => (r.figs.known ? `<span class="num">${moneyHtml(r.figs.debt)}</span>` : dash), total: () => moneyHtml(totals.debt) },
     {
       label: 'Zástava',
       right: true,
@@ -1672,7 +1658,6 @@ function renderLoansTable() {
     const ltv = ltvInfo(l);
     totals.amount += Number(l.amount) || 0;
     totals.payment += terms.payment;
-    if (ltv && ltv.own != null) totals.own += ltv.own;
     let mergeText = '';
     if (plan.mergedInto) {
       const to = state.loans.find((x) => x.id === plan.mergedInto.to);
@@ -1722,7 +1707,6 @@ function renderLoansTable() {
     },
     { label: 'Úrok ve splátce', right: true, x: true, cell: (r) => (r.share == null ? dash : `<span class="num">${Math.round(r.share * 100)} %</span>`), total: () => '' },
     { label: 'Poměr LTV', right: true, x: true, cell: (r) => (r.ltv && r.ltv.text ? `<span class="num">${r.ltv.text}</span>` : dash), total: () => '' },
-    { label: 'Vlastní zdroje', right: true, x: true, cell: (r) => (r.ltv && r.ltv.own != null ? `<span class="num">${moneyHtml(r.ltv.own)}</span>` : dash), total: () => (totals.own ? moneyHtml(totals.own) : '') },
     { label: 'Nemovitost', x: true, cell: (r) => linkedName(r.l) || dash, total: () => '' },
     { label: '', right: true, actions: true, cell: (r) => actionButtons('data-edit-loan', 'data-delete-loan', r.l.id), total: () => '' },
   ];
@@ -2051,7 +2035,6 @@ function validateLoan(f) {
   v.field({ el: el('payment_after_fixation'), kind: 'money', min: 0, max: 1e8 });
   v.field({ el: el('maturity_date'), kind: 'date' });
   v.field({ el: el('ltv_percent'), kind: 'percent', min: 0, max: 200 });
-  v.field({ el: el('own_funds'), kind: 'money', min: 0, max: MAX_MONEY });
   v.field({ el: el('note'), kind: 'text', maxLen: 200 });
 
   // vztahy mezi poli (bez data zřízení se počítá od dneška)
@@ -2587,11 +2570,9 @@ function updateLoanBadges() {
 
   const linked = f.elements['property_id'].value;
   const ltvRaw = f.elements['ltv_percent'].value.trim();
-  const ownRaw = f.elements['own_funds'].value.trim();
   document.getElementById('loan-details-badge').textContent = [
     linked ? propertyName(linked) : '',
     ltvRaw ? `LTV ${fmtNumber(parseFormNumber(ltvRaw))} %` : '',
-    ownRaw ? `vlastní ${fmtMoney(parseFormNumber(ownRaw))}` : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -2673,7 +2654,6 @@ function fillLoanForm(id) {
   // LTV a vlastní zdroje: ruční hodnoty, u staršího záznamu se předvyplní z hodnoty nemovitosti při sjednání
   const ltv = ltvInfo(l);
   setFormattedValue(f.elements['ltv_percent'], l.ltv_percent != null ? l.ltv_percent : ltv && ltv.pct != null ? ltv.pct : '');
-  setFormattedValue(f.elements['own_funds'], l.own_funds != null ? l.own_funds : ltv && ltv.own != null ? Math.round(ltv.own) : '');
   renderLoanPropertySelect();
   f.elements['property_id'].value = l.property_id || '';
   renderLoanCollateralChecklist(null);
@@ -2681,7 +2661,7 @@ function fillLoanForm(id) {
   const accordions = Array.from(f.querySelectorAll('details.acc:not(.acc-pledge)'));
   const [fixationAcc, detailsAcc] = accordions;
   fixationAcc.open = !!(l.start_date || end || l.fixation_years != null || l.rate_after_fixation != null || l.maturity_date || l.payment_after_fixation);
-  detailsAcc.open = !!(l.ltv_percent != null || l.own_funds != null || l.property_value_at_origination || l.property_id || l.note);
+  detailsAcc.open = !!(l.ltv_percent != null || l.property_value_at_origination || l.property_id || l.note);
   document.getElementById('loan-form-title').textContent = 'Upravit úvěr';
   document.getElementById('loan-submit-label').textContent = 'Uložit změny';
   document.getElementById('loan-form-card').classList.add('is-editing');
@@ -2765,7 +2745,6 @@ function submitLoanForm(e) {
     maturity_date: f.elements['maturity_date'].value || null,
     note: cleanText(f.elements['note'].value) || null,
     ltv_percent: num('ltv_percent'),
-    own_funds: num('own_funds'),
     property_id: f.elements['property_id'].value || null,
     collateral,
   };

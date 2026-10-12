@@ -2253,7 +2253,7 @@ button.event-chip.is-open {
   display: inline-flex;
   width: 0.85rem;
   height: 0.85rem;
-  margin-left: 0.35rem;
+  margin-right: 0.35rem;
   color: var(--muted);
   vertical-align: middle;
 }
