@@ -70,8 +70,6 @@ function setState(next) {
   normalizeStateData();
 }
 
-// Rozbalené roky ve Scénářích (jen pro zobrazení, neukládá se)
-const expandedYears = new Set();
 // Tabulky: rozšíření sloupců (klíč tabulky -> true/false; nenastaveno = podle šířky obrazovky) a rozbalené kalendáře úvěrů
 const tableExpandedState = {};
 let printingNow = false;
@@ -386,6 +384,57 @@ function bankColor(name) {
   return BANK_COLORS[hash % BANK_COLORS.length];
 }
 
+// Verze příloh se bere z adresy skriptu (?v=...), ať se loga po nasazení obnoví stejně jako ostatní soubory
+const ASSET_VERSION = (() => {
+  try {
+    const el = document.querySelector('script[src*="js/app.js"]');
+    return el ? new URL(el.src).searchParams.get('v') || '' : '';
+  } catch (e) {
+    return '';
+  }
+})();
+
+// Původní loga bank (ikony z jejich webů, assets/banks). Název z dat se porovnává bez diakritiky a velikosti písmen.
+const BANK_LOGOS = [
+  { file: 'csas', names: ['ceska sporitelna', 'csas'] },
+  { file: 'csob', names: ['csob', 'hypotecni banka'] },
+  { file: 'kb', names: ['komercni banka', 'kb'] },
+  { file: 'unicredit', names: ['unicredit bank', 'unicredit'] },
+  { file: 'rb', names: ['raiffeisenbank', 'raiffeisen', 'rb'] },
+  { file: 'moneta', names: ['moneta money bank', 'moneta'] },
+  { file: 'mbank', names: ['mbank'] },
+  { file: 'fio', names: ['fio banka', 'fio'] },
+  { file: 'airbank', names: ['air bank', 'airbank'] },
+];
+
+function normBankName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function bankLogoUrl(name) {
+  const n = normBankName(name);
+  if (!n) return null;
+  const hit = BANK_LOGOS.find((b) => b.names.some((alias) => n === alias || n.startsWith(alias + ' ')));
+  return hit ? `assets/banks/${hit.file}.png${ASSET_VERSION ? '?v=' + ASSET_VERSION : ''}` : null;
+}
+
+const GENERIC_BANK_ICON =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10 12 4l9 6"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8"/><path d="M3 20h18"/></svg>';
+
+/** Ikona banky: původní logo, u neznámé banky barevné písmeno, u prázdného názvu obecná budova banky. */
+function bankLogoHtml(name, cls = 'bank-logo') {
+  const url = bankLogoUrl(name);
+  if (url) return `<img class="${cls}" src="${url}" alt="" width="24" height="24" />`;
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return `<span class="${cls} bank-logo-generic">${GENERIC_BANK_ICON}</span>`;
+  return `<span class="${cls} bank-logo-fallback" style="background:${bankColor(trimmed)}">${escapeHtml(trimmed.charAt(0).toUpperCase())}</span>`;
+}
+
 /** Nabídka bank: číselník + banky, které už v datech jsou (úvěry, zástavy). */
 function bankOptions() {
   const seen = new Set();
@@ -402,11 +451,21 @@ function bankOptions() {
   return out;
 }
 
+/**
+ * Rozbalovací výběr banky: u každé položky její logo, nahoře v poli logo vybrané banky a na konci seznamu volba
+ * "Vlastní", po které se do pole dá napsat libovolný název (psát jde vždy, "Vlastní" to jen zviditelní).
+ */
 function makeCombobox(input, getOptions) {
   const wrap = document.createElement('div');
   wrap.className = 'combo';
   input.parentNode.insertBefore(wrap, input);
   wrap.appendChild(input);
+  input.classList.add('has-lead');
+
+  const lead = document.createElement('span');
+  lead.className = 'combo-lead';
+  lead.setAttribute('aria-hidden', 'true');
+  wrap.appendChild(lead);
 
   const caret = document.createElement('button');
   caret.type = 'button';
@@ -425,22 +484,32 @@ function makeCombobox(input, getOptions) {
   let items = [];
   let active = -1;
   let typed = false;
+  let customMode = false;
+  const CUSTOM = '\u0000custom';
+
+  function refreshLead() {
+    lead.innerHTML = bankLogoHtml(input.value, 'combo-lead-logo');
+  }
 
   function build() {
     const all = getOptions();
     const query = typed ? input.value.trim().toLowerCase() : '';
-    items = query ? all.filter((o) => o.toLowerCase().includes(query)) : all;
+    const known = query ? all.filter((o) => o.toLowerCase().includes(query)) : all;
+    items = known.concat(CUSTOM);
     const current = input.value.trim().toLowerCase();
-    let html = items
+    let html = known
       .map(
         (o, i) => `<div class="combo-item${i === active ? ' is-active' : ''}${o.toLowerCase() === current ? ' is-selected' : ''}" role="option" data-i="${i}">
-          <span class="combo-avatar" style="background:${bankColor(o)}">${escapeHtml(o.charAt(0).toUpperCase())}</span><span>${escapeHtml(o)}</span></div>`
+          ${bankLogoHtml(o, 'combo-logo')}<span>${escapeHtml(o)}</span></div>`
       )
       .join('');
     if (typed && query && !all.some((o) => o.toLowerCase() === query)) {
       html += `<div class="combo-hint">Vlastní: „${escapeHtml(input.value.trim())}“</div>`;
     }
-    list.innerHTML = html || '<div class="combo-hint">Nic k výběru</div>';
+    // "Vlastní" je vždy vidět na dně seznamu, i když je seznam delší a posouvá se
+    html += `<div class="combo-foot"><div class="combo-item combo-custom${known.length === active ? ' is-active' : ''}" role="option" data-i="${known.length}">
+      <span class="combo-logo bank-logo-generic">${GENERIC_BANK_ICON}</span><span>Vlastní…</span></div></div>`;
+    list.innerHTML = html;
   }
 
   function open() {
@@ -455,6 +524,18 @@ function makeCombobox(input, getOptions) {
     typed = false;
   }
   function choose(value) {
+    if (value === CUSTOM) {
+      // Vlastní: pole se vyprázdní (je-li v něm známá banka) a dá se psát cokoli
+      const all = getOptions();
+      if (all.some((o) => o.toLowerCase() === input.value.trim().toLowerCase())) input.value = '';
+      customMode = true;
+      input.placeholder = 'Napiš název';
+      close();
+      refreshLead();
+      input.focus();
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
     input.value = value;
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
@@ -468,17 +549,30 @@ function makeCombobox(input, getOptions) {
     if (el) el.scrollIntoView({ block: 'nearest' });
   }
 
-  if (input.form) input.form.addEventListener('reset', close);
+  if (input.form) {
+    input.form.addEventListener('reset', () => {
+      close();
+      customMode = false;
+      input.placeholder = '';
+      setTimeout(refreshLead, 0);
+    });
+  }
   input.addEventListener('focus', () => {
     typed = false;
-    open();
+    if (!customMode) open();
   });
   input.addEventListener('input', () => {
     typed = true;
     active = -1;
-    open();
+    refreshLead();
+    if (!customMode) open();
   });
-  input.addEventListener('blur', close);
+  input.addEventListener('change', refreshLead);
+  input.addEventListener('blur', () => {
+    close();
+    customMode = false;
+    input.placeholder = '';
+  });
   input.addEventListener('keydown', (e) => {
     const isOpen = !list.classList.contains('hidden');
     if (e.key === 'ArrowDown') {
@@ -506,11 +600,14 @@ function makeCombobox(input, getOptions) {
     if (list.classList.contains('hidden')) {
       input.focus();
       typed = false;
+      customMode = false;
       open();
     } else {
       close();
     }
   });
+  input._comboRefresh = refreshLead;
+  refreshLead();
 }
 
 /* ---------- Perzistence ---------- */
@@ -1155,7 +1252,7 @@ function renderLoansTable() {
     const ltv = ltvInfo(l);
     totals.amount += Number(l.amount) || 0;
     totals.payment += terms.payment;
-    if (ltv) totals.own += ltv.ownAmount;
+    if (ltv && ltv.own != null) totals.own += ltv.own;
     return { l, end, terms, share: sch.rows.length ? sch.rows[0].interestShare : null, ltv, fx: end ? calc.fixationRemainingUntil(end) : null };
   });
 
@@ -1168,7 +1265,7 @@ function renderLoansTable() {
   const columns = [
     {
       label: 'Banka',
-      cell: (r) => `<button type="button" class="loan-toggle${expandedLoans.has(r.l.id) ? ' is-open' : ''}" data-loan-schedule="${r.l.id}" aria-expanded="${expandedLoans.has(r.l.id)}" title="Splátkový kalendář"><span class="year-chevron"></span><span class="font-medium">${escapeHtml(r.l.bank)}</span></button>${r.l.note ? `<br><span class="text-xs t-muted">${escapeHtml(r.l.note)}</span>` : ''}`,
+      cell: (r) => `<button type="button" class="loan-toggle${expandedLoans.has(r.l.id) ? ' is-open' : ''}" data-loan-schedule="${r.l.id}" aria-expanded="${expandedLoans.has(r.l.id)}" title="Splátkový kalendář"><span class="year-chevron"></span>${bankLogoHtml(r.l.bank)}<span class="font-medium">${escapeHtml(r.l.bank)}</span></button>${r.l.note ? `<br><span class="text-xs t-muted">${escapeHtml(r.l.note)}</span>` : ''}`,
       total: () => 'Celkem',
     },
     { label: 'Výše úvěru', right: true, cell: (r) => `<span class="num">${moneyHtml(r.l.amount)}</span>`, total: () => moneyHtml(totals.amount) },
@@ -1196,8 +1293,8 @@ function renderLoansTable() {
       total: () => '',
     },
     { label: 'Úrok ve splátce', right: true, x: true, cell: (r) => (r.share == null ? dash : `<span class="num">${Math.round(r.share * 100)} %</span>`), total: () => '' },
-    { label: 'Poměr LTV', x: true, cell: (r) => (r.ltv ? r.ltv.text : dash), total: () => '' },
-    { label: 'Vlastní vklad', right: true, x: true, cell: (r) => (r.ltv ? `<span class="num">${moneyHtml(r.ltv.ownAmount)}</span>` : dash), total: () => (totals.own ? moneyHtml(totals.own) : '') },
+    { label: 'Poměr LTV', right: true, x: true, cell: (r) => (r.ltv && r.ltv.text ? `<span class="num">${r.ltv.text}</span>` : dash), total: () => '' },
+    { label: 'Vlastní zdroje', right: true, x: true, cell: (r) => (r.ltv && r.ltv.own != null ? `<span class="num">${moneyHtml(r.ltv.own)}</span>` : dash), total: () => (totals.own ? moneyHtml(totals.own) : '') },
     { label: 'Nemovitost', x: true, cell: (r) => linkedName(r.l) || dash, total: () => '' },
     { label: '', right: true, actions: true, cell: (r) => actionButtons('data-edit-loan', 'data-delete-loan', r.l.id), total: () => '' },
   ];
@@ -1250,7 +1347,6 @@ function init() {
   wirePropertyFormUi();
   wireLoanFormUi();
   wireEventFormUi();
-  wireScenarioTable();
   wireKpiFormulaToggles();
   wirePdfExportButtons();
   document.getElementById('scenario-horizon').addEventListener('input', (e) => {
@@ -1517,17 +1613,26 @@ function submitPropertyForm(e) {
 
 /* ---------- MOJE ÚVĚRY ---------- */
 
-/** Poměr LTV (dluh/vlastní): z hodnoty při sjednání, jinak z tržní hodnoty financované nemovitosti. */
+/**
+ * LTV a vlastní zdroje u úvěru. Zadává je uživatel ručně (jeden úvěr může financovat víc nemovitostí, takže se z
+ * jedné nemovitosti spočítat nedají). Starší záznam jen s hodnotou nemovitosti při sjednání se dopočítá jako dřív.
+ * Vrací { text: "80/20" nebo null, own: Kč nebo null }, nebo null, když není co ukázat.
+ */
 function ltvInfo(loan) {
-  let propValue = Number(loan.property_value_at_origination);
-  if (!propValue || propValue <= 0) {
-    const linked = loan.property_id && state.properties.find((p) => p.id === loan.property_id);
-    propValue = linked ? Number(linked.market_value) || 0 : 0;
+  const num = (v) => (v == null || v === '' || isNaN(Number(v)) ? null : Number(v));
+  let pct = num(loan.ltv_percent);
+  let own = num(loan.own_funds);
+  if (pct == null && own == null) {
+    const propValue = num(loan.property_value_at_origination);
+    if (propValue && propValue > 0) {
+      const amount = Number(loan.amount) || 0;
+      pct = Math.min(1, amount / propValue) * 100;
+      own = Math.max(0, propValue - amount);
+    }
   }
-  if (!propValue || propValue <= 0) return null;
-  const amount = Number(loan.amount) || 0;
-  const ltvPct = Math.round(Math.min(1, amount / propValue) * 100);
-  return { text: `${ltvPct}/${100 - ltvPct}`, ownAmount: Math.max(0, propValue - amount) };
+  if (pct == null && own == null) return null;
+  const rounded = pct == null ? null : Math.round(pct);
+  return { text: rounded == null ? null : `${rounded}/${Math.max(0, 100 - rounded)}`, own, pct: rounded };
 }
 
 function loanForm() {
@@ -1606,7 +1711,15 @@ function updateLoanBadges() {
     .join(' · ');
 
   const linked = f.elements['property_id'].value;
-  document.getElementById('loan-details-badge').textContent = linked ? propertyName(linked) : '';
+  const ltvRaw = f.elements['ltv_percent'].value.trim();
+  const ownRaw = f.elements['own_funds'].value.trim();
+  document.getElementById('loan-details-badge').textContent = [
+    linked ? propertyName(linked) : '',
+    ltvRaw ? `LTV ${fmtNumber(parseFormNumber(ltvRaw))} %` : '',
+    ownRaw ? `vlastní ${fmtMoney(parseFormNumber(ownRaw))}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 const toInputDate = (date) =>
@@ -1667,6 +1780,7 @@ function fillLoanForm(id) {
   showFormError('loan-form-error', '');
   f.elements['id'].value = l.id;
   f.elements['bank'].value = l.bank;
+  if (f.elements['bank']._comboRefresh) f.elements['bank']._comboRefresh();
   setFormattedValue(f.elements['amount'], l.amount);
   setFormattedValue(f.elements['interest_rate'], +(l.interest_rate * 100).toFixed(4));
   setFormattedValue(f.elements['monthly_payment'], l.monthly_payment || '');
@@ -1681,7 +1795,10 @@ function fillLoanForm(id) {
   setFormattedValue(f.elements['refinance_rate'], l.refinance_rate != null ? l.refinance_rate : '');
   f.elements['refinance_years'].value = l.refinance_years != null ? l.refinance_years : '';
   f.elements['note'].value = l.note || '';
-  setFormattedValue(f.elements['property_value_at_origination'], l.property_value_at_origination || '');
+  // LTV a vlastní zdroje: ruční hodnoty, u staršího záznamu se předvyplní z hodnoty nemovitosti při sjednání
+  const ltv = ltvInfo(l);
+  setFormattedValue(f.elements['ltv_percent'], l.ltv_percent != null ? l.ltv_percent : ltv && ltv.pct != null ? ltv.pct : '');
+  setFormattedValue(f.elements['own_funds'], l.own_funds != null ? l.own_funds : ltv && ltv.own != null ? Math.round(ltv.own) : '');
   renderLoanPropertySelect();
   f.elements['property_id'].value = l.property_id || '';
   renderLoanCollateralChecklist(null);
@@ -1690,7 +1807,7 @@ function fillLoanForm(id) {
   const [fixationAcc, refinanceAcc, detailsAcc] = accordions;
   fixationAcc.open = !!(l.start_date || end || l.fixation_years != null || l.rate_after_fixation != null || l.maturity_date || l.payment_after_fixation);
   refinanceAcc.open = !!(l.refinance_date || l.refinance_rate != null || l.refinance_years);
-  detailsAcc.open = !!(l.property_value_at_origination || l.property_id || l.note);
+  detailsAcc.open = !!(l.ltv_percent != null || l.own_funds != null || l.property_value_at_origination || l.property_id || l.note);
   document.getElementById('loan-form-title').textContent = 'Upravit úvěr';
   document.getElementById('loan-submit-label').textContent = 'Uložit změny';
   document.getElementById('loan-form-card').classList.add('is-editing');
@@ -1768,7 +1885,8 @@ function submitLoanForm(e) {
     refinance_rate: num('refinance_rate'),
     refinance_years: f.elements['refinance_years'].value.trim() ? Math.max(0, Number(f.elements['refinance_years'].value) || 0) : null,
     note: f.elements['note'].value.trim() || null,
-    property_value_at_origination: num('property_value_at_origination'),
+    ltv_percent: num('ltv_percent'),
+    own_funds: num('own_funds'),
     property_id: f.elements['property_id'].value || null,
     collateral,
   };
@@ -2139,6 +2257,12 @@ function shortEventLabel(ev) {
   return `${eventLabel(ev)} ${eventValueText(ev)}`;
 }
 
+/** Proč se nemovitost prodala (nápověda u štítku prodeje ve Scénářích). */
+function saleReasonTitle(s) {
+  if (s.reason === 'po') return 'PO: prodej co nejdřív';
+  return `Nejméně výkonná z těch, které už prošly časovým testem: výnos z nájmu ${fmtPercent(s.yieldPct)}, zhodnocení ${fmtPercent(s.growth)}`;
+}
+
 function saleChipText(s) {
   const tax = s.taxExempt ? 'bez daně' : `daň ${fmtMoney(s.estimatedSaleTax)}`;
   return `Prodej: ${escapeHtml(s.propertyName)}${s.owner === 'po' ? ' (PO)' : ''} · ${fmtMoney(s.saleProceeds)} (${tax})`;
@@ -2211,9 +2335,8 @@ function renderScenarioTable() {
     {
       label: 'Rok',
       cell: (r) => {
-        const expandedYear = expandedYears.has(r.year);
         const hasEvent = r.sales.length > 0 || state.events.some((ev) => Number(ev.year_from) === r.year);
-        return `<button type="button" class="year-pill" aria-expanded="${expandedYear}" aria-label="Rok ${r.year} - detail po nemovitostech"><span class="year-chevron"></span>${r.year}</button>${r.months && r.months < 12 ? `<span class="year-part t-faint text-xs ml-1">${monthRange(r.months)}</span>` : ''}${hasEvent ? '<span class="ev-dot" title="Událost v tomto roce"></span>' : ''}`;
+        return `<span class="year-label">${r.year}</span>${r.months && r.months < 12 ? `<span class="year-part t-faint text-xs ml-1">${monthRange(r.months)}</span>` : ''}${hasEvent ? '<span class="ev-dot" title="Událost v tomto roce"></span>' : ''}`;
       },
     },
     { label: 'Majetek', right: true, cell: (r) => money(r.totalValue) },
@@ -2236,7 +2359,7 @@ function renderScenarioTable() {
       cell: (r) => {
         const starting = state.events.filter((ev) => Number(ev.year_from) === r.year);
         return (
-          r.sales.map((s) => `<span class="event-chip event-chip-sale">${saleChipText(s)}</span>`).join('') +
+          r.sales.map((s) => `<span class="event-chip event-chip-sale" title="${escapeHtml(saleReasonTitle(s))}">${saleChipText(s)}</span>`).join('') +
           starting.map((ev) => `<span class="event-chip">${escapeHtml(shortEventLabel(ev))}</span>`).join('')
         );
       },
@@ -2245,155 +2368,8 @@ function renderScenarioTable() {
   const cols = visibleColumns(columns, key);
   document.getElementById('scenario-thead').innerHTML = headHtml(cols);
   document.getElementById('scenario-tbody').innerHTML = rows
-    .map((r) => {
-      const main = `<tr class="year-row" data-year="${r.year}">${cols.map((c) => `<td class="${c.right ? 'text-right' : ''}">${c.cell(r)}</td>`).join('')}</tr>`;
-      return expandedYears.has(r.year) ? main + `<tr class="year-detail"><td colspan="${cols.length}">${buildYearDetail(r)}</td></tr>` : main;
-    })
+    .map((r) => `<tr>${cols.map((c) => `<td class="${c.right ? 'text-right' : ''}">${c.cell(r)}</td>`).join('')}</tr>`)
     .join('');
-}
-
-/**
- * Detail roku po nemovitostech: stejné veličiny jako v hlavním řádku, ale za jednotlivé nemovitosti.
- * Výnos (nájem − náklady) je známý vždy. Dluh, splátka a cashflow po splátkách se znají, když je úvěr přiřazený
- * k nemovitosti ("Financuje nemovitost" nebo zástava); úvěry bez nemovitosti mají vlastní řádek, takže součet
- * řádků vždy sedí na cashflow v hlavní tabulce (řádek Celkem).
- */
-function buildYearDetail(r) {
-  const expanded = isExpanded('scenario');
-  const hasFlows = r.cashflow != null;
-  const loans = r.perLoan || [];
-  const unassigned = loans.filter((l) => !l.shares || Object.keys(l.shares).length === 0);
-  const everyLoanLinked = state.loans.every((l) => Object.keys(calc.loanPropertyShares(l, state.properties)).length > 0);
-  const money = (v, cls) => (v == null ? '<span class="t-faint">—</span>' : `<span class="${cls || ''}">${moneyHtml(v)}</span>`);
-  const sign = (v) => (v == null ? '' : v < 0 ? 'figure-negative' : 'figure-positive');
-  const label = (full, short) => `<span class="m-full">${full}</span><span class="m-short">${short}</span>`;
-
-  const propertyCols = [
-    { label: 'Nemovitost', f: (x) => x.name },
-    { label: 'Majetek', f: (x) => money(x.value) },
-    { label: 'Dluh', xcol: true, f: (x) => money(x.debt, 'figure-negative') },
-    { label: 'Vlastní kapitál', xcol: true, f: (x) => money(x.equity) },
-    { label: 'Nájem', xcol: true, f: (x) => money(x.rent, 'figure-positive') },
-    { label: 'Náklady', xcol: true, f: (x) => money(x.costs, 'figure-negative') },
-    { label: 'Zhodnocení', xcol: true, f: (x) => money(x.appreciation) },
-    { label: label('Výnos (nájem − náklady)', 'Výnos'), f: (x) => money(x.yield, sign(x.yield)) },
-    { label: 'Splátka', xcol: true, f: (x) => money(x.service, 'figure-negative') },
-    { label: label('Cashflow po splátkách', 'Cashflow'), f: (x) => money(x.cash, sign(x.cash)) },
-  ].filter((c) => expanded || !c.xcol);
-
-  const rowHtml = (x, cls) => `<tr class="${cls || ''}">${propertyCols.map((c) => `<td>${c.f(x)}</td>`).join('')}</tr>`;
-
-  const propertyRows = (r.perProperty || []).map((pp) => {
-    const linked = loans.filter((l) => (l.shares && l.shares[pp.id]) > 0);
-    const debtKnown = linked.length > 0 || everyLoanLinked;
-    const debt = debtKnown ? linked.reduce((s, l) => s + l.balance * l.shares[pp.id], 0) : null;
-    const service = debtKnown && hasFlows ? linked.reduce((s, l) => s + l.payment * l.shares[pp.id], 0) : null;
-    return rowHtml({
-      name: `<span class="font-medium">${escapeHtml(pp.name)}</span> ${pp.owner === 'po' ? '<span class="badge badge-po">PO</span>' : ''}${pp.sold ? ' <span class="badge badge-linked">prodáno</span>' : ''}`,
-      value: pp.value,
-      debt,
-      equity: debt == null ? null : pp.value - debt,
-      rent: hasFlows ? pp.rent : null,
-      costs: hasFlows ? pp.costs : null,
-      appreciation: hasFlows ? pp.appreciation : null,
-      yield: hasFlows ? pp.cashflow : null,
-      service,
-      cash: service == null ? null : pp.cashflow - service,
-    });
-  });
-
-  // úvěry, které se k žádné nemovitosti nedají přiřadit
-  if (unassigned.length) {
-    const debt = unassigned.reduce((s, l) => s + l.balance, 0);
-    const service = hasFlows ? unassigned.reduce((s, l) => s + l.payment, 0) : null;
-    propertyRows.push(
-      rowHtml({ name: '<span class="t-muted">Úvěry bez nemovitosti</span>', value: null, debt, equity: null, rent: null, costs: null, appreciation: null, yield: null, service, cash: service == null ? null : -service })
-    );
-  }
-  if (hasFlows && r.oneTime) {
-    propertyRows.push(rowHtml({ name: '<span class="t-muted">Jednorázově</span>', value: null, debt: null, equity: null, rent: null, costs: null, appreciation: null, yield: null, service: null, cash: r.oneTime }));
-  }
-  if ((r.perProperty || []).length) {
-    propertyRows.push(
-      rowHtml(
-        {
-          name: 'Celkem',
-          value: r.totalValue,
-          debt: r.totalDebt,
-          equity: r.equity,
-          rent: hasFlows ? r.totalRent : null,
-          costs: hasFlows ? r.totalCosts : null,
-          appreciation: hasFlows ? r.appreciationGain : null,
-          yield: hasFlows ? r.totalRent - r.totalCosts : null,
-          service: hasFlows ? r.totalInterest + r.totalPrincipal : null,
-          cash: r.cashflow,
-        },
-        'subtbl-total'
-      )
-    );
-  }
-
-  const sharesText = (l) => {
-    const names = Object.keys(l.shares || {}).map((id) => propertyName(id)).filter(Boolean);
-    return names.length ? escapeHtml(names.join(', ')) : '<span class="t-faint">—</span>';
-  };
-  const loanCols = [
-    { label: 'Úvěr', f: (l) => `<span class="font-medium">${escapeHtml(l.bank)}</span>` },
-    { label: 'Nemovitost', xcol: true, f: (l) => sharesText(l) },
-    { label: 'Zůstatek', f: (l) => money(l.balance, 'figure-negative') },
-    { label: 'Sazba', xcol: true, f: (l) => (hasFlows ? fmtPercent(l.rate) : '—') },
-    { label: 'Úrok', f: (l) => (hasFlows ? money(l.interest, 'figure-negative') : '—') },
-    { label: 'Jistina', f: (l) => (hasFlows ? money(l.principal) : '—') },
-    { label: 'Splátky', xcol: true, f: (l) => (hasFlows ? money(l.payment, 'figure-negative') : '—') },
-  ].filter((c) => expanded || !c.xcol);
-  const loanRows = loans.map((l) => `<tr>${loanCols.map((c) => `<td>${c.f(l)}</td>`).join('')}</tr>`).join('');
-
-  const active = state.events.filter((ev) => calc.eventAppliesInYear(ev, r.year));
-  const eventsHtml = active.length
-    ? `<div class="detail-title">Události v roce</div><div>${active
-        .map((ev) => `<span class="event-chip">${escapeHtml(shortEventLabel(ev))}${eventTargetNames(ev) !== 'Všechny' ? ' · ' + escapeHtml(eventTargetNames(ev)) : ''}</span>`)
-        .join('')}</div>`
-    : '';
-
-  const salesHtml = (r.sales || []).length
-    ? `<div class="detail-title">Prodej</div>${r.sales
-        .map((s) => {
-          const bought = s.acquisitionPrice > 0 ? `koupeno za ${fmtMoney(s.acquisitionPrice)}, prodáno za ${fmtMoney(s.marketValue)}` : `prodáno za ${fmtMoney(s.marketValue)}`;
-          const tax = s.taxExempt ? 'bez daně' : `daň ${fmtMoney(s.estimatedSaleTax)}`;
-          return `<div class="text-sm"><strong>${escapeHtml(s.propertyName)}</strong>${s.owner === 'po' ? ' (PO)' : ''}: ${bought}, ${tax}, výtěžek ${fmtMoney(s.saleProceeds)}${s.loanFullyCleared ? ' · dluh splacen' : ''}</div>`;
-        })
-        .join('')}`
-    : '';
-
-  return `<div class="detail-panel">
-    <div class="detail-title">Rok ${r.year} · podle nemovitostí</div>
-    <div class="overflow-x-auto"><table class="subtbl">
-      <thead><tr>${propertyCols.map((c) => `<th>${c.label}</th>`).join('')}</tr></thead>
-      <tbody>${propertyRows.join('') || `<tr><td colspan="${propertyCols.length}" class="t-faint">Žádné nemovitosti</td></tr>`}</tbody>
-    </table></div>
-    ${
-      loanRows
-        ? `<div class="detail-title">Úvěry</div><div class="overflow-x-auto"><table class="subtbl">
-      <thead><tr>${loanCols.map((c) => `<th>${c.label}</th>`).join('')}</tr></thead>
-      <tbody>${loanRows}</tbody></table></div>`
-        : ''
-    }
-    ${eventsHtml}
-    ${salesHtml}
-  </div>`;
-}
-
-function wireScenarioTable() {
-  document.getElementById('scenario-tbody').addEventListener('click', (e) => {
-    const row = e.target.closest('tr.year-row');
-    if (!row) return;
-    const year = Number(row.dataset.year);
-    if (expandedYears.has(year)) expandedYears.delete(year);
-    else expandedYears.add(year);
-    renderScenarioTable();
-    const pill = document.querySelector(`tr.year-row[data-year="${year}"] .year-pill`);
-    if (pill && e.target.closest('.year-pill')) pill.focus({ preventScroll: true });
-  });
 }
 
 function fmtCompact(n) {

@@ -593,7 +593,8 @@ function loanSchedule(loan, { events = [], startYear, maxYears = 40, startMonth 
  *   nejdřív, hned první rok, kdy je portfolio vlastní (settings.po_sell_asap,
  *   výchozí zapnuto) - dál zhodnocená hodnota by jen zvětšovala daň.
  * Pevné pravidlo bez výjimky: FO nemovitost se v běžném automatickém prodeji
- * NIKDY neprodá, dokud u ní neuplyne časový test.
+ * NIKDY neprodá, dokud u ní neuplyne časový test. Ze způsobilých nemovitostí se prodává ta nejméně výkonná:
+ * nejdřív podle výnosnosti z nájmu (nižší výnos dřív), potom podle zhodnocení (nižší dřív).
  */
 function projectPortfolio({ properties, loans, settings, events, horizonYears, startYear, startMonth }) {
   startYear = startYear || new Date().getFullYear();
@@ -793,9 +794,23 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
         estimatedSaleTax: candidate.estimatedSaleTax,
         taxExempt: candidate.taxExempt,
         triggeredByGain: cumulativeGain,
+        yieldPct: candidate.yieldPct,
+        growth: candidate.growth,
         loanFullyCleared: totalDebtAfterSale <= 0.01,
         cashAfter: cashReserve,
       });
+    };
+
+    // výkon nemovitosti v tomto roce (nájem, náklady, neobsazenost a růst už s událostmi) pro řazení kandidátů na prodej
+    const performanceOf = (p) => {
+      const pp = perProperty.find((x) => x.id === p.id);
+      return {
+        valueBase: pp ? pp.value : curValue[p.id], // hodnota na začátku roku, ke které se vztahuje nájem tohoto roku
+        rentMonthly: curRent[p.id],
+        costsAnnual: curCost[p.id],
+        vacancy: pp ? pp.vacancy : Number(p.vacancy_rate) || 0,
+        growth: pp ? pp.growth : Number(p.growth_rate) || 0,
+      };
     };
 
     if (autoSellEnabled) {
@@ -805,7 +820,7 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
           if (!isPO(p) || soldProperties.has(p.id) || curValue[p.id] <= 0) continue;
           const remainingValue = activeProps.filter((x) => !soldProperties.has(x.id)).reduce((s, x) => s + curValue[x.id], 0);
           if (remainingValue - curValue[p.id] < minPortfolioValue) continue;
-          sell(scoreSaleCandidate(p, curValue[p.id], capGainsTaxRate, saleDate, poTaxRate), 'po');
+          sell(scoreSaleCandidate(p, curValue[p.id], capGainsTaxRate, saleDate, poTaxRate, performanceOf(p)), 'po');
         }
       }
 
@@ -827,11 +842,12 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
         // cena nejlevnější dostupné nemovitosti - "kolik reálně stojí náhrada".
         const threshold = saleTriggerAmount > 0 ? saleTriggerAmount : cheapestValue;
         if (cumulativeGain >= threshold) {
+          // Prodává se nejméně výkonná nemovitost: nejdřív podle výnosnosti z nájmu (nižší se prodává dřív),
+          // při podobné výnosnosti podle zhodnocení (nižší dřív). Viz compareSaleCandidates.
           const candidates = unsold
-            .map((p) => scoreSaleCandidate(p, curValue[p.id], capGainsTaxRate, saleDate, poTaxRate))
-            .sort((a, b) => b.score - a.score);
-          const fullyCovers = candidates.find((c) => c.netProceeds >= totalDebtNow);
-          sell(fullyCovers || candidates[0], 'gain');
+            .map((p) => scoreSaleCandidate(p, curValue[p.id], capGainsTaxRate, saleDate, poTaxRate, performanceOf(p)))
+            .sort(compareSaleCandidates);
+          sell(candidates[0], 'gain');
           cumulativeGain = 0;
         }
       }
@@ -895,26 +911,46 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
 }
 
 /**
- * Ohodnotí, jak vhodná je nemovitost k prodeji (vysoké zhodnocení, ideálně po
- * časovém testu, slabý provozní výnos = horší kandidát na držení).
+ * Podklady pro rozhodnutí o prodeji nemovitosti: výnosnost z nájmu, zhodnocení a odhad daně z prodeje.
+ *
+ * yieldPct = čistá výnosnost z nájmu = (nájem za rok po neobsazenosti − náklady za rok) ÷ hodnota na začátku roku.
+ * Počítá se z nájmu, nákladů a hodnoty v roce prodeje (`perf`), jinak z údajů zadaných u nemovitosti. growth = roční zhodnocení.
  *
  * estimatedSaleTax = odhad daně z příjmu z PRODEJE, KDYBY se nemovitost prodala
  * teď. Platí se jen jednou při prodeji a jen pokud ještě neuplynul časový test -
  * po jeho splnění je zisk z prodeje od daně osvobozen (§4 ZDP). U PO se daň
  * platí vždy (sazbou poTaxRate).
  */
-function scoreSaleCandidate(property, marketValue, capGainsTaxRate, today, poTaxRate) {
+function scoreSaleCandidate(property, marketValue, capGainsTaxRate, today, poTaxRate, perf) {
   const gain = marketValue - (Number(property.acquisition_price) || 0);
   const gainPct = marketValue > 0 ? gain / marketValue : 0;
   const tt = timeTestInfo(property, today);
   const taxRate = isPO(property) && poTaxRate != null ? poTaxRate : capGainsTaxRate;
-  const rentAnnual = (Number(property.rent) || 0) * 12 * (1 - (Number(property.vacancy_rate) || 0));
-  const costsAnnual = (Number(property.monthly_costs) || 0) * 12;
-  const yieldPct = marketValue > 0 ? (rentAnnual - costsAnnual) / marketValue : 0;
+  const rentMonthly = perf ? perf.rentMonthly : Number(property.rent) || 0;
+  const vacancy = perf ? perf.vacancy : Number(property.vacancy_rate) || 0;
+  const costsAnnual = perf ? perf.costsAnnual : (Number(property.monthly_costs) || 0) * 12;
+  const growth = perf ? perf.growth : Number(property.growth_rate) || 0;
+  // výnosnost se vztahuje k hodnotě na začátku roku (ke které patří tento nájem), ať ji zhodnocení nezkresluje podruhé
+  const valueBase = perf && perf.valueBase > 0 ? perf.valueBase : marketValue;
+  const yieldPct = valueBase > 0 ? (rentMonthly * 12 * (1 - vacancy) - costsAnnual) / valueBase : 0;
   const estimatedSaleTax = tt.done ? 0 : Math.max(gain, 0) * taxRate;
   const netProceeds = marketValue - estimatedSaleTax;
-  const score = gainPct * 2 + (tt.done ? 0.5 : -0.3) - yieldPct * 1.5;
-  return { property, marketValue, gain, gainPct, taxExempt: tt.done, timeTestText: tt.text, yieldPct, estimatedSaleTax, netProceeds, score };
+  return { property, marketValue, gain, gainPct, taxExempt: tt.done, timeTestText: tt.text, yieldPct, growth, estimatedSaleTax, netProceeds };
+}
+
+/** Výnosnosti se porovnávají po pásmech této šířky (0,25 p. b.): v rámci pásma se berou jako stejné a rozhoduje zhodnocení. */
+const SALE_YIELD_BAND = 0.0025;
+
+/**
+ * Pořadí prodeje: nejméně výkonná nemovitost první. Přednější kritérium je výnosnost z nájmu (nižší se prodává dřív),
+ * druhé kritérium zhodnocení (nižší dřív). Při úplné shodě rozhoduje přesná výnosnost.
+ */
+function compareSaleCandidates(a, b) {
+  const bandA = Math.round(a.yieldPct / SALE_YIELD_BAND);
+  const bandB = Math.round(b.yieldPct / SALE_YIELD_BAND);
+  if (bandA !== bandB) return bandA - bandB;
+  if (a.growth !== b.growth) return a.growth - b.growth;
+  return a.yieldPct - b.yieldPct;
 }
 
 /* =========================================================================
@@ -1057,6 +1093,7 @@ window.calc = {
   freePledgeValue,
   loanPropertyShares,
   scoreSaleCandidate,
+  compareSaleCandidates,
   projectPortfolio,
   pledgePurchaseCapacity,
   payDownDebtWithCash,

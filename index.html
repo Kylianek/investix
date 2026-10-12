@@ -13,7 +13,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Investix</title>
-<link rel="icon" type="image/png" href="assets/logo.png?v=1791735118" />
+<link rel="icon" type="image/png" href="assets/logo.png?v=1791809724" />
 <script>
   /* Motiv se nastaví ještě před vykreslením, ať stránka neprobliká (volba motivu je jen vzhled, ne data). */
   try {
@@ -27,7 +27,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="css/style.css?v=1791735118" />
+<link rel="stylesheet" href="css/style.css?v=1791809724" />
 </head>
 <body class="min-h-screen">
 
@@ -35,7 +35,7 @@
     <header class="app-header">
       <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
         <h1 class="flex items-center gap-2">
-          <img src="assets/logo.png?v=1791735118" alt="" width="32" height="32" class="shrink-0" />
+          <img src="assets/logo.png?v=1791809724" alt="" width="32" height="32" class="shrink-0" />
           <span class="brand-name">Investix</span>
         </h1>
         <div class="flex items-center gap-2 ml-auto" id="header-controls">
@@ -412,18 +412,22 @@
                   <span class="acc-badge" id="loan-details-badge"></span>
                   <span class="acc-chevron"></span>
                 </summary>
-                <div class="acc-body grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div class="acc-body grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <label class="flex flex-col gap-1">
                     <span class="label">Financuje nemovitost</span>
                     <select name="property_id" id="loan-property-select" class="input"></select>
                   </label>
                   <label class="flex flex-col gap-1">
-                    <span class="label">Hodnota nemovitosti při sjednání</span>
-                    <input name="property_value_at_origination" data-unit="money" class="input" />
-                  </label>
-                  <label class="flex flex-col gap-1">
                     <span class="label">Poznámka</span>
                     <input name="note" class="input" />
+                  </label>
+                  <label class="flex flex-col gap-1">
+                    <span class="label">LTV</span>
+                    <input name="ltv_percent" data-unit="percent" class="input" />
+                  </label>
+                  <label class="flex flex-col gap-1">
+                    <span class="label">Vlastní zdroje</span>
+                    <input name="own_funds" data-unit="money" class="input" />
                   </label>
                 </div>
               </details>
@@ -722,9 +726,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/calc.js?v=1791735118"></script>
-  <script src="js/app.js?v=1791735118"></script>
-  <script src="js/cloud.js?v=1791735118"></script>
-  <script src="js/auth.js?v=1791735118"></script>
+  <script src="js/calc.js?v=1791809724"></script>
+  <script src="js/app.js?v=1791809724"></script>
+  <script src="js/cloud.js?v=1791809724"></script>
+  <script src="js/auth.js?v=1791809724"></script>
 </body>
 </html>

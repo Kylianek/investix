@@ -762,6 +762,17 @@ input[type='date'].input {
 .combo .input {
   padding-right: 2.2rem;
 }
+.combo .input.has-lead {
+  padding-left: 2.45rem;
+}
+.combo-lead {
+  position: absolute;
+  left: 0.55rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  pointer-events: none;
+}
 .combo-caret {
   position: absolute;
   right: 0.35rem;
@@ -817,17 +828,51 @@ input[type='date'].input {
 .combo-item.is-selected {
   font-weight: 600;
 }
-.combo-avatar {
-  display: flex;
+/* Logo banky (původní ikony z assets/banks), u neznámé banky barevné písmeno */
+.bank-logo,
+.combo-logo,
+.combo-lead-logo {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 1.5rem;
   height: 1.5rem;
-  border-radius: 999px;
+  border-radius: 0.4rem;
+  object-fit: contain;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--border);
+  flex-shrink: 0;
+}
+.combo-lead-logo {
+  width: 1.4rem;
+  height: 1.4rem;
+}
+.bank-logo-fallback {
+  background: var(--primary);
+  color: #fff;
   font-size: 0.7rem;
   font-weight: 700;
-  color: #fff;
-  flex-shrink: 0;
+  box-shadow: none;
+}
+.bank-logo-generic {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.bank-logo-generic svg {
+  width: 62%;
+  height: 62%;
+}
+.combo-foot {
+  position: sticky;
+  bottom: -0.3rem;
+  margin: 0.3rem -0.3rem -0.3rem;
+  padding: 0.3rem;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 0.7rem 0.7rem;
+}
+.combo-custom {
+  color: var(--muted);
 }
 .combo-hint {
   padding: 0.45rem 0.55rem;
@@ -1166,62 +1211,11 @@ input[type='date'].input {
   border: 1px solid var(--border-strong);
 }
 
-/* Rok ve Scénářích - živé tlačítko, po kliknutí rozbalí detail po nemovitostech */
-.year-row {
-  cursor: pointer;
-}
-.year-row:hover {
-  background: var(--primary-soft) !important;
-}
-.year-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.2rem 0.65rem 0.2rem 0.55rem;
-  border-radius: 999px;
-  border: 1px solid transparent;
+/* Rok ve Scénářích */
+.year-label {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--text-strong);
-  cursor: pointer;
-  background: transparent;
-  transition: transform 0.18s ease, background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
-}
-.year-pill .year-chevron {
-  width: 0.45rem;
-  height: 0.45rem;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: rotate(-45deg);
-  transition: transform 0.25s ease;
-}
-.year-row:hover .year-pill,
-.year-pill:hover,
-.year-pill:focus-visible {
-  background: linear-gradient(135deg, var(--btn-1), var(--btn-2));
-  color: #fff;
-  transform: scale(1.08);
-  box-shadow: 0 4px 14px var(--primary-glow);
-  outline: none;
-}
-.year-pill[aria-expanded='true'] {
-  background: var(--primary-soft);
-  color: var(--primary-text);
-  border-color: var(--primary-2);
-}
-.year-pill[aria-expanded='true'] .year-chevron {
-  transform: rotate(45deg);
-}
-.year-row:hover .year-pill[aria-expanded='true'] {
-  background: linear-gradient(135deg, var(--btn-1), var(--btn-2));
-  color: #fff;
-}
-.year-detail > td {
-  padding: 0 !important;
-  background: var(--surface-2);
-}
-.year-detail:hover {
-  background: var(--surface-2) !important;
 }
 .detail-panel {
   padding: 0.9rem 1rem 1.1rem;
@@ -1843,6 +1837,41 @@ input[type='date'].input {
 .loan-detail:hover {
   background: var(--surface-2) !important;
 }
+/* Splátkový kalendář je tabulka uvnitř tabulky: bez těchhle pravidel se na ni uplatní styl hlavní tabulky
+   (záhlaví vlevo a lepivé, jiné odsazení) a názvy sloupců pak nesedí nad čísly. */
+.tbl .subtbl {
+  max-width: 56rem;
+}
+.tbl .subtbl thead th {
+  position: static;
+  z-index: auto;
+  background: transparent;
+  box-shadow: none;
+  text-align: right;
+  padding: 0.45rem 0.8rem;
+  border-bottom: 1px solid var(--border-strong);
+}
+.tbl .subtbl thead th:first-child {
+  text-align: left;
+}
+.tbl .subtbl tbody td,
+.tbl .subtbl tfoot td {
+  text-align: right;
+  vertical-align: middle;
+  padding: 0.45rem 0.8rem;
+}
+.tbl .subtbl tbody td:first-child,
+.tbl .subtbl tfoot td:first-child {
+  text-align: left;
+}
+.tbl .subtbl tfoot td {
+  border-radius: 0;
+}
+.tbl-card.is-compact .tbl .subtbl thead th,
+.tbl-card.is-compact .tbl .subtbl tbody td,
+.tbl-card.is-compact .tbl .subtbl tfoot td {
+  padding: 0.35rem 0.3rem;
+}
 .share-bar {
   display: inline-block;
   vertical-align: middle;
@@ -2006,8 +2035,7 @@ input[type='date'].input {
 
 /* Na úzkých obrazovkách se popisek rozbalovací karty zalomí pod název (nic se neořezává) */
 /* Detail řádku (kalendář úvěru, rozpis roku) nesmí roztahovat tabulku - posouvá se uvnitř */
-.loan-detail .detail-panel,
-.year-detail .detail-panel {
+.loan-detail .detail-panel {
   width: 0;
   min-width: 100%;
   box-sizing: border-box;
@@ -2028,10 +2056,6 @@ input[type='date'].input {
 .tbl-card.is-compact .share-bar {
   width: 1.6rem;
   margin-right: 0.25rem;
-}
-.tbl-card.is-compact .year-pill {
-  padding: 0.15rem 0.45rem 0.15rem 0.35rem;
-  gap: 0.25rem;
 }
 .tbl-card.is-compact .subtbl td:first-child {
   white-space: normal;
@@ -2148,10 +2172,6 @@ input[type='date'].input {
   [data-delete-event] {
     display: none !important;
   }
-  .year-pill .year-chevron {
-    display: none;
-  }
-
   header {
     border-bottom: 2px solid #2563eb !important;
     margin-bottom: 0.25cm;
