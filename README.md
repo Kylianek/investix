@@ -49,6 +49,13 @@ Simulace vývoje portfolia rok po roce:
 - Hodnota nemovitosti a nájem rostou **skládaně**; úvěry se splácejí **po měsících jako anuita** (viz
   Úvěry a splácení níže).
 - Každá nemovitost má **obsazenost**, **provozní náklady** a vlastní **růst nájmu** (výchozí je v Nastavení).
+- **Pořizovací a tržní cena**: nemovitost s datem pořízení v budoucnu (po dnešku) a zadanou pořizovací cenou přinese v roce
+  koupě do zhodnocení rozdíl **tržní hodnota − pořizovací cena** (koupíš za 1 mil. nemovitost za 1,5 mil. → 0,5 mil. zhodnocení
+  v tom období; koupě nad trhem je záporná). Je v číslech zhodnocení (Přehled, Zbývá po inflaci, nastřádané zhodnocení pro
+  automatický prodej), zvýrazněné je až po rozkliknutí vzorce: u zhodnocení, průměrného zhodnocení a Zbývá po inflaci v Přehledu,
+  u složeného růstu ve Scénářích a v bublině prodeje, který toto zhodnocení spustilo. Průměrný a složený růst počítají jen s růstem
+  hodnoty. Nemovitost, kterou už vlastníš (datum dnes nebo dřív, i prázdné), a prázdná pořizovací cena (= koupeno za tržní
+  hodnotu) nic nepřidají. Cena koupě se z hotovosti dál neodečítá, v modelu ji jde zohlednit úvěrem se zřízením k datu koupě.
 - **FO / PO**: nemovitost pořízená na právnickou osobu nemá časový test a daň z prodeje se platí vždy,
   proto se při zapnutém automatickém prodeji prodá co nejdřív (první rok simulace). FO nemovitost se
   automaticky neprodá, dokud neuplyne časový test.

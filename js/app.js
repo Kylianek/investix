@@ -1470,7 +1470,9 @@ function saleWhyHtml(sale) {
   const cmp = sale.comparison;
   const trigger =
     sale.threshold > 0
-      ? `<p class="popover-note">Prodej se spustil, protože nastřádané zhodnocení ${fmtMoney(sale.triggeredByGain)} dosáhlo prahu ${fmtMoney(sale.threshold)}. Výtěžek šel na umoření dluhu.</p>`
+      ? `<p class="popover-note">Prodej se spustil, protože nastřádané zhodnocení ${fmtMoney(sale.triggeredByGain)}${
+          sale.triggeredByPurchaseGain > 0 ? ` (z toho ${kpiMark(purchaseGainText(sale.triggeredByPurchaseGain))})` : ''
+        } dosáhlo prahu ${fmtMoney(sale.threshold)}. Výtěžek šel na umoření dluhu.</p>`
       : '';
   if (!cmp) {
     return `<div class="popover-sub">Proč se prodala</div><p>Nejméně výkonná z těch, které už prošly časovým testem: nájem ${fmtPerMillion((sale.yieldPct || 0) * 1e6)} ročně na 1 mil. hodnoty, zhodnocení ${fmtPercent(sale.growth)}.</p>${trigger}`;
@@ -3293,7 +3295,11 @@ function renderScenario() {
 
   setFormula('sc-kpi-end-equity-formula', `Majetek ${fmtMoney(last.totalValue)} − dluh ${fmtMoney(last.totalDebt)}`);
   setFormula('sc-kpi-end-debt-formula', 'Zbývající jistina všech úvěrů');
-  setFormula('sc-kpi-cagr-assets-formula', `Složený roční růst hodnoty nemovitostí za ${horizon} let`);
+  const purchaseTotal = rows.reduce((s, r) => s + (r.purchaseGain || 0), 0);
+  setFormulaHtml(
+    'sc-kpi-cagr-assets-formula',
+    `Složený roční růst hodnoty nemovitostí za ${horizon} let${purchaseTotal ? ` (${kpiMark(purchaseGainText(purchaseTotal))} se nepočítá)` : ''}`
+  );
   setFormula('sc-kpi-cumcf-formula', 'Součet ročních cashflow (po splátkách úroku i jistiny)');
 
   document.getElementById('scenario-chart').innerHTML = buildLineChartSVG([
@@ -3547,10 +3553,28 @@ function renderOverview() {
       'kpi-cashflow-formula',
       `Nájem ${fmtMoney(row.totalRent / div)} − náklady ${fmtMoney(row.totalCosts / div)} − úrok ${fmtMoney(row.totalInterest / div)} − jistina ${fmtMoney(row.totalPrincipal / div)}${oneTime}${changes.length ? '. ' + changes.join('; ') : ''}`
     );
-    setFormula('kpi-appreciation-formula', `Růst hodnoty nemovitostí za ${per}`);
-    setFormula('kpi-avg-growth-formula', `Zhodnocení ${fmtMoney(row.appreciationGain)} ÷ hodnota nemovitostí ${fmtMoney(row.realEstateValue)}${shortRow ? `, přepočteno z ${months} měsíců na rok` : ''}`);
+    // koupě nemovitosti v tomto období: rozdíl tržní hodnoty a pořizovací ceny je zhodnocení, v rozkliknutí zvýrazněné
+    const purchase = row.purchaseGain || 0;
+    const growth = row.appreciationGrowth != null ? row.appreciationGrowth : row.appreciationGain;
+    if (row.purchases && row.purchases.length) {
+      setFormulaHtml(
+        'kpi-appreciation-formula',
+        `Růst hodnoty nemovitostí za ${per} ${fmtMoney(growth / div)} ${purchase < 0 ? '−' : '+'} ${kpiMark(purchaseGainText(purchase / div))}${purchaseNotesHtml(row.purchases, div)}`
+      );
+    } else {
+      setFormula('kpi-appreciation-formula', `Růst hodnoty nemovitostí za ${per}`);
+    }
+    setFormulaHtml(
+      'kpi-avg-growth-formula',
+      `${purchase ? 'Růst hodnoty' : 'Zhodnocení'} ${fmtMoney(growth)} ÷ hodnota nemovitostí ${fmtMoney(row.realEstateValue)}${shortRow ? `, přepočteno z ${months} měsíců na rok` : ''}${
+        purchase ? ` (${kpiMark(purchaseGainText(purchase))} se do průměru nepočítá)` : ''
+      }`
+    );
     setFormula('kpi-inflation-loss-formula', `Inflace v roce ${row.year}`);
-    setFormula('kpi-real-appreciation-formula', `Zhodnocení − ztráta inflací ${fmtMoney((row.inflationLoss || 0) / div)}`);
+    setFormulaHtml(
+      'kpi-real-appreciation-formula',
+      `Zhodnocení − ztráta inflací ${fmtMoney((row.inflationLoss || 0) / div)}${purchase ? ` (v zhodnocení je ${kpiMark(purchaseGainText(purchase / div))})` : ''}`
+    );
   }
 
   const cashflowEl = document.getElementById('kpi-cashflow');
@@ -3631,6 +3655,30 @@ async function clearAllData() {
 function setFormula(id, text) {
   const el = document.getElementById(id);
   if (el) el.textContent = text;
+}
+
+/** Vzorec s HTML (zvýrazněné zhodnocení při koupi); texty z dat (názvy) se musí escapovat předem. */
+function setFormulaHtml(id, html) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = html;
+}
+
+/** Zvýrazněná část vzorce: zhodnocení při koupi nemovitosti (tržní hodnota − pořizovací cena). */
+const kpiMark = (text) => `<mark class="kpi-mark">${text}</mark>`;
+
+/** Zhodnocení při koupi jako částka s popiskem (u záporného ztráta). */
+function purchaseGainText(amount) {
+  return `${amount < 0 ? 'ztráta' : 'zhodnocení'} při koupi ${fmtMoney(Math.abs(amount))}`;
+}
+
+/** Řádky pod vzorcem: u které nemovitosti a z čeho zhodnocení při koupi vzniklo. */
+function purchaseNotesHtml(purchases, div) {
+  return (purchases || [])
+    .map(
+      (p) =>
+        `<span class="kpi-note">${escapeHtml(p.name)}: tržní hodnota ${fmtMoney(p.value)} − pořizovací cena ${fmtMoney(p.price)} = ${kpiMark(fmtMoney(p.gain))}${div > 1 ? `, v měsíčním zobrazení ÷ ${div}` : ''}</span>`
+    )
+    .join('');
 }
 
 function wireKpiFormulaToggles() {
