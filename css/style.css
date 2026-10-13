@@ -2269,22 +2269,6 @@ button.event-chip.is-open {
   vertical-align: middle;
 }
 
-/* ---------- Zhodnocení při koupi (tržní hodnota − pořizovací cena) je v rozkliknutých vzorcích a bublinách zvýrazněné ---------- */
-.kpi-mark {
-  background: var(--warn-soft);
-  color: var(--warn-text);
-  box-shadow: inset 0 0 0 1px var(--warn-border);
-  border-radius: 0.35rem;
-  padding: 0.05rem 0.35rem;
-  font-weight: 600;
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
-}
-.kpi-note {
-  display: block;
-  margin-top: 0.3rem;
-}
-
 /* ---------- Seznamy: jeden záznam = jeden řádek, bez posouvání do strany ---------- */
 /* Stránka je širší, aby se do seznamů vešlo co nejvíc sloupců; formuláře, Přehled a Nastavení zůstávají úzké. */
 .app-wrap {

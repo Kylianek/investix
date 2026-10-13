@@ -701,21 +701,6 @@ function loanSchedule(loan, { events = [], startYear, maxYears = 40, startMonth,
 }
 
 /**
- * Zhodnocení při koupi nemovitosti v budoucnu: rozdíl tržní hodnoty a pořizovací ceny (koupě pod trhem je zisk, nad trhem
- * ztráta) se počítá do zhodnocení v období koupě. Platí jen pro koupi, která teprve přijde (datum pořízení je po dnešku)
- * a jen když je pořizovací cena zadaná (prázdná = koupeno za tržní hodnotu). Nemovitost, kterou už vlastníš (datum dnes nebo
- * dřív, i doplněné "dnes"), ho nemá: její zhodnocení z doby před dneškem do simulace nepatří.
- * Vrací { price, gain } nebo null. `todayStart` je dnešní půlnoc.
- */
-function purchaseOf(property, marketValue, todayStart) {
-  const price = Number(property.acquisition_price);
-  if (!(price > 0) || !property.acquisition_date) return null;
-  const date = toDate(property.acquisition_date);
-  if (!(date > todayStart)) return null; // i neplatné datum (NaN) skončí tady
-  return { price, gain: marketValue - price };
-}
-
-/**
  * Hlavní simulace portfolia na `horizonYears` let dopředu.
  * properties/loans/settings: stejná data jako jinde v appce.
  * events: pole { type: 'growth'|'rent_growth'|'vacancy'|'inflation'|'interest'|'one_time',
@@ -729,11 +714,6 @@ function purchaseOf(property, marketValue, todayStart) {
  * Poslední řádek má jen stav (nemá už žádný další rok, ze kterého by tok počítal).
  * Daň z příjmu z pronájmu se tak počítá stejně pro "dnešek" i pro všechny
  * budoucí roky - na rozdíl od daně z prodeje se časového testu netýká.
- *
- * Zhodnocení řádku (appreciationGain) = růst hodnoty nemovitostí (appreciationGrowth) + zhodnocení při koupi (purchaseGain,
- * viz purchaseOf; `purchases` říká u které nemovitosti). Poměrové údaje (avgGrowthRate, a z něj cagrAssets) počítají jen
- * s růstem hodnoty, ať jednorázová koupě pod trhem nevyrobí nesmyslné procento. `today` (výchozí dnešek) je k odlišení koupě
- * v budoucnu od nemovitosti, kterou už vlastníš.
  *
  * Součástí simulace je i AUTOMATICKÝ PRODEJ nemovitosti na umoření dluhu,
  * VOLITELNÝ (viz karta "Automatický prodej" v Nastavení):
@@ -752,11 +732,8 @@ function purchaseOf(property, marketValue, todayStart) {
  * NIKDY neprodá, dokud u ní neuplyne časový test. Ze způsobilých nemovitostí se prodává ta nejméně výkonná:
  * nejdřív podle výnosnosti z nájmu (nižší výnos dřív), potom podle zhodnocení (nižší dřív).
  */
-function projectPortfolio({ properties, loans, settings, events, horizonYears, startYear, startMonth, today }) {
+function projectPortfolio({ properties, loans, settings, events, horizonYears, startYear, startMonth }) {
   startYear = startYear || new Date().getFullYear();
-  const nowCandidate = today ? toDate(today) : new Date();
-  const now = isNaN(nowCandidate) ? new Date() : nowCandidate;
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   loans = loans.map((l) => resolveLoan(l, settings));
   const timelineMonth = startMonth == null ? defaultStartMonth(startYear) : startMonth;
   const firstRowMonths = 12 - timelineMonth; // letošek: od dneška do prosince
@@ -799,7 +776,6 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
   let cashReserve = 0;
   let cumulativeCashflow = 0;
   let cumulativeGain = 0; // zhodnocení portfolia nastřádané od posledního automatického prodeje
-  let cumulativePurchaseGain = 0; // jeho část, která vznikla při koupi (stejně znehodnocená inflací)
   const rows = [];
 
   for (let k = 0; k <= horizonYears; k++) {
@@ -829,9 +805,6 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
         cashflow: null,
         cumulativeCashflow,
         appreciationGain: null,
-        appreciationGrowth: null,
-        purchaseGain: null,
-        purchases: [],
         avgGrowthRate: null,
         inflationRate: null,
         inflationLoss: null,
@@ -853,9 +826,7 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
     // --- TOK: co se stane během roku stateYear ---
     const inflation = resolvePortfolioRate(events, 'inflation', stateYear, inflationBase);
 
-    let appreciationGrowth = 0; // růst hodnoty nemovitostí během období
-    let purchaseGain = 0; // zhodnocení při koupi nemovitosti v tomto období (tržní hodnota − pořizovací cena)
-    const purchases = [];
+    let appreciationGain = 0;
     let totalRentNOI = 0;
     let totalRent = 0;
     let totalCosts = 0;
@@ -864,8 +835,7 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
     for (const p of activeProps) {
       // nájem a náklady se indexují od druhého roku vlastnictví (první rok jsou zadané hodnoty)
       const rentGrowth = resolvePortfolioRate(events, 'rent_growth', stateYear, rentGrowthBase(p, settings), p.id);
-      const firstYearOwned = !started.has(p.id);
-      if (!firstYearOwned) {
+      if (started.has(p.id)) {
         curRent[p.id] *= 1 + rentGrowth;
         curCost[p.id] *= 1 + inflation;
       }
@@ -877,13 +847,7 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
       const valueBefore = curValue[p.id];
       curValue[p.id] = valueBefore * Math.pow(1 + growth, yf);
       const gain = curValue[p.id] - valueBefore;
-      appreciationGrowth += gain;
-      // koupě v budoucnu: rozdíl tržní hodnoty a pořizovací ceny je zhodnocení v období koupě
-      const bought = firstYearOwned ? purchaseOf(p, valueBefore, todayStart) : null;
-      if (bought) {
-        purchaseGain += bought.gain;
-        purchases.push({ id: p.id, name: p.name, price: bought.price, value: valueBefore, gain: bought.gain });
-      }
+      appreciationGain += gain;
 
       const rentAnnual = curRent[p.id] * months * (1 - vacancy); // za období řádku (letošek jen zbytek roku)
       const costAnnual = curCost[p.id] * yf;
@@ -897,7 +861,6 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
         owner: isPO(p) ? 'po' : 'fo',
         value: valueBefore,
         appreciation: gain,
-        purchaseGain: bought ? bought.gain : 0,
         rent: rentAnnual,
         costs: costAnnual,
         cashflow: propertyNOI,
@@ -906,8 +869,6 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
         sold: false,
       });
     }
-
-    const appreciationGain = appreciationGrowth + purchaseGain;
 
     // Úvěry se umořují po jednom (každý má svou sazbu, splátku i případné zvýšení sazby ze scénáře).
     let totalInterest = 0;
@@ -971,7 +932,6 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
     // dokud se nerealizuje prodejem) - starší část součtu se každý rok
     // reálně znehodnotí, teprve pak se přičte letošní (ještě neznehodnocený) přírůstek.
     cumulativeGain = cumulativeGain / Math.pow(1 + inflation, yf) + appreciationGain;
-    cumulativePurchaseGain = cumulativePurchaseGain / Math.pow(1 + inflation, yf) + purchaseGain;
     const sales = [];
     const saleDate = new Date(stateYear + 1, 0, 1);
 
@@ -997,7 +957,6 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
         estimatedSaleTax: candidate.estimatedSaleTax,
         taxExempt: candidate.taxExempt,
         triggeredByGain: cumulativeGain,
-        triggeredByPurchaseGain: Math.max(0, cumulativePurchaseGain),
         yieldPct: candidate.yieldPct,
         growth: candidate.growth,
         loanFullyCleared: totalDebtAfterSale <= 0.01,
@@ -1057,7 +1016,6 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
           const notEligible = stillOwned.filter((p) => !eligibleIds.has(p.id)).map(score);
           sell(candidates[0], 'gain', { threshold, comparison: describeSaleChoice(candidates[0], candidates, notEligible) });
           cumulativeGain = 0;
-          cumulativePurchaseGain = 0;
         }
       }
     }
@@ -1073,10 +1031,7 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
       cashflow,
       cumulativeCashflow,
       appreciationGain,
-      appreciationGrowth,
-      purchaseGain,
-      purchases,
-      avgGrowthRate: realEstateValue > 0 ? appreciationGrowth / realEstateValue : 0,
+      avgGrowthRate: realEstateValue > 0 ? appreciationGain / realEstateValue : 0,
       inflationRate: inflation,
       inflationLoss,
       realAppreciation: appreciationGain - inflationLoss,
@@ -1101,7 +1056,7 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
   // (last.totalValue / first.totalValue) - to by jako "růst" započítalo i
   // kapitál vložený koupí DALŠÍ nemovitosti během horizontu, případně vliv
   // hotovostní rezervy/splácení dluhu. avgGrowthRate každého roku je naproti
-  // tomu čistý poměr appreciationGrowth ÷ realEstateValue toho roku (bez zhodnocení při koupi).
+  // tomu čistý poměr appreciationGain ÷ realEstateValue toho roku.
   let assetGrowthFactor = 1;
   let growthMonths = 0;
   for (let k = 0; k < horizonYears; k++) {
@@ -1397,7 +1352,6 @@ window.calc = {
   QUALITY_WEIGHTS,
   QUALITY_SCORES,
   projectPortfolio,
-  purchaseOf,
   payDownDebtWithCash,
   rebaseToYear,
   projectLoanAmount,
