@@ -39,6 +39,9 @@ const REMOVED_SETTING_KEYS = ['pledge_financing_enabled', 'pledge_max_ltv'];
 // zrušená pole úvěru: sazba a splátka po fixaci (po fixaci platí globální sazba hypotéky z Nastavení); odstraní se při načtení
 const REMOVED_LOAN_KEYS = ['rate_after_fixation', 'payment_after_fixation', 'keep_payment_after_fixation'];
 
+// zrušená pole nemovitosti: vlastní zástava (zástavy se zadávají jen u úvěru); odstraní se při načtení
+const REMOVED_PROPERTY_KEYS = ['has_lien', 'lien_bank', 'lien_value'];
+
 function defaultState() {
   return {
     properties: [],
@@ -440,7 +443,7 @@ function bankLogoHtml(name, cls = 'bank-logo') {
   return `<span class="${cls} bank-logo-fallback" style="background:${bankColor(trimmed)}">${escapeHtml(trimmed.charAt(0).toUpperCase())}</span>`;
 }
 
-/** Nabídka bank: číselník + banky, které už v datech jsou (úvěry, zástavy). */
+/** Nabídka bank: číselník + banky, které už v datech jsou (úvěry). */
 function bankOptions() {
   const seen = new Set();
   const out = [];
@@ -452,7 +455,6 @@ function bankOptions() {
   };
   CZ_BANKS.forEach(add);
   state.loans.forEach((l) => add(l.bank));
-  state.properties.forEach((p) => add(p.lien_bank));
   return out;
 }
 
@@ -905,32 +907,82 @@ function isExpanded(key) {
   return window.matchMedia('(min-width: 768px)').matches;
 }
 
+// Kolik nepovinných sloupců se u tabulky samo vypustilo, aby se vešla na šířku (jen bez volby uživatele)
+const tableFit = {};
+const fittingTables = new Set();
+
+/**
+ * Sloupce tabulky. Nepovinné ("x") se v kompaktní tabulce nezobrazují; v rozšířené se podle šířky vypouštějí od nejméně
+ * důležitého (větší "drop" = vypustí se dřív, při shodě ten víc vpravo), viz fitTable.
+ */
 function visibleColumns(columns, key) {
   const expanded = isExpanded(key);
-  return columns.filter((c) => expanded || !c.x);
+  let cols = columns.filter((c) => expanded || !c.x);
+  if (expanded && !printingNow && !(key in tableExpandedState)) {
+    const optional = cols
+      .map((c, i) => ({ c, i }))
+      .filter((o) => o.c.x)
+      .sort((a, b) => (b.c.drop || 0) - (a.c.drop || 0) || b.i - a.i);
+    const n = Math.min(tableFit[key] || 0, optional.length);
+    tableFit[key] = n;
+    const dropped = new Set(optional.slice(0, n).map((o) => o.c));
+    cols = cols.filter((c) => !dropped.has(c));
+  }
+  return cols;
 }
 
 function headHtml(cols) {
   return `<tr>${cols.map((c) => `<th class="${c.right ? 'text-right' : ''}">${c.label || ''}</th>`).join('')}</tr>`;
 }
 
-/** Nastaví kartě tabulky třídu (kompaktní / rozšířená) a popisek tlačítka. */
+/** Nastaví kartě tabulky třídu (kompaktní / rozšířená) a popisek tlačítka. Každé vykreslení začíná se všemi sloupci. */
 function applyTableMode(key) {
   const card = document.querySelector(`[data-table-card="${key}"]`);
   if (!card) return;
+  if (!fittingTables.has(key)) tableFit[key] = 0;
   const expanded = isExpanded(key);
   card.classList.toggle('is-expanded', expanded);
   card.classList.toggle('is-compact', !expanded);
-  const button = card.querySelector('[data-table-toggle]');
-  if (button) {
-    button.querySelector('.tbl-toggle-label').textContent = expanded ? 'Méně sloupců' : 'Více sloupců';
-    button.setAttribute('aria-pressed', String(expanded));
-  }
+  updateToggleLabel(key);
+}
+
+/** Tlačítko ukazuje "Méně sloupců", jen když jsou vidět všechny; jinak "Více sloupců". */
+function updateToggleLabel(key) {
+  const card = document.querySelector(`[data-table-card="${key}"]`);
+  const button = card && card.querySelector('[data-table-toggle]');
+  if (!button) return;
+  const all = isExpanded(key) && !(tableFit[key] > 0);
+  button.querySelector('.tbl-toggle-label').textContent = all ? 'Méně sloupců' : 'Více sloupců';
+  button.setAttribute('aria-pressed', String(all));
 }
 
 function rerenderTable(key) {
-  const renderers = { properties: renderPropertiesTable, loans: renderLoansTable, scenario: renderScenarioTable, events: renderEvents };
+  const renderers = { properties: renderPropertiesTable, loans: renderLoansTable, refi: renderRefinancingTable, scenario: renderScenarioTable, events: renderEvents };
   if (renderers[key]) renderers[key]();
+}
+
+/**
+ * Seznam se neposouvá do strany: když se na šířku nevejde, vypouštějí se nepovinné sloupce od nejméně důležitého, dokud se
+ * nevejde. Tlačítko "Více sloupců" ukáže všechny (pak jde posouvat). Skrytá záložka se změří, až se zobrazí (showTab).
+ */
+function fitTable(key) {
+  if (fittingTables.has(key) || printingNow || key in tableExpandedState) return;
+  const card = document.querySelector(`[data-table-card="${key}"]`);
+  if (!card || !card.classList.contains('is-expanded')) return;
+  const scroll = card.querySelector('.tbl-scroll');
+  if (!scroll || !scroll.clientWidth) return;
+  fittingTables.add(key);
+  try {
+    while (scroll.scrollWidth > scroll.clientWidth + 1) {
+      const before = tableFit[key] || 0;
+      tableFit[key] = before + 1;
+      rerenderTable(key);
+      if ((tableFit[key] || 0) <= before) break; // už není co vypustit
+    }
+  } finally {
+    fittingTables.delete(key);
+    updateToggleLabel(key);
+  }
 }
 
 function renderAllTables() {
@@ -945,11 +997,23 @@ function wireTableToggles() {
   document.querySelectorAll('[data-table-toggle]').forEach((button) =>
     button.addEventListener('click', () => {
       const key = button.dataset.tableToggle;
-      tableExpandedState[key] = !isExpanded(key);
+      if (key in tableExpandedState) tableExpandedState[key] = !tableExpandedState[key];
+      else tableExpandedState[key] = (tableFit[key] || 0) > 0 ? true : !isExpanded(key); // vypuštěné sloupce -> všechny
       rerenderTable(key);
     })
   );
   window.matchMedia('(min-width: 768px)').addEventListener('change', renderAllTables);
+  // jiná šířka okna = jiný počet sloupců, které se vejdou
+  let lastWidth = window.innerWidth;
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (window.innerWidth === lastWidth) return;
+      lastWidth = window.innerWidth;
+      renderAllTables();
+    }, 150);
+  });
   // PDF/tisk vždy se všemi sloupci
   window.addEventListener('beforeprint', () => {
     printingNow = true;
@@ -1001,12 +1065,15 @@ function migrateLegacyRefinancing(loan) {
   return copy;
 }
 
-function withoutRemovedLoanKeys(loan) {
-  if (!REMOVED_LOAN_KEYS.some((key) => key in loan)) return loan;
-  const copy = { ...loan };
-  for (const key of REMOVED_LOAN_KEYS) delete copy[key];
+function withoutKeys(item, keys) {
+  if (!keys.some((key) => key in item)) return item;
+  const copy = { ...item };
+  for (const key of keys) delete copy[key];
   return copy;
 }
+
+const withoutRemovedLoanKeys = (loan) => withoutKeys(loan, REMOVED_LOAN_KEYS);
+const withoutRemovedPropertyKeys = (property) => withoutKeys(property, REMOVED_PROPERTY_KEYS);
 
 function normalizeLoanList(loans, properties) {
   const alloc = {};
@@ -1023,7 +1090,7 @@ function normalizeLoanList(loans, properties) {
         .filter((id) => byId.has(id))
         .map((id) => {
           const p = byId.get(id);
-          const free = Math.max(0, (Number(p.market_value) || 0) - calc.ownLienValue(p) - (alloc[id] || 0));
+          const free = Math.max(0, (Number(p.market_value) || 0) - (alloc[id] || 0));
           alloc[id] = (alloc[id] || 0) + free;
           return { property_id: id, amount: Math.round(free) };
         });
@@ -1059,6 +1126,7 @@ function stampMissingDates() {
 }
 
 function normalizeStateData() {
+  state.properties = state.properties.map(withoutRemovedPropertyKeys);
   state.loans = normalizeLoanList(state.loans, state.properties);
   for (const key of REMOVED_SETTING_KEYS) delete state.settings[key];
   return stampMissingDates();
@@ -1067,6 +1135,7 @@ function normalizeStateData() {
 /** Podoba dat bez ohledu na verzi záznamu (porovnání s cloudem). */
 function normalizeSnapshot(snapshot) {
   const copy = JSON.parse(JSON.stringify(snapshot || {}));
+  if (Array.isArray(copy.properties)) copy.properties = copy.properties.map(withoutRemovedPropertyKeys);
   copy.loans = normalizeLoanList(Array.isArray(copy.loans) ? copy.loans : [], Array.isArray(copy.properties) ? copy.properties : []);
   if (copy.settings) for (const key of REMOVED_SETTING_KEYS) delete copy.settings[key];
   return copy;
@@ -1079,7 +1148,6 @@ function renderPropertiesTable() {
 
   const rows = state.properties.map((p) => {
     const marketValue = Number(p.market_value) || 0;
-    const own = calc.ownLienValue(p);
     const cross = [];
     for (const l of state.loans) {
       const amount = calc.loanCollateral(l).filter((c) => c.property_id === p.id).reduce((s, c) => s + c.amount, 0);
@@ -1089,7 +1157,6 @@ function renderPropertiesTable() {
     const r = {
       p,
       marketValue,
-      own,
       cross,
       crossSum,
       freed: calc.freePledgeValue(p, state.loans),
@@ -1102,7 +1169,7 @@ function renderPropertiesTable() {
     totals.yield += r.yield;
     totals.rent += Number(p.rent) || 0;
     totals.value += marketValue;
-    totals.lien += own + crossSum;
+    totals.lien += crossSum;
     totals.freed += r.freed;
     totals.appreciated += r.av;
     totals.growthWeighted += marketValue * (Number(p.growth_rate) || 0);
@@ -1112,12 +1179,17 @@ function renderPropertiesTable() {
   const dash = '<span class="t-faint">—</span>';
 
   const columns = [
-    { label: 'Nemovitost', cell: (r) => `${rankDotHtml(r.q)}${r.p.never_sell ? lockIconHtml() : ''}<span class="font-medium">${escapeHtml(r.p.name)}</span> ${ownerBadge(r.p)}`, total: () => 'Celkem' },
+    {
+      label: 'Nemovitost',
+      cell: (r) => `<span class="prop-cell">${rankDotHtml(r.q)}${r.p.never_sell ? lockIconHtml() : ''}<span class="font-medium prop-name" title="${escapeHtml(r.p.name)}">${escapeHtml(r.p.name)}</span> ${ownerBadge(r.p)}</span>`,
+      total: () => 'Celkem',
+    },
     { label: 'Nájem', right: true, cell: (r) => (r.p.rent ? `<span class="rent-positive num">+${moneyHtml(r.p.rent)}</span>` : dash), total: () => moneyHtml(totals.rent) },
     { label: 'Tržní hodnota', right: true, cell: (r) => `<span class="num">${moneyHtml(r.marketValue)}</span>`, total: () => moneyHtml(totals.value) },
     {
       label: 'Kvalita',
       x: true,
+      drop: 1,
       cell: (r) => rankBadgeHtml(r.q),
       total: () => {
         if (!(totals.value > 0)) return '';
@@ -1125,24 +1197,24 @@ function renderPropertiesTable() {
         return rankBadgeHtml({ score, band: calc.qualityBand(score) });
       },
     },
-    { label: 'Čistý výnos /rok', right: true, x: true, cell: (r) => `<span class="num ${r.yield < 0 ? 'figure-negative' : 'figure-positive'}">${moneyHtml(r.yield)}</span>`, total: () => moneyHtml(totals.yield) },
+    { label: 'Čistý výnos /rok', right: true, x: true, drop: 2, cell: (r) => `<span class="num ${r.yield < 0 ? 'figure-negative' : 'figure-positive'}">${moneyHtml(r.yield)}</span>`, total: () => moneyHtml(totals.yield) },
     {
       label: 'Zástava',
       right: true,
       x: true,
+      drop: 6,
       cell: (r) => {
         const lines = [];
         const bankLine = (bank, amount) => `<span class="pledge-line">${bankLogoHtml(bank, 'bank-logo bank-logo-sm')}${escapeHtml(bank || '?')} <span class="num t-muted">${fmtMoney(amount)}</span></span>`;
-        if (r.p.has_lien) lines.push(bankLine(r.p.lien_bank, r.own));
         for (const c of r.cross) lines.push(bankLine(c.bank, c.amount));
-        return lines.length ? lines.join('<br>') : dash;
+        return lines.length ? lines.join('') : dash;
       },
       total: () => `<span class="num">${fmtMoney(totals.lien)}</span>`,
     },
-    { label: 'Volné k zastavení', right: true, x: true, cell: (r) => `<span class="num">${moneyHtml(r.freed)}</span>`, total: () => moneyHtml(totals.freed) },
-    { label: 'Růst %', right: true, x: true, cell: (r) => `<span class="num">${fmtPercent(r.p.growth_rate)}</span>`, total: () => `<span class="num">${fmtPercent(avgGrowth)}</span>` },
-    { label: 'Po zhodnocení', right: true, x: true, cell: (r) => `<span class="num">${moneyHtml(r.av)}</span>`, total: () => moneyHtml(totals.appreciated) },
-    { label: 'Časový test - zbývá', x: true, cell: (r) => (r.tt.never ? '<span class="t-muted">Bez testu</span>' : r.tt.none ? dash : escapeHtml(r.tt.text)), total: () => '' },
+    { label: 'Volné k zastavení', right: true, x: true, drop: 7, cell: (r) => `<span class="num">${moneyHtml(r.freed)}</span>`, total: () => moneyHtml(totals.freed) },
+    { label: 'Růst %', right: true, x: true, drop: 4, cell: (r) => `<span class="num">${fmtPercent(r.p.growth_rate)}</span>`, total: () => `<span class="num">${fmtPercent(avgGrowth)}</span>` },
+    { label: 'Po zhodnocení', right: true, x: true, drop: 5, cell: (r) => `<span class="num">${moneyHtml(r.av)}</span>`, total: () => moneyHtml(totals.appreciated) },
+    { label: 'Časový test - zbývá', x: true, drop: 3, cell: (r) => (r.tt.never ? '<span class="t-muted">Bez testu</span>' : r.tt.none ? dash : escapeHtml(r.tt.text)), total: () => '' },
     { label: '', right: true, actions: true, cell: (r) => actionButtons('data-edit-property', 'data-delete-property', r.p.id), total: () => '' },
   ];
   const cols = visibleColumns(columns, key);
@@ -1160,131 +1232,7 @@ function renderPropertiesTable() {
   }
   tbody.querySelectorAll('[data-edit-property]').forEach((btn) => btn.addEventListener('click', () => fillPropertyForm(btn.dataset.editProperty)));
   tbody.querySelectorAll('[data-delete-property]').forEach((btn) => btn.addEventListener('click', () => deleteProperty(btn.dataset.deleteProperty)));
-}
-
-/** Zástava za úvěry, která na nemovitosti právě leží (u upravované nemovitosti podle uloženého stavu). */
-function propertyCrossPledged(propertyId) {
-  return propertyId ? calc.pledgedByLoans(propertyId, state.loans) : 0;
-}
-
-/** Volná hodnota k zastavení podle hodnot ve formuláři: hodnota − jiná zástava − zástavy za úvěry (řádky ve formuláři). */
-function propertyFreeFromForm() {
-  const f = propertyForm();
-  const market = parseFormNumber(f.elements['market_value'].value);
-  const lien = f.elements['has_lien'].checked ? parseFormNumber(f.elements['lien_value'].value) : 0;
-  const cross = readPropertyPledges().reduce((sum, p) => sum + (p.amount > 0 ? p.amount : 0), 0);
-  return { market, lien, cross, free: market - lien - cross };
-}
-
-/* ---------- Zástavy ve formuláři nemovitosti: řádek = úvěr + částka (ukládá se do úvěru, vidět je u obou) ---------- */
-
-/** Řádky zástav z formuláře nemovitosti: [{ loanId, amount, row }]. */
-function readPropertyPledges() {
-  return Array.from(document.querySelectorAll('#property-pledge-list .ppledge-row'))
-    .map((row) => ({ loanId: row.querySelector('.ppledge-loan').value, amount: parseFormNumber(row.querySelector('.ppledge-amount').value), row }))
-    .filter((p) => p.loanId);
-}
-
-function pledgeLoanOptionsHtml(selectedId) {
-  return state.loans
-    .map((l) => `<option value="${l.id}"${l.id === selectedId ? ' selected' : ''}>${escapeHtml(l.bank)} · úvěr ${fmtMoney(l.amount)}</option>`)
-    .join('');
-}
-
-/** Úvěr, který už má řádek jinde, nejde vybrat podruhé (jedna zástava na úvěr a nemovitost). */
-function refreshPledgeLoanOptions() {
-  const rows = Array.from(document.querySelectorAll('#property-pledge-list .ppledge-row'));
-  const used = rows.map((row) => row.querySelector('.ppledge-loan').value);
-  rows.forEach((row, i) => {
-    row.querySelectorAll('.ppledge-loan option').forEach((opt) => {
-      opt.disabled = opt.value !== used[i] && used.includes(opt.value);
-    });
-    const loan = state.loans.find((l) => l.id === used[i]);
-    row.querySelector('.ppledge-logo').innerHTML = bankLogoHtml(loan ? loan.bank : '');
-  });
-}
-
-function renderPropertyPledges(draft) {
-  const box = document.getElementById('property-pledge-list');
-  if (!box) return;
-  const items = (draft || []).filter((p) => state.loans.some((l) => l.id === p.loanId));
-  const add = document.getElementById('property-pledge-add');
-  if (!state.loans.length) {
-    box.innerHTML = '<p class="text-sm t-faint">Zatím žádné úvěry, zástava se přiřazuje k úvěru.</p>';
-    add.disabled = true;
-    updatePropertyBadges();
-    return;
-  }
-  add.disabled = false;
-  const head = items.length
-    ? '<div class="ppledge-head" aria-hidden="true"><span></span><span>Úvěr</span><span>Zastavená částka</span><span></span></div>'
-    : '';
-  box.innerHTML =
-    head +
-    items
-    .map(
-      (p) => `<div class="ppledge-row">
-        <span class="ppledge-logo"></span>
-        <select class="input ppledge-loan" aria-label="Úvěr">${pledgeLoanOptionsHtml(p.loanId)}</select>
-        <div class="ppledge-amount-wrap"><input class="input ppledge-amount" data-unit="money" aria-label="Zastavená částka" /></div>
-        <button type="button" class="ppledge-remove" aria-label="Odebrat zástavu" title="Odebrat zástavu"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
-        <p class="pledge-msg hidden"></p>
-      </div>`
-    )
-    .join('');
-  box.querySelectorAll('.ppledge-row').forEach((row, i) => {
-    const input = row.querySelector('.ppledge-amount');
-    enhanceUnitInput(input, 'money');
-    setFormattedValue(input, items[i].amount || '');
-  });
-  refreshPledgeLoanOptions();
-  updatePropertyBadges();
-}
-
-/** Částku zástavy drží v mezích 1 Kč až volná hodnota nemovitosti (bez ostatních řádků a jiné zástavy). */
-function clampPropertyPledge(row) {
-  const input = row.querySelector('.ppledge-amount');
-  const { market, lien } = propertyFreeFromForm();
-  const others = readPropertyPledges().filter((p) => p.row !== row).reduce((sum, p) => sum + (p.amount > 0 ? p.amount : 0), 0);
-  const max = Math.max(0, market - lien - others);
-  const amount = parseFormNumber(input.value);
-  if (amount > max) {
-    setFormattedValue(input, Math.floor(max));
-    showPledgeMessage(row, `Víc než volných ${fmtMoney(max)} zastavit nejde.`);
-  } else if (!(amount > 0)) {
-    setFormattedValue(input, Math.floor(max));
-  }
-}
-
-function addPropertyPledge() {
-  const used = readPropertyPledges().map((p) => p.loanId);
-  const loan = state.loans.find((l) => !used.includes(l.id));
-  if (!loan) {
-    showFormError('property-form-error', 'Každý úvěr už má u této nemovitosti zástavu.');
-    return;
-  }
-  const { market, lien, cross } = propertyFreeFromForm();
-  const free = Math.max(0, market - lien - cross);
-  if (free < 1) {
-    showFormError('property-form-error', 'Z této nemovitosti už není co zastavit.');
-    return;
-  }
-  const draft = readPropertyPledges().map((p) => ({ loanId: p.loanId, amount: p.amount }));
-  draft.push({ loanId: loan.id, amount: Math.floor(Math.min(free, Number(loan.amount) || free)) });
-  renderPropertyPledges(draft);
-  showFormError('property-form-error', '');
-  updatePropertyFreeReadout();
-}
-
-function updatePropertyFreeReadout() {
-  const el = document.getElementById('property-free-pledge');
-  if (!el) return;
-  const { market, lien, cross, free } = propertyFreeFromForm();
-  el.classList.toggle('is-over', free < 0);
-  el.innerHTML =
-    free < 0
-      ? `Zástavy přesahují hodnotu nemovitosti o <strong>${fmtMoney(-free)}</strong>`
-      : `Hodnota <strong>${fmtMoney(market)}</strong> · zastaveno <strong>${fmtMoney(lien + cross)}</strong> · volné k zastavení <strong>${fmtMoney(free)}</strong>`;
+  fitTable(key);
 }
 
 function showFormError(id, message) {
@@ -1676,6 +1624,7 @@ function renderLoansTable() {
       label: 'Úrok',
       right: true,
       x: true,
+      drop: 1,
       // sazba, která platí teď; globální z Nastavení (úvěr bez vlastní sazby, nebo už po fixaci) je ztlumená
       cell: (r) => `<span class="num${r.terms.rateIsDefault ? ' t-muted' : ''}"${r.terms.rateIsDefault ? ' title="Sazba hypotéky z Nastavení"' : ''}>${fmtPercent(r.terms.rate)}</span>`,
       total: () => '',
@@ -1689,22 +1638,24 @@ function renderLoansTable() {
     {
       label: 'Fixace',
       x: true,
+      drop: 2,
       cell: (r) => {
         const years = r.l.fixation_years != null && r.l.fixation_years !== '' ? `${fmtNumber(r.l.fixation_years, 1)} let` : '';
         return r.end ? `<span class="num">${fmtDate(toInputDate(r.end))}</span>${years ? ` <span class="text-xs t-muted">· ${years}</span>` : ''}` : years || dash;
       },
       total: () => '',
     },
-    { label: 'Zbývá fixace', x: true, cell: (r) => (r.fx ? escapeHtml(r.fx.text) : dash), total: () => '' },
+    { label: 'Zbývá fixace', x: true, drop: 4, cell: (r) => (r.fx ? escapeHtml(r.fx.text) : dash), total: () => '' },
     {
       label: 'Doplatí se',
       x: true,
+      drop: 3,
       cell: (r) => (r.merged ? `<span class="t-muted">sloučeno ${r.merged}</span>` : r.payoff ? `<span class="num">${String(r.payoff.month).padStart(2, '0')}/${r.payoff.year}</span>` : dash),
       total: () => '',
     },
-    { label: 'Úrok ve splátce', right: true, x: true, cell: (r) => (r.share == null ? dash : `<span class="num">${Math.round(r.share * 100)} %</span>`), total: () => '' },
-    { label: 'Poměr LTV', right: true, x: true, cell: (r) => (r.ltv && r.ltv.text ? `<span class="num">${r.ltv.text}</span>` : dash), total: () => '' },
-    { label: 'Nemovitost', x: true, cell: (r) => linkedName(r.l) || dash, total: () => '' },
+    { label: 'Úrok ve splátce', right: true, x: true, drop: 5, cell: (r) => (r.share == null ? dash : `<span class="num">${Math.round(r.share * 100)} %</span>`), total: () => '' },
+    { label: 'Poměr LTV', right: true, x: true, drop: 6, cell: (r) => (r.ltv && r.ltv.text ? `<span class="num">${r.ltv.text}</span>` : dash), total: () => '' },
+    { label: 'Nemovitost', x: true, drop: 7, cell: (r) => linkedName(r.l) || dash, total: () => '' },
     { label: '', right: true, actions: true, cell: (r) => actionButtons('data-edit-loan', 'data-delete-loan', r.l.id), total: () => '' },
   ];
   const cols = visibleColumns(columns, key);
@@ -1733,6 +1684,7 @@ function renderLoansTable() {
       renderLoansTable();
     })
   );
+  fitTable(key);
 }
 
 /* ---------- Inicializace ---------- */
@@ -1832,6 +1784,8 @@ function showTab(tabId) {
   document.querySelectorAll('.tab-panel').forEach((p) => p.classList.toggle('hidden', p.id !== tabId));
   const gear = document.getElementById('btn-settings');
   if (gear) gear.setAttribute('aria-pressed', String(tabId === 'tab-settings'));
+  // tabulky ve skryté záložce nešlo změřit: až teď se vejdou na šířku
+  document.querySelectorAll(`#${tabId} [data-table-card]`).forEach((card) => rerenderTable(card.dataset.tableCard));
   window.scrollTo({ top: 0 });
 }
 
@@ -2009,11 +1963,6 @@ function validateProperty(f) {
   v.field({ el: el('occupancy'), kind: 'percent', min: 0, max: 100 });
   v.field({ el: el('monthly_costs'), kind: 'money', min: 0, max: 1e8 });
   v.field({ el: el('rent_growth_rate'), kind: 'percent', min: -50, max: 100 });
-  if (el('has_lien').checked) {
-    v.field({ el: el('lien_bank'), kind: 'text', maxLen: 60 });
-    v.field({ el: el('lien_value'), kind: 'money', required: true, minExclusive: 0, max: MAX_MONEY });
-  }
-  for (const p of readPropertyPledges()) v.field({ el: p.row.querySelector('.ppledge-amount'), kind: 'money', required: true, minExclusive: 0, max: MAX_MONEY });
   return v.done();
 }
 
@@ -2250,18 +2199,12 @@ function updateQualityBadge() {
 
 function renderProperties() {
   renderPropertiesTable();
-  renderPropertyPledges(readPropertyPledges().map((p) => ({ loanId: p.loanId, amount: p.amount })));
   renderLoanPropertySelect();
   renderEventTargets();
-  updatePropertyFreeReadout();
 }
 
 function propertyForm() {
   return document.getElementById('property-form');
-}
-
-function setLienFieldsVisible(visible) {
-  document.getElementById('lien-fields').classList.toggle('hidden', !visible);
 }
 
 function setTimeTestEnabled(enabled) {
@@ -2270,18 +2213,6 @@ function setTimeTestEnabled(enabled) {
 
 function updatePropertyBadges() {
   const f = propertyForm();
-  const hasLien = f.elements['has_lien'].checked;
-  const lienBank = f.elements['lien_bank'].value.trim();
-  const lienValue = parseFormNumber(f.elements['lien_value'].value);
-  const pledges = readPropertyPledges().filter((p) => p.amount > 0);
-  const pledgeSum = pledges.reduce((sum, p) => sum + p.amount, 0);
-  const pledgeLoan = pledges.length === 1 ? state.loans.find((l) => l.id === pledges[0].loanId) : null;
-  const badgeParts = [];
-  if (pledges.length === 1) badgeParts.push(`${pledgeLoan ? pledgeLoan.bank : 'Úvěr'} · ${fmtMoney(pledgeSum)}`);
-  else if (pledges.length > 1) badgeParts.push(`${pledges.length}× · ${fmtMoney(pledgeSum)}`);
-  if (hasLien) badgeParts.push([lienBank || 'Jiná zástava', lienValue ? fmtMoney(lienValue) : ''].filter(Boolean).join(' · '));
-  document.getElementById('property-pledge-badge').textContent = badgeParts.length ? badgeParts.join(' + ') : 'Bez zástavy';
-
   const occRaw = f.elements['occupancy'].value.trim();
   const occupancy = occRaw ? parseFormNumber(occRaw) : 100;
   const costs = parseFormNumber(f.elements['monthly_costs'].value);
@@ -2294,31 +2225,11 @@ function updatePropertyBadges() {
   ]
     .filter(Boolean)
     .join(' · ');
-  updatePropertyFreeReadout();
 }
 
 function wirePropertyFormUi() {
   const f = propertyForm();
   fillQualitySelects();
-  f.elements['has_lien'].addEventListener('change', () => setLienFieldsVisible(f.elements['has_lien'].checked));
-  const pledgeList = document.getElementById('property-pledge-list');
-  document.getElementById('property-pledge-add').addEventListener('click', addPropertyPledge);
-  pledgeList.addEventListener('click', (e) => {
-    const btn = e.target.closest('.ppledge-remove');
-    if (!btn) return;
-    const row = btn.closest('.ppledge-row');
-    const draft = readPropertyPledges().filter((p) => p.row !== row).map((p) => ({ loanId: p.loanId, amount: p.amount }));
-    renderPropertyPledges(draft);
-    updatePropertyFreeReadout();
-  });
-  pledgeList.addEventListener('change', (e) => {
-    const row = e.target.closest('.ppledge-row');
-    if (!row) return;
-    if (e.target.classList.contains('ppledge-loan')) refreshPledgeLoanOptions();
-    else if (e.target.classList.contains('ppledge-amount')) clampPropertyPledge(row);
-    updatePropertyBadges();
-    showFormError('property-form-error', '');
-  });
   f.querySelectorAll('input[name="owner_type"]').forEach((radio) =>
     radio.addEventListener('change', () => setTimeTestEnabled(f.elements['owner_type'].value !== 'po'))
   );
@@ -2346,23 +2257,11 @@ function fillPropertyForm(id) {
   f.elements['owner_type'].value = calc.isPO(p) ? 'po' : 'fo';
   const years = calc.taxExemptYears(p);
   f.elements['tax_exempt_years'].value = String([0, 5, 10].includes(years) ? years : 10);
-  f.elements['has_lien'].checked = !!p.has_lien;
-  f.elements['lien_bank'].value = p.lien_bank || '';
-  setFormattedValue(f.elements['lien_value'], p.lien_value || '');
   const vacancy = Number(p.vacancy_rate) || 0;
   setFormattedValue(f.elements['occupancy'], vacancy > 0 ? +((1 - vacancy) * 100).toFixed(4) : '');
   setFormattedValue(f.elements['monthly_costs'], p.monthly_costs || '');
   setFormattedValue(f.elements['rent_growth_rate'], p.rent_growth_rate != null ? +(p.rent_growth_rate * 100).toFixed(4) : '');
-  setLienFieldsVisible(!!p.has_lien);
   setTimeTestEnabled(!calc.isPO(p));
-  const pledgeDraft = state.loans.flatMap((l) =>
-    calc
-      .loanCollateral(l)
-      .filter((cc) => cc.property_id === p.id && Number.isFinite(cc.amount))
-      .map((cc) => ({ loanId: l.id, amount: cc.amount }))
-  );
-  renderPropertyPledges(pledgeDraft);
-  document.getElementById('property-acc-pledge').open = !!p.has_lien || pledgeDraft.length > 0;
   for (const key of ['condition', 'renovation', 'location', 'energy']) f.elements[key].value = qualityOptionLabel(key, p[key]) ? p[key] : '';
   document.getElementById('property-acc-quality').open = ['condition', 'renovation', 'location', 'energy'].some((key) => qualityOptionLabel(key, p[key]));
   const opAcc = document.getElementById('property-rent-growth').closest('details');
@@ -2380,12 +2279,10 @@ function resetPropertyForm() {
   clearFieldErrors(f);
   f.elements['id'].value = '';
   showFormError('property-form-error', '');
-  setLienFieldsVisible(false);
   setTimeTestEnabled(true);
   f.querySelectorAll('details.acc').forEach((acc) => {
     acc.open = false;
   });
-  renderPropertyPledges([]);
   document.getElementById('property-form-title').textContent = 'Přidat nemovitost';
   document.getElementById('property-submit-label').textContent = 'Přidat nemovitost';
   document.getElementById('property-form-card').classList.remove('is-editing');
@@ -2412,18 +2309,7 @@ function submitPropertyForm(e) {
   const f = e.target;
   const id = f.elements['id'].value;
   if (!validateProperty(f)) return;
-  // zástavy nesmí přesáhnout hodnotu nemovitosti (vlastní zástava + zástavy za úvěry)
-  const { market, lien, cross, free } = propertyFreeFromForm();
-  if (free < 0) {
-    document.getElementById('property-acc-pledge').open = true;
-    showFormError(
-      'property-form-error',
-      `Zástava ${fmtMoney(lien)}${cross ? ` a zástavy za úvěry ${fmtMoney(cross)}` : ''} přesahují hodnotu nemovitosti ${fmtMoney(market)}. Sniž zástavu nebo zvyš hodnotu.`
-    );
-    return;
-  }
   showFormError('property-form-error', '');
-  const pledges = readPropertyPledges().filter((p) => p.amount > 0);
   const rentGrowthRaw = f.elements['rent_growth_rate'].value.trim();
   const occupancyRaw = f.elements['occupancy'].value.trim();
   const occupancy = occupancyRaw ? Math.min(100, Math.max(0, parseFormNumber(occupancyRaw))) : 100;
@@ -2441,9 +2327,6 @@ function submitPropertyForm(e) {
     acquisition_date: f.elements['acquisition_date'].value || toInputDate(new Date()),
     owner_type: f.elements['owner_type'].value === 'po' ? 'po' : 'fo',
     tax_exempt_years: [0, 5, 10].includes(years) ? years : 10,
-    has_lien: f.elements['has_lien'].checked,
-    lien_bank: f.elements['has_lien'].checked ? cleanText(f.elements['lien_bank'].value) || null : null,
-    lien_value: f.elements['has_lien'].checked && f.elements['lien_value'].value.trim() ? parseFormNumber(f.elements['lien_value'].value) : null,
     vacancy_rate: (100 - occupancy) / 100,
     monthly_costs: parseFormNumber(f.elements['monthly_costs'].value),
     rent_growth_rate: rentGrowthRaw ? parseFormNumber(rentGrowthRaw) / 100 : null,
@@ -2458,12 +2341,6 @@ function submitPropertyForm(e) {
   } else {
     state.properties.push(payload);
   }
-  // zástavy jsou vazba nemovitost + úvěr: zapíšou se do úvěrů (u nemovitosti se nahradí ty, které tu byly dřív)
-  state.loans.forEach((l) => {
-    const rest = (Array.isArray(l.collateral) ? l.collateral : []).filter((cc) => cc.property_id !== payload.id);
-    const mine = pledges.filter((p) => p.loanId === l.id).map((p) => ({ property_id: payload.id, amount: Math.round(p.amount) }));
-    l.collateral = rest.concat(mine);
-  });
   saveState();
   resetPropertyForm();
   renderAll();
@@ -2473,25 +2350,20 @@ function submitPropertyForm(e) {
 /* ---------- MOJE ÚVĚRY ---------- */
 
 /**
- * LTV a vlastní zdroje u úvěru. Zadává je uživatel ručně (jeden úvěr může financovat víc nemovitostí, takže se z
- * jedné nemovitosti spočítat nedají). Starší záznam jen s hodnotou nemovitosti při sjednání se dopočítá jako dřív.
- * Vrací { text: "80/20" nebo null, own: Kč nebo null }, nebo null, když není co ukázat.
+ * LTV úvěru. Zadává ho uživatel ručně (jeden úvěr může financovat víc nemovitostí, takže se z jedné nemovitosti spočítat
+ * nedá). Starší záznam jen s hodnotou nemovitosti při sjednání se dopočítá jako dřív.
+ * Vrací { text: "80/20", pct }, nebo null, když není co ukázat.
  */
 function ltvInfo(loan) {
   const num = (v) => (v == null || v === '' || isNaN(Number(v)) ? null : Number(v));
   let pct = num(loan.ltv_percent);
-  let own = num(loan.own_funds);
-  if (pct == null && own == null) {
+  if (pct == null) {
     const propValue = num(loan.property_value_at_origination);
-    if (propValue && propValue > 0) {
-      const amount = Number(loan.amount) || 0;
-      pct = Math.min(1, amount / propValue) * 100;
-      own = Math.max(0, propValue - amount);
-    }
+    if (propValue && propValue > 0) pct = Math.min(1, (Number(loan.amount) || 0) / propValue) * 100;
   }
-  if (pct == null && own == null) return null;
-  const rounded = pct == null ? null : Math.round(pct);
-  return { text: rounded == null ? null : `${rounded}/${Math.max(0, 100 - rounded)}`, own, pct: rounded };
+  if (pct == null) return null;
+  const rounded = Math.round(pct);
+  return { text: `${rounded}/${Math.max(0, 100 - rounded)}`, pct: rounded };
 }
 
 function loanForm() {
@@ -2500,7 +2372,7 @@ function loanForm() {
 
 /**
  * Rozbalovací seznam "Zástava": u každé nemovitosti jde zaškrtnout, že je zastavená pro tento úvěr, a zadat
- * částku. Částka nemůže přesáhnout volnou hodnotu nemovitosti (hodnota − vlastní zástava − zástavy za jiné úvěry).
+ * částku. Částka nemůže přesáhnout volnou hodnotu nemovitosti (hodnota − zástavy za jiné úvěry).
  */
 function renderLoanCollateralChecklist(draft) {
   const container = document.getElementById('loan-collateral-checklist');
@@ -2884,7 +2756,7 @@ function renderRefinancingTable() {
         return `<span class="refi-loan">${bankLogoHtml(loan.bank)}<span class="font-medium loan-name" title="${escapeHtml(loan.bank)}">${escapeHtml(loan.bank)}</span></span>`;
       },
     },
-    { label: 'Výše úvěru', right: true, x: true, cell: ({ loan }) => `<span class="num">${moneyHtml(loan.amount)}</span>` },
+    { label: 'Výše úvěru', right: true, x: true, drop: 1, cell: ({ loan }) => `<span class="num">${moneyHtml(loan.amount)}</span>` },
     {
       label: 'Datum',
       cell: ({ ev }) => {
@@ -2906,6 +2778,7 @@ function renderRefinancingTable() {
     {
       label: 'Sloučení',
       x: true,
+      drop: 2,
       cell: ({ ev }) => {
         const names = donorsOf(ev).map((d) => d.bank).join(', ');
         return names ? `<span class="ellipsis" title="${escapeHtml(names)}">${escapeHtml(names)}</span>` : dash;
@@ -2921,6 +2794,7 @@ function renderRefinancingTable() {
     .join('');
   tbody.querySelectorAll('[data-edit-refi]').forEach((btn) => btn.addEventListener('click', () => fillRefiForm(btn.dataset.editRefi)));
   tbody.querySelectorAll('[data-delete-refi]').forEach((btn) => btn.addEventListener('click', () => deleteRefinancing(btn.dataset.deleteRefi)));
+  fitTable(key);
 }
 
 function renderRefinancings() {
@@ -3271,16 +3145,17 @@ function renderEvents() {
     })),
   ];
   const columns = [
-    { label: 'Událost', cell: (it) => `<span class="font-medium">${it.label}</span> ${it.badge}<br><span class="text-xs t-muted">${escapeHtml(it.targets)}</span>` },
+    { label: 'Událost', cell: (it) => `<span class="font-medium">${it.label}</span> ${it.badge}` },
+    { label: 'Pro', x: true, drop: 1, cls: 'col-flex t-muted', cell: (it) => (it.targets ? `<span title="${escapeHtml(it.targets)}">${escapeHtml(it.targets)}</span>` : '') },
     { label: 'Období', cell: (it) => `<span class="num">${it.period}</span>` },
     { label: 'Hodnota', right: true, cell: (it) => `<span class="num">${it.value}</span>` },
-    { label: 'Poznámka', x: true, cell: (it) => escapeHtml(it.note) },
+    { label: 'Poznámka', x: true, drop: 2, cls: 'col-flex', cell: (it) => (it.note ? `<span title="${escapeHtml(it.note)}">${escapeHtml(it.note)}</span>` : '') },
     { label: '', right: true, actions: true, cell: (it) => it.actions },
   ];
   const cols = visibleColumns(columns, key);
   document.getElementById('events-thead').innerHTML = headHtml(cols);
   const tbody = document.getElementById('events-tbody');
-  tbody.innerHTML = items.map((it) => `<tr>${cols.map((c) => `<td class="${c.right ? 'text-right' : ''} ${c.actions ? 'whitespace-nowrap' : ''}">${c.cell(it)}</td>`).join('')}</tr>`).join('');
+  tbody.innerHTML = items.map((it) => `<tr>${cols.map((c) => `<td class="${c.right ? 'text-right' : ''} ${c.actions ? 'whitespace-nowrap' : ''} ${c.cls || ''}">${c.cell(it)}</td>`).join('')}</tr>`).join('');
   tbody.querySelectorAll('[data-edit-event]').forEach((btn) => btn.addEventListener('click', () => fillEventForm(btn.dataset.editEvent)));
   tbody.querySelectorAll('[data-delete-event]').forEach((btn) => btn.addEventListener('click', () => deleteEvent(btn.dataset.deleteEvent)));
   tbody.querySelectorAll('[data-edit-source]').forEach((btn) =>
@@ -3298,6 +3173,7 @@ function renderEvents() {
       }
     })
   );
+  fitTable(key);
 }
 
 function fillEventForm(id) {
@@ -3471,12 +3347,12 @@ function renderScenarioTable() {
     { label: 'Majetek', right: true, cell: (r) => money(r.totalValue) },
     { label: 'Dluh', right: true, cell: (r) => money(r.totalDebt) },
     { label: '<span class="m-full">Vlastní kapitál</span><span class="m-short">Kapitál</span>', right: true, cell: (r) => `<span class="font-medium">${money(r.equity)}</span>` },
-    { label: 'Nájem', right: true, x: true, cell: (r) => `<span class="figure-positive">${money(r.totalRent)}</span>` },
-    { label: 'Náklady', right: true, x: true, cell: (r) => `<span class="figure-negative">${money(r.totalCosts)}</span>` },
-    { label: 'Úrok', right: true, x: true, cell: (r) => `<span class="figure-negative">${money(r.totalInterest)}</span>` },
-    { label: 'Jistina', right: true, x: true, cell: (r) => `<span class="figure-negative">${money(r.totalPrincipal)}</span>` },
-    { label: 'Splátky', right: true, x: true, cell: (r) => `<span class="figure-negative">${money(r.totalInterest == null ? null : r.totalInterest + r.totalPrincipal)}</span>` },
-    { label: 'Nashrom. zhodnocení', right: true, x: true, cell: (r) => money(r.cumulativeGain) },
+    { label: 'Nájem', right: true, x: true, drop: 1, cell: (r) => `<span class="figure-positive">${money(r.totalRent)}</span>` },
+    { label: 'Náklady', right: true, x: true, drop: 5, cell: (r) => `<span class="figure-negative">${money(r.totalCosts)}</span>` },
+    { label: 'Úrok', right: true, x: true, drop: 3, cell: (r) => `<span class="figure-negative">${money(r.totalInterest)}</span>` },
+    { label: 'Jistina', right: true, x: true, drop: 4, cell: (r) => `<span class="figure-negative">${money(r.totalPrincipal)}</span>` },
+    { label: 'Splátky', right: true, x: true, drop: 2, cell: (r) => `<span class="figure-negative">${money(r.totalInterest == null ? null : r.totalInterest + r.totalPrincipal)}</span>` },
+    { label: 'Nashrom. zhodnocení', right: true, x: true, drop: 6, cell: (r) => money(r.cumulativeGain) },
     {
       label: 'Cashflow',
       right: true,
@@ -3500,6 +3376,7 @@ function renderScenarioTable() {
   document.getElementById('scenario-tbody').innerHTML = rows
     .map((r) => `<tr>${cols.map((c) => `<td class="${c.right ? 'text-right' : ''} ${c.cls || ''}">${c.cell(r)}</td>`).join('')}</tr>`)
     .join('');
+  fitTable(key);
 }
 
 function fmtCompact(n) {

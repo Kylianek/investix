@@ -15,7 +15,7 @@ jak je zachovat, je záloha do souboru (Nastavení → Data).
 | NEMOVITOSTI!H = F*růst+F | hodnota po zhodnocení | sloupec "Po zhodnocení" |
 | FIXACE | banka, částka, úrok, doba fixace, od | záložka **Úvěry / fixace** |
 | FIXACE!G (DATEDIF měsíce+dny) | zbývá do konce fixace | sloupec "Zbývá fixace" |
-| ČASOVÝ TEST A ZÁSTAVA | datum pořízení, časový test 5/10 let, zástava | součást formuláře nemovitosti (pole "Datum pořízení", "Časový test", rozbalovací "Zástava") |
+| ČASOVÝ TEST A ZÁSTAVA | datum pořízení, časový test 5/10 let, zástava | součást formuláře nemovitosti (pole "Datum pořízení", "Časový test"); zástava se zadává u úvěru |
 | ČASOVÝ TEST!E (DATEDIF roky/měsíce/dny) | zbývá do konce časového testu | sloupec "Časový test - zbývá" |
 | PŘEHLED!D5 majetek | `SUM(tržní hodnoty)` | KPI "Majetek" |
 | PŘEHLED!D6 dluh | `SUM(úvěry)` | KPI "Dluh" |
@@ -113,11 +113,10 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
   a banka sníží splátku (cashflow tak neklesne víc, než činí ztracený nájem).
 - U každého úvěru jde rozbalit **splátkový kalendář** po letech (úrok, jistina, podíl úroku, zůstatek).
 - **Zástava** = nemovitost, kterou dáš bance jako jistotu za úvěr. Je to vazba nemovitost + úvěr + částka z hodnoty
-  nemovitosti. Zadává se u úvěru ("Které nemovitosti jistí tenhle úvěr") i u nemovitosti ("Které úvěry tahle nemovitost
-  jistí"), obě strany upravují totéž. Hlídá se, že součet zástav nepřesáhne hodnotu nemovitosti; zbytek je "volné k
-  zastavení". "Jistí i úvěr, který v aplikaci nemám" slouží pro úvěr mimo aplikaci. Zástavy jsou jen informace (co je zastavené
-  a kolik zbývá volné); při prodeji nemovitosti podle nich aplikace pozná, které úvěry jsou na ni vázané. Žádný nákup nemovitosti
-  se podle zástav nepočítá.
+  nemovitosti. Zadává se jen u úvěru ("Které nemovitosti jistí tenhle úvěr"); v seznamu nemovitostí je vidět, co je zastavené
+  a kolik zbývá volné k zastavení. Hlídá se, že součet zástav nepřesáhne hodnotu nemovitosti. Zástavy jsou jen informace; při
+  prodeji nemovitosti podle nich aplikace pozná, které úvěry jsou na ni vázané. Žádný nákup nemovitosti se podle zástav nepočítá.
+  Starší "vlastní zástava" zadaná v kartě nemovitosti se při načtení zahodí.
 - Ve Scénářích je prodej jen štítek s názvem nemovitosti, podrobnosti (cena, daň, výtěžek, proč se prodala a porovnání s ostatními)
   jsou v bublině po kliknutí. Dlouhá bublina se vejde na obrazovku a obsah v ní jde posouvat. Neúplný letošní rok je označený malým "i", které po kliknutí řekne, za jaké měsíce řádek je.
 - **Prázdné datum** pořízení nemovitosti nebo zřízení úvěru se bere jako **dnešní den** a uloží se (u dat, která už v aplikaci jsou,
@@ -129,9 +128,13 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
   do svých polí ve správných jednotkách (procenta jako zlomek, text bez nadbytečných mezer). Kalendář jde použít i na telefonu.
 - **LTV** se zadává ručně v "Další údaje" u úvěru (jeden úvěr může financovat víc nemovitostí).
 - V seznamu bank jsou původní loga (ikony z webů bank, `assets/banks`) a volba **Vlastní**, po které jde napsat libovolný název.
-- Tabulky mají hlavní sloupce a tlačítko "Více sloupců"; na telefonu jsou ve výchozím stavu kompaktní. V tabulce úvěrů (i v seznamu
-  refinancování) je každý úvěr na jednom řádku: poznámka a sloučení jsou v bublině "i", na telefonu se dlouhé jméno banky zkrátí
-  a poznámka je v kalendáři po rozbalení úvěru.
+- **Seznamy** (nemovitosti, úvěry, refinancování, události, tabulka po letech): každý záznam je na jednom řádku a seznam se
+  nikdy neposouvá do strany. Na velké obrazovce se stránka roztáhne (až na 1600 px; formuláře, Přehled a Nastavení zůstávají
+  úzké). Když se všechny sloupce na šířku nevejdou, samy se vypustí ty nejméně důležité (u nemovitostí nejdřív Volné k zastavení
+  a Zástava, u úvěrů Nemovitost a Poměr LTV, ve Scénářích Nashromážděné zhodnocení a Náklady); tlačítko "Více sloupců" ukáže
+  všechny (pak jde posouvat), "Méně sloupců" jen hlavní. Dlouhé texty (jméno, poznámka, cíle události) se zkrátí a celé jsou
+  v tooltipu, poznámka a sloučení u úvěru v bublině "i". Na telefonu jsou seznamy ve výchozím stavu kompaktní, poznámka je
+  v kalendáři po rozbalení úvěru.
 
 ## Vzhled
 

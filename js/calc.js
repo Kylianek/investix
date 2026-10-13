@@ -1220,8 +1220,8 @@ function compareSaleCandidates(a, b) {
 /* =========================================================================
  * ZÁSTAVY - kolik z hodnoty nemovitosti je volné k zastavení
  *
- * Na nemovitosti může ležet vlastní zástava (has_lien/lien_value) a zástavy za jiné úvěry
- * (loan.collateral = [{ property_id, amount }]). Součet nesmí přesáhnout tržní hodnotu.
+ * Nemovitost je zastavená za úvěry (loan.collateral = [{ property_id, amount }], zadává se jen u úvěru). Zástavy jsou
+ * informace; při prodeji nemovitosti určují, který úvěr se splatí přednostně (viz loanPropertyShares).
  * ========================================================================= */
 
 /** Zástavy zadané u úvěru: [{ property_id, amount }]. Starší záznam jen s ID = zastaveno celé (amount Infinity). */
@@ -1232,12 +1232,7 @@ function loanCollateral(loan) {
   return (loan.additional_collateral_ids || []).map((id) => ({ property_id: id, amount: Infinity }));
 }
 
-/** Vlastní zástava nemovitosti (Kč). */
-function ownLienValue(property) {
-  return property.has_lien ? Number(property.lien_value) || 0 : 0;
-}
-
-/** Kolik z nemovitosti je zastaveno za úvěry (bez úvěru \`excludeLoanId\`, např. toho, který se právě upravuje). */
+/** Kolik z nemovitosti je zastaveno za úvěry (bez úvěru `excludeLoanId`, např. toho, který se právě upravuje). */
 function pledgedByLoans(propertyId, loans, excludeLoanId) {
   let sum = 0;
   for (const l of loans || []) {
@@ -1247,10 +1242,10 @@ function pledgedByLoans(propertyId, loans, excludeLoanId) {
   return sum;
 }
 
-/** Volná hodnota k zastavení = tržní hodnota − vlastní zástava − zástavy za úvěry (nikdy záporná). */
+/** Volná hodnota k zastavení = tržní hodnota − zástavy za úvěry (nikdy záporná). */
 function freePledgeValue(property, loans, excludeLoanId) {
   const marketValue = Number(property.market_value) || 0;
-  return Math.max(0, marketValue - ownLienValue(property) - pledgedByLoans(property.id, loans, excludeLoanId));
+  return Math.max(0, marketValue - pledgedByLoans(property.id, loans, excludeLoanId));
 }
 
 /**
@@ -1345,7 +1340,6 @@ window.calc = {
   toDate,
   addMonths,
   loanCollateral,
-  ownLienValue,
   pledgedByLoans,
   freePledgeValue,
   loanPropertyShares,

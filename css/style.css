@@ -2269,6 +2269,82 @@ button.event-chip.is-open {
   vertical-align: middle;
 }
 
+/* ---------- Seznamy: jeden záznam = jeden řádek, bez posouvání do strany ---------- */
+/* Stránka je širší, aby se do seznamů vešlo co nejvíc sloupců; formuláře, Přehled a Nastavení zůstávají úzké. */
+.app-wrap {
+  max-width: 100rem;
+}
+.form-card,
+#tab-overview,
+#tab-settings {
+  max-width: 72rem;
+  margin-inline: auto;
+}
+.tbl-card .tbl tbody tr:not(.loan-detail) td,
+.tbl-card .tbl tfoot td {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.tbl-card .tbl thead th,
+.tbl-card .tbl tbody td,
+.tbl-card .tbl tfoot td {
+  padding-right: 0.5rem;
+}
+.tbl-card.is-expanded .tbl {
+  font-size: 0.8rem;
+}
+.tbl-card .tbl .link-btn .lbl {
+  display: none;
+}
+.tbl-card .tbl .link-btn {
+  padding: 0.3rem;
+}
+.prop-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 100%;
+}
+.prop-cell .rank-dot,
+.prop-cell .lock-icon {
+  margin-right: 0;
+}
+.prop-name {
+  min-width: 0;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pledge-line + .pledge-line {
+  margin-left: 0.8rem;
+}
+/* pružný sloupec s textem: zabere zbytek šířky a dlouhý text se zkrátí (celý je v tooltipu) */
+.tbl-card .tbl td.col-flex {
+  width: 50%;
+  min-width: 4rem;
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* telefon: první sloupec (nemovitost, událost) zabere zbytek šířky a jméno se případně zkrátí */
+.tbl-card.is-compact .prop-cell {
+  display: flex;
+}
+[data-table-card='properties'].is-compact tbody td:first-child,
+[data-table-card='events'].is-compact tbody td:first-child {
+  width: 100%;
+  min-width: 4.5rem;
+  max-width: 0;
+  overflow: hidden;
+}
+@media print {
+  .tbl-card .tbl tbody td,
+  .tbl-card .tbl tfoot td {
+    white-space: normal !important;
+  }
+}
+
 /* Úvěry: jeden úvěr = jeden řádek, všechen text na jedné řádce (delší text se zkrátí, celý je v bublině "i") */
 [data-table-card='loans'] tr.loan-row td,
 [data-table-card='loans'] tfoot td,
@@ -2405,68 +2481,9 @@ button.event-chip.is-open {
     grid-column: auto;
   }
 }
-/* Zástavy ve formuláři nemovitosti: řádek = úvěr + částka */
-.ppledge-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(0, 11rem) auto;
-  align-items: center;
-  gap: 0.4rem 0.6rem;
-  padding: 0.55rem 0.7rem;
-  border: 1px solid var(--primary-2);
-  border-radius: 0.8rem;
-  background: var(--primary-soft);
-}
-.ppledge-row .pledge-msg {
-  grid-column: 1 / -1;
-}
-.ppledge-head {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(0, 11rem) auto;
-  gap: 0.6rem;
-  padding: 0 0.7rem;
-  font-size: 0.72rem;
-  font-weight: 500;
-  color: var(--muted);
-}
-.ppledge-head span:first-child,
-.ppledge-head span:last-child {
-  width: 1.9rem;
-}
-@media (max-width: 559px) {
-  .ppledge-head {
-    display: none;
-  }
-}
 .pledge-amount .label {
   display: block;
   margin-bottom: 0.2rem;
-}
-.ppledge-logo {
-  display: flex;
-}
-.ppledge-remove {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 0.5rem;
-  color: var(--muted);
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-.ppledge-remove:hover {
-  background: var(--surface);
-  color: var(--neg);
-}
-@media (max-width: 559px) {
-  .ppledge-row {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-  }
-  .ppledge-amount-wrap {
-    grid-column: 1 / -1;
-    order: 5;
-  }
 }
 .bank-logo-sm {
   width: 1.1rem;
@@ -2479,18 +2496,10 @@ button.event-chip.is-open {
 .pledge-line {
   display: inline-flex;
   align-items: center;
+  gap: 0.35rem;
 }
-.pledge-readout {
-  font-size: 0.9rem;
-  color: var(--text);
-}
-.pledge-readout strong {
-  color: var(--text-strong);
-}
-.pledge-readout.is-over,
-.pledge-readout.is-over strong {
-  color: var(--neg-text);
-  font-weight: 600;
+.pledge-line .bank-logo-sm {
+  margin-right: 0;
 }
 .form-error {
   border: 1px solid var(--neg-border);
