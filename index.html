@@ -13,7 +13,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Investix</title>
-<link rel="icon" type="image/png" href="assets/logo.png?v=1791840771" />
+<link rel="icon" type="image/png" href="assets/logo.png?v=1791869965" />
 <script>
   /* Motiv se nastaví ještě před vykreslením, ať stránka neprobliká (volba motivu je jen vzhled, ne data). */
   try {
@@ -27,7 +27,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="css/style.css?v=1791840771" />
+<link rel="stylesheet" href="css/style.css?v=1791869965" />
 </head>
 <body class="min-h-screen">
 
@@ -35,7 +35,7 @@
     <header class="app-header">
       <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
         <h1 class="flex items-center gap-2">
-          <img src="assets/logo.png?v=1791840771" alt="" width="32" height="32" class="shrink-0" />
+          <img src="assets/logo.png?v=1791869965" alt="" width="32" height="32" class="shrink-0" />
           <span class="brand-name">Investix</span>
         </h1>
         <div class="flex items-center gap-2 ml-auto" id="header-controls">
@@ -340,7 +340,7 @@
           </div>
           <form id="loan-form" class="grid gap-4 text-sm">
             <input type="hidden" name="id" />
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
               <label class="flex flex-col gap-1 col-span-2 md:col-span-1">
                 <span class="label">Banka</span>
                 <input name="bank" data-combo="bank" required maxlength="60" class="input" autocomplete="off" />
@@ -348,10 +348,6 @@
               <label class="flex flex-col gap-1">
                 <span class="label">Výše úvěru</span>
                 <input name="amount" data-unit="money" class="input" />
-              </label>
-              <label class="flex flex-col gap-1">
-                <span class="label">Úrok</span>
-                <input name="interest_rate" data-unit="percent" class="input" />
               </label>
               <label class="flex flex-col gap-1">
                 <span class="label">Měsíční splátka</span>
@@ -376,34 +372,45 @@
               <details class="acc">
                 <summary>
                   <span class="acc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg></span>
-                  <span class="acc-title">Fixace a splatnost</span>
+                  <span class="acc-title">Splatnost</span>
+                  <span class="acc-badge" id="loan-maturity-badge"></span>
+                  <span class="acc-chevron"></span>
+                </summary>
+                <div class="acc-body grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <label class="flex flex-col gap-1">
+                    <span class="label">Zřízení úvěru</span>
+                    <input name="start_date" type="date" class="input" data-placeholder="dnes" />
+                  </label>
+                  <label class="flex flex-col gap-1">
+                    <span class="label">Doba splácení (roky)</span>
+                    <input name="maturity_years" type="number" step="any" min="0" class="input" />
+                  </label>
+                  <label class="flex flex-col gap-1">
+                    <span class="label">Splatnost do</span>
+                    <input name="maturity_date" type="date" class="input" />
+                  </label>
+                </div>
+              </details>
+
+              <details class="acc">
+                <summary>
+                  <span class="acc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 5 5 19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg></span>
+                  <span class="acc-title">Fixace</span>
                   <span class="acc-badge" id="loan-fixation-badge"></span>
                   <span class="acc-chevron"></span>
                 </summary>
                 <div class="acc-body grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <label class="flex flex-col gap-1">
-                    <span class="label">Zřízení úvěru (fixace od)</span>
-                    <input name="start_date" type="date" class="input" data-placeholder="dnes" />
+                    <span class="label">Úrok fixace</span>
+                    <input name="interest_rate" data-unit="percent" class="input" />
                   </label>
                   <label class="flex flex-col gap-1">
                     <span class="label">Doba fixace (roky)</span>
-                    <input name="fixation_years" type="number" step="1" min="0" class="input" />
+                    <input name="fixation_years" type="number" step="any" min="0" class="input" />
                   </label>
                   <label class="flex flex-col gap-1">
                     <span class="label">Fixace do</span>
                     <input name="fixation_end" type="date" class="input" />
-                  </label>
-                  <label class="flex flex-col gap-1">
-                    <span class="label">Sazba po fixaci</span>
-                    <input name="rate_after_fixation" data-unit="percent" class="input" />
-                  </label>
-                  <label class="flex flex-col gap-1">
-                    <span class="label">Splátka po fixaci</span>
-                    <input name="payment_after_fixation" data-unit="money" class="input" />
-                  </label>
-                  <label class="flex flex-col gap-1">
-                    <span class="label">Splatnost do</span>
-                    <input name="maturity_date" type="date" class="input" />
                   </label>
                 </div>
               </details>
@@ -667,6 +674,10 @@
                 <input id="rent-growth-input" data-unit="percent" class="input" />
               </label>
               <label class="flex flex-col gap-1">
+                <span class="label">Sazba hypotéky</span>
+                <input id="mortgage-rate-input" data-unit="percent" class="input" />
+              </label>
+              <label class="flex flex-col gap-1">
                 <span class="label">Daň z prodeje - FO</span>
                 <input id="capgains-tax-input" data-unit="percent" class="input" />
               </label>
@@ -756,9 +767,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/calc.js?v=1791840771"></script>
-  <script src="js/app.js?v=1791840771"></script>
-  <script src="js/cloud.js?v=1791840771"></script>
-  <script src="js/auth.js?v=1791840771"></script>
+  <script src="js/calc.js?v=1791869965"></script>
+  <script src="js/app.js?v=1791869965"></script>
+  <script src="js/cloud.js?v=1791869965"></script>
+  <script src="js/auth.js?v=1791869965"></script>
 </body>
 </html>

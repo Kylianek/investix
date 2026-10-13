@@ -240,7 +240,7 @@ function rebaseToYear(properties, loans, settings, events, targetYear, currentYe
 
   const rebasedLoans = [];
   for (const l of loans) {
-    const amount = projectLoanAmount(l, targetYear, currentYear, events, startMonth);
+    const amount = projectLoanAmount(l, targetYear, currentYear, events, startMonth, settings);
     if (amount == null) continue;
     rebasedLoans.push({ ...l, amount });
   }
@@ -254,8 +254,9 @@ function rebaseToYear(properties, loans, settings, events, targetYear, currentYe
  * obrácením stejným způsobem jako rebaseToYear. Vrací null, pokud úvěr v tom
  * roce ještě nebyl sjednaný.
  */
-function projectLoanAmount(loan, targetYear, currentYear, events, startMonth) {
+function projectLoanAmount(loan, targetYear, currentYear, events, startMonth, settings) {
   events = events || [];
+  loan = resolveLoan(loan, settings);
   const monthsDone = startMonth == null ? defaultStartMonth(currentYear) : startMonth;
   const loanStartYear = yearOf(loan.start_date, currentYear);
   if (loanStartYear > targetYear) return null;
@@ -288,8 +289,9 @@ function projectLoanAmount(loan, targetYear, currentYear, events, startMonth) {
  * splatnosti = úvěr "jen úrok" (jistina se nesplácí).
  *
  * Co se s úvěrem může stát:
- * - Konec fixace (od měsíce konce fixace): nová sazba (rate_after_fixation); banka přepočítá splátku
- *   na zbývající dobu (nebo platí zadaná payment_after_fixation).
+ * - Konec fixace (od měsíce konce fixace): platí globální sazba hypotéky z Nastavení (settings.default_mortgage_rate);
+ *   banka přepočítá splátku na zbývající dobu. Sazba ani splátka po fixaci se u úvěru nezadávají.
+ * - Úvěr bez zadané sazby (interest_rate) počítá s touž globální sazbou (viz resolveLoan).
  * - Refinancování (samostatné události loan.refinancings = [{ date, rate, years, merge_ids }], u úvěru jich může být víc):
  *   "kolo od začátku" - ze zbývající jistiny se podle nové sazby a nové doby (years) spočítá nová anuita, takže se zase
  *   platí hlavně úrok. Nová smlouva nahrazuje původní, takže sazba po fixaci té staré už neplatí. Při refinancování se
@@ -342,12 +344,39 @@ function fixationEndYear(loan, loanStartYear) {
   return month == null ? Infinity : Math.floor(month / 12);
 }
 
+/** Výchozí sazba hypotéky (zlomek), dokud ji v Nastavení nikdo nezměnil. */
+const DEFAULT_MORTGAGE_RATE = 0.05;
+
+/** Globální sazba hypotéky z Nastavení (zlomek, nikdy záporná). */
+function mortgageRate(settings) {
+  const v = settings ? settings.default_mortgage_rate : null;
+  const n = v == null || v === '' ? NaN : Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_MORTGAGE_RATE;
+}
+
+/** Má úvěr zadanou vlastní úrokovou sazbu? (0 % je zadaná sazba, prázdné pole ne.) */
+function hasTypedRate(loan) {
+  const v = loan.interest_rate;
+  return v != null && v !== '' && Number.isFinite(Number(v));
+}
+
+/**
+ * Úvěr tak, jak ho počítá simulace (kopie, vstup se nemění). Úvěr bez zadané sazby (`interest_rate`) počítá s globální
+ * sazbou hypotéky z Nastavení. Ta platí i po skončení fixace (`defaultRate`) a u refinancování bez zadané sazby; sazba ani
+ * splátka po fixaci se u úvěru nezadávají (starší pole rate_after_fixation a payment_after_fixation se ignorují).
+ */
+function resolveLoan(loan, settings) {
+  const globalRate = mortgageRate(settings);
+  const out = { ...loan, interest_rate: hasTypedRate(loan) ? Number(loan.interest_rate) : globalRate, defaultRate: globalRate };
+  delete out.rate_after_fixation;
+  delete out.payment_after_fixation;
+  return out;
+}
+
 /** Základní roční úroková sazba úvěru pro daný rok (zlomek), bez událostí a refinancování. */
 function loanRateForYear(loan, loanStartYear, year) {
-  const hasAfter = loan.rate_after_fixation != null && loan.rate_after_fixation !== '';
-  const ratePct =
-    hasAfter && year >= fixationEndYear(loan, loanStartYear) ? Number(loan.rate_after_fixation) : Number(loan.interest_rate) * 100;
-  return ratePct / 100;
+  const after = loan.defaultRate;
+  return after != null && year >= fixationEndYear(loan, loanStartYear) ? after : Number(loan.interest_rate);
 }
 
 /** Měsíční anuitní splátka, která při dané roční sazbě splatí `principal` za `months` měsíců. */
@@ -372,7 +401,8 @@ function remainingTermMonths(principal, payment, annualRate) {
 /**
  * Refinancování úvěru jako seznam událostí: loan.refinancings = [{ id, date, rate (%), years, merge_ids }].
  * Starší záznam má jedno refinancování v polích refinance_date / refinance_rate / refinance_years / refinance_merge_ids.
- * Vrací [{ id, date, abs, rate (zlomek | null), term (měsíce | null), mergeIds }] seřazené podle měsíce.
+ * Vrací [{ id, date, abs, rate (zlomek | null), term (měsíce | null), mergeIds }] seřazené podle měsíce. Refinancování bez
+ * zadané sazby má u úvěru z resolveLoan globální sazbu hypotéky, u surového úvěru null (sazba se nemění).
  */
 function refinancingList(loan) {
   const hasNumber = (v) => v != null && v !== '' && !isNaN(Number(v));
@@ -390,7 +420,7 @@ function refinancingList(loan) {
       id: r.id,
       date,
       abs: monthAfter(date),
-      rate: hasNumber(r.rate) ? Number(r.rate) / 100 : null,
+      rate: hasNumber(r.rate) ? Number(r.rate) / 100 : loan.defaultRate != null ? loan.defaultRate : null,
       term: Number(r.years) > 0 ? Number(r.years) * 12 : null,
       mergeIds: Array.isArray(r.merge_ids) ? r.merge_ids : [],
     });
@@ -405,19 +435,17 @@ function initLoanState(loan, ls, firstYear) {
   const firstAbs = firstYear * 12 + firstMonth;
   const balance = ls.remainingPrincipal;
   const hasNumber = (v) => v != null && v !== '' && !isNaN(Number(v));
-  ls.afterRate = hasNumber(loan.rate_after_fixation) ? Number(loan.rate_after_fixation) / 100 : null;
-  ls.afterPay = Number(loan.payment_after_fixation) > 0 ? Number(loan.payment_after_fixation) : null;
-  ls.keepPay = false;
+  ls.afterRate = hasNumber(loan.defaultRate) ? Number(loan.defaultRate) : null;
   ls.fixAbs = fixationChangeMonth(loan, ls.startYear, ls.startYear === ls.projYear ? ls.startMonth || 0 : 0);
   ls.refQueue = refinancingList(loan);
 
   let rate = Number(loan.interest_rate) || 0;
   let pay = Number(loan.monthly_payment) || 0;
-  // fixace už skončila (nebo končí hned): zadaná splátka je už ta aktuální, jen se použije nová sazba
+  // fixace už skončila (nebo končí hned): zadaná splátka je už ta aktuální, jen se použije nová (globální) sazba
   const fixationOver = ls.fixAbs != null && ls.fixAbs <= firstAbs;
+  ls.fixationOver = fixationOver;
   if (fixationOver) {
     if (ls.afterRate != null) rate = ls.afterRate;
-    if (ls.afterPay != null) pay = ls.afterPay;
     ls.fixAbs = null;
   }
   // refinancování, které už proběhlo, je ve vstupních údajích úvěru (částka, sazba, splátka) zahrnuté
@@ -519,7 +547,6 @@ function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0, rate
     const payBefore = ls.pay;
     let recompute = false;
     let forceAnnuity = false;
-    let payFixed = false;
     if (ls.refQueue && ls.refQueue.length && ls.refQueue[0].abs === abs) {
       // refinancování: nová anuita ze zbývající jistiny (nová sazba, nová doba)
       const incoming = book ? book[loan.id + ':' + abs] || 0 : 0;
@@ -549,11 +576,6 @@ function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0, rate
         ls.rate = ls.afterRate;
         recompute = true;
       }
-      if (ls.afterPay != null) {
-        ls.pay = ls.afterPay;
-        ls.term = remainingTermMonths(ls.remainingPrincipal, ls.pay, effectiveRate(ls));
-        payFixed = true;
-      }
     }
     if (m === mFrom && (rateDelta !== ls.delta || (rateOverride == null ? null : rateOverride) !== ls.override)) {
       ls.delta = rateDelta;
@@ -561,7 +583,7 @@ function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0, rate
       recompute = true;
     }
     const rate = effectiveRate(ls);
-    if (recompute && !payFixed && Number.isFinite(ls.term) && ls.term > 0 && (ls.pay > 0 || forceAnnuity)) {
+    if (recompute && Number.isFinite(ls.term) && ls.term > 0 && (ls.pay > 0 || forceAnnuity)) {
       ls.pay = annuityPayment(ls.remainingPrincipal, rate, Math.max(ls.term, 1));
     }
     if (Math.abs(ls.pay - payBefore) > 0.5) payChange = { month: m + 1, from: payBefore, to: ls.pay };
@@ -593,10 +615,13 @@ function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0, rate
 
 /**
  * Splátka, zbývající doba a rok doplacení úvěru podle zadaných údajů (bez scénářových událostí).
- * auto = splátka není zadaná a dopočítala se ze splatnosti.
+ * auto = splátka není zadaná a dopočítala se ze splatnosti. rate = platná sazba (zlomek), rateIsDefault = je to
+ * globální sazba hypotéky z Nastavení (úvěr nemá vlastní sazbu, nebo už skončila fixace).
  */
-function loanTerms(loan, firstYear, startMonth) {
+function loanTerms(loan, firstYear, startMonth, settings) {
   firstYear = firstYear || new Date().getFullYear();
+  const typedRate = hasTypedRate(loan);
+  loan = resolveLoan(loan, settings);
   const amount = Number(loan.amount) || 0;
   const ls = {
     remainingPrincipal: amount,
@@ -604,7 +629,7 @@ function loanTerms(loan, firstYear, startMonth) {
     projYear: firstYear,
     startMonth: startMonth == null ? defaultStartMonth(firstYear) : startMonth,
   };
-  if (amount <= 0) return { payment: 0, termMonths: 0, payoffYear: null, payoffMonth: null, auto: false };
+  if (amount <= 0) return { payment: 0, termMonths: 0, payoffYear: null, payoffMonth: null, auto: false, rate: loan.interest_rate, rateIsDefault: !typedRate };
   initLoanState(loan, ls, ls.startYear);
   const payoffAbs = Number.isFinite(ls.term) ? ls.firstAbs + Math.ceil(ls.term) - 1 : null;
   return {
@@ -613,6 +638,8 @@ function loanTerms(loan, firstYear, startMonth) {
     payoffYear: payoffAbs == null ? null : Math.floor(payoffAbs / 12),
     payoffMonth: payoffAbs == null ? null : (payoffAbs % 12) + 1,
     auto: !(Number(loan.monthly_payment) > 0) && ls.pay > 0,
+    rate: ls.rate, // sazba, která platí od dnešního měsíce (po skončené fixaci globální)
+    rateIsDefault: !typedRate || ls.fixationOver,
   };
 }
 
@@ -622,8 +649,10 @@ function loanTerms(loan, firstYear, startMonth) {
  * i sloučení úvěrů při refinancování: úvěr, který slučuje, převezme zůstatky, a úvěr, který se slučuje, končí.
  * Vrací i měsíc doplacení (payoffAbs), sloučení do jiného úvěru (mergedInto) a převzaté zůstatky (merges).
  */
-function loanSchedule(loan, { events = [], startYear, maxYears = 40, startMonth, loans } = {}) {
+function loanSchedule(loan, { events = [], startYear, maxYears = 40, startMonth, loans, settings } = {}) {
   startYear = startYear || new Date().getFullYear();
+  loan = resolveLoan(loan, settings);
+  if (loans) loans = loans.map((l) => resolveLoan(l, settings));
   const sm = startMonth == null ? defaultStartMonth(startYear) : startMonth;
   const plan = loans ? mergePlan(loans, startYear, sm) : { mergeInto: {} };
   const makeState = (l) => {
@@ -705,6 +734,7 @@ function loanSchedule(loan, { events = [], startYear, maxYears = 40, startMonth,
  */
 function projectPortfolio({ properties, loans, settings, events, horizonYears, startYear, startMonth }) {
   startYear = startYear || new Date().getFullYear();
+  loans = loans.map((l) => resolveLoan(l, settings));
   const timelineMonth = startMonth == null ? defaultStartMonth(startYear) : startMonth;
   const firstRowMonths = 12 - timelineMonth; // letošek: od dneška do prosince
   events = events || [];
@@ -1299,6 +1329,10 @@ window.calc = {
   loanRateOverride,
   rentGrowthBase,
   loanRateForYear,
+  DEFAULT_MORTGAGE_RATE,
+  mortgageRate,
+  hasTypedRate,
+  resolveLoan,
   amortizeLoanForYear,
   loanTerms,
   loanSchedule,

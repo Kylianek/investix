@@ -67,10 +67,10 @@ Simulace vývoje portfolia rok po roce:
   růst hodnoty, růst nájmu, obsazenost, **změna úrokové sazby** (zadáš novou sazbu, např. z 5 na 7 %, nebo níž;
   banka přepočítá splátku na zbývající dobu), inflace a jednorázový příjem/výdaj. Událost jde zacílit na **jednu, více nebo všechny
   nemovitosti** (u sazeb na vybrané úvěry); konkrétní cíl má přednost před celoportfoliovou událostí.
-- Co zadáš v kartě nemovitosti nebo úvěru (obsazenost, vlastní růst nájmu, prodej PO, sazba po fixaci),
+- Co zadáš v kartě nemovitosti nebo úvěru (obsazenost, vlastní růst nájmu, prodej PO, refinancování),
   se ve Scénářích objeví jako událost s odkazem zpět na kartu.
 
-V **Nastavení** je inflace, výchozí růst nájmu, daň z prodeje (FO / PO), automatický prodej
+V **Nastavení** je inflace, výchozí růst nájmu, sazba hypotéky, daň z prodeje (FO / PO), automatický prodej
 a záloha dat. Daň je zjednodušení pro účely predikce, ne daňové poradenství;
 daň z příjmu z pronájmu a odpisy appka nepočítá.
 
@@ -84,9 +84,15 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
   zbývající jistina.
 - Splátku zadáváš z banky a **zadaná splátka má přednost**. Když ji nezadáš, ale znáš **splatnost**, dopočítá se
   anuitním vzorcem. Prázdná splátka bez splatnosti = úvěr "jen úrok".
-- **Konec fixace**: od měsíce konce fixace platí "sazba po fixaci" a banka **přepočítá splátku** na zbývající dobu
-  (nebo platí zadaná "splátka po fixaci"). Bez zadané sazby se nic nemění. V Přehledu je u cashflow vidět, kdy a o
-  kolik se splátka změnila.
+- **Sazba hypotéky** (Nastavení, výchozích 5 %) je jedna globální sazba pro všechna místa, kde u úvěru žádná zadaná není:
+  úvěr bez "Úrok fixace" a refinancování bez nové sazby ji použijí. Platí i **po konci fixace** - sazba po fixaci se u úvěru
+  nezadává, vždy se vezme z Nastavení. V seznamu úvěrů a refinancování je taková sazba ztlumená. Starší úvěry s ručně zadanou
+  sazbou nebo splátkou po fixaci o ně při načtení přijdou (platí sazba z Nastavení).
+- **Konec fixace**: od měsíce konce fixace platí sazba hypotéky z Nastavení a banka **přepočítá splátku** na zbývající dobu.
+  Bez známého konce fixace (ani data, ani roků) se sazba nemění. V Přehledu je u cashflow vidět, kdy a o kolik se splátka změnila.
+- Formulář úvěru má dvě rozbalovací buňky: **Splatnost** (zřízení úvěru, doba splácení v letech nebo "Splatnost do") a **Fixace**
+  (úrok fixace, doba fixace v letech nebo "Fixace do"). Fixace začíná zřízením úvěru. U obou stačí zadat jedno (roky, nebo datum),
+  druhé se dopočítá.
 - Řádky Scénářů a Přehled jsou **kalendářní roky** (leden až prosinec). Letošní řádek začíná dneškem, takže obsahuje jen zbývající
   měsíce roku (od října 3 měsíce, označeno "říj–pro"); zhodnocení v něm se počítá poměrně. Nájem a náklady se indexují 1. ledna.
   Konec fixace, refinancování i splatnost připadnou přímo na svůj měsíc. Měsíční zobrazení dělí počtem měsíců řádku, pruhy nad
@@ -94,8 +100,8 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
 - **Refinancování** je samostatná událost, podobně jako scénářové události: na záložce Úvěry nad seznamem úvěrů se přidá
   (úvěr, datum v budoucnosti, nová sazba, nová doba, případně sloučení) a je v seznamu naplánovaných refinancování. U jednoho
   úvěru jich může být víc. Ze zbývající jistiny se k datu spočítá nová anuita - "kolo od začátku", takže se zase platí hlavně
-  úrok, i když úvěr předtím už běžel. Nová smlouva nahrazuje původní: refinancování s novou sazbou ruší pozdější přechod na
-  sazbu po fixaci staré smlouvy. Prázdné datum se předvyplní koncem fixace vybraného úvěru. Ve Scénářích je refinancování
+  úrok, i když úvěr předtím už běžel. Nová smlouva nahrazuje původní: po refinancování už konec fixace staré smlouvy sazbu
+  nemění, a refinancování bez zadané sazby počítá se sazbou hypotéky z Nastavení. Prázdné datum se předvyplní koncem fixace vybraného úvěru. Ve Scénářích je refinancování
   i mezi událostmi s odkazem zpět.
 - **Sloučení úvěrů**: u refinancování jde zvolit "Sloučit s úvěry". Zůstatky vybraných úvěrů se k datu refinancování splatí
   a přičtou k refinancovanému úvěru, který pak splácí jedna nová anuita z celé částky (nová doba je povinná, datum musí být
@@ -118,13 +124,11 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
   se doplní při načtení). Pozor: časový test FO nemovitosti se pak počítá od dneška, takže bez skutečného data pořízení se
   nemovitost automaticky neprodá dřív než po jeho uplynutí. Skutečná data proto raději zadej.
 - **Formuláře hlídají hodnoty** (nemovitost, úvěr, scénářová událost i Nastavení): povinná pole, meze (např. sazba 0–100 %, obsazenost
-  0–100 %, růst −50 až 100 %), neexistující data (31. 2.), splatnost před zřízením nebo nová sazba bez data refinancování.
+  0–100 %, růst −50 až 100 %), neexistující data (31. 2.), splatnost před zřízením, fixace delší než splatnost nebo refinancování bez data.
   Chyba je napsaná pod polem a uložení se zastaví, dokud se nespraví; chybné pole ve sbaleném bloku se samo rozbalí. Hodnoty se ukládají
   do svých polí ve správných jednotkách (procenta jako zlomek, text bez nadbytečných mezer). Kalendář jde použít i na telefonu.
-- **LTV a vlastní zdroje** se zadávají ručně v "Další údaje" u úvěru (jeden úvěr může financovat víc nemovitostí).
+- **LTV** se zadává ručně v "Další údaje" u úvěru (jeden úvěr může financovat víc nemovitostí).
 - V seznamu bank jsou původní loga (ikony z webů bank, `assets/banks`) a volba **Vlastní**, po které jde napsat libovolný název.
-- Dluh a splátka jednotlivých nemovitostí se berou z úvěrů, které se k nim vážou ("Financuje nemovitost"
-  nebo zástava podle výše částek).
 - Tabulky mají hlavní sloupce a tlačítko "Více sloupců"; na telefonu jsou ve výchozím stavu kompaktní. V tabulce úvěrů (i v seznamu
   refinancování) je každý úvěr na jednom řádku: poznámka a sloučení jsou v bublině "i", na telefonu se dlouhé jméno banky zkrátí
   a poznámka je v kalendáři po rozbalení úvěru.

@@ -30,10 +30,14 @@ const DEFAULT_SETTINGS = {
   auto_sell_enabled: true,
   po_sell_asap: true,
   sale_trigger_amount: 0,
+  default_mortgage_rate: calc.DEFAULT_MORTGAGE_RATE,
 };
 
 // zrušené volby (dřív "Nákup bez hotovosti" v Nastavení): ze starších záloh a z účtu se při načtení odstraní
 const REMOVED_SETTING_KEYS = ['pledge_financing_enabled', 'pledge_max_ltv'];
+
+// zrušená pole úvěru: sazba a splátka po fixaci (po fixaci platí globální sazba hypotéky z Nastavení); odstraní se při načtení
+const REMOVED_LOAN_KEYS = ['rate_after_fixation', 'payment_after_fixation', 'keep_payment_after_fixation'];
 
 function defaultState() {
   return {
@@ -997,6 +1001,13 @@ function migrateLegacyRefinancing(loan) {
   return copy;
 }
 
+function withoutRemovedLoanKeys(loan) {
+  if (!REMOVED_LOAN_KEYS.some((key) => key in loan)) return loan;
+  const copy = { ...loan };
+  for (const key of REMOVED_LOAN_KEYS) delete copy[key];
+  return copy;
+}
+
 function normalizeLoanList(loans, properties) {
   const alloc = {};
   const byId = new Map(properties.map((p) => [p.id, p]));
@@ -1022,7 +1033,7 @@ function normalizeLoanList(loans, properties) {
     delete copy.additional_collateral_ids;
     return copy;
   });
-  return list.map(migrateLegacyRefinancing);
+  return list.map(migrateLegacyRefinancing).map(withoutRemovedLoanKeys);
 }
 
 /**
@@ -1059,27 +1070,6 @@ function normalizeSnapshot(snapshot) {
   copy.loans = normalizeLoanList(Array.isArray(copy.loans) ? copy.loans : [], Array.isArray(copy.properties) ? copy.properties : []);
   if (copy.settings) for (const key of REMOVED_SETTING_KEYS) delete copy.settings[key];
   return copy;
-}
-
-/** Údaje o úvěrech pro výpočty v tabulkách (splátka, podíl úvěru na nemovitostech). */
-function loanInfos() {
-  return state.loans.map((loan) => ({
-    loan,
-    shares: calc.loanPropertyShares(loan, state.properties),
-    terms: calc.loanTerms(loan, CURRENT_YEAR),
-  }));
-}
-
-/** Dluh a splátka nemovitosti z úvěrů, které se k ní vážou. known=false, pokud se vazbu nedá zjistit. */
-function propertyLoanFigures(p, infos) {
-  const attributed = infos.filter((i) => (i.shares[p.id] || 0) > 0);
-  const known = attributed.length > 0 || infos.every((i) => Object.keys(i.shares).length > 0);
-  if (!known) return { known: false, debt: 0, payment: 0 };
-  return {
-    known: true,
-    debt: attributed.reduce((s, i) => s + (Number(i.loan.amount) || 0) * i.shares[p.id], 0),
-    payment: attributed.reduce((s, i) => s + i.terms.payment * i.shares[p.id], 0),
-  };
 }
 
 function renderPropertiesTable() {
@@ -1604,7 +1594,7 @@ function loanInfoButton(loan, mergeText) {
 
 /** Splátkový kalendář úvěru (jako list "Roky" v bankovní kalkulačce): úrok, jistina a podíl úroku po letech. */
 function loanScheduleHtml(loan, expanded) {
-  const sch = calc.loanSchedule(loan, { events: state.events, startYear: CURRENT_YEAR, maxYears: 40, loans: state.loans });
+  const sch = calc.loanSchedule(loan, { events: state.events, startYear: CURRENT_YEAR, maxYears: 40, loans: state.loans, settings: state.settings });
   if (!sch.rows.length) return '<p class="text-sm t-faint">Nic ke splácení</p>';
   const monthYear = (abs) => `${String((abs % 12) + 1).padStart(2, '0')}/${Math.floor(abs / 12)}`;
   const notes = [];
@@ -1651,10 +1641,10 @@ function renderLoansTable() {
   const monthYear = (abs) => `${String((abs % 12) + 1).padStart(2, '0')}/${Math.floor(abs / 12)}`;
   const rows = state.loans.map((l) => {
     const end = calc.fixationEndDate(l);
-    const terms = calc.loanTerms(l, CURRENT_YEAR);
-    const sch = calc.loanSchedule(l, { events: state.events, startYear: CURRENT_YEAR, maxYears: 1 });
+    const terms = calc.loanTerms(l, CURRENT_YEAR, undefined, state.settings);
+    const sch = calc.loanSchedule(l, { events: state.events, startYear: CURRENT_YEAR, maxYears: 1, settings: state.settings });
     // celý plán splácení bez scénářových událostí, ale s refinancováním a sloučením úvěrů: z něj je datum doplacení
-    const plan = calc.loanSchedule(l, { events: [], startYear: CURRENT_YEAR, maxYears: 60, loans: state.loans });
+    const plan = calc.loanSchedule(l, { events: [], startYear: CURRENT_YEAR, maxYears: 60, loans: state.loans, settings: state.settings });
     const ltv = ltvInfo(l);
     totals.amount += Number(l.amount) || 0;
     totals.payment += terms.payment;
@@ -1682,7 +1672,14 @@ function renderLoansTable() {
       total: () => 'Celkem',
     },
     { label: 'Výše úvěru', right: true, cell: (r) => `<span class="num">${moneyHtml(r.l.amount)}</span>`, total: () => moneyHtml(totals.amount) },
-    { label: 'Úrok', right: true, x: true, cell: (r) => `<span class="num">${fmtPercent(r.l.interest_rate)}</span>`, total: () => '' },
+    {
+      label: 'Úrok',
+      right: true,
+      x: true,
+      // sazba, která platí teď; globální z Nastavení (úvěr bez vlastní sazby, nebo už po fixaci) je ztlumená
+      cell: (r) => `<span class="num${r.terms.rateIsDefault ? ' t-muted' : ''}"${r.terms.rateIsDefault ? ' title="Sazba hypotéky z Nastavení"' : ''}>${fmtPercent(r.terms.rate)}</span>`,
+      total: () => '',
+    },
     {
       label: 'Splátka',
       right: true,
@@ -2026,14 +2023,13 @@ function validateLoan(f) {
   const el = (name) => f.elements[name];
   v.field({ el: el('bank'), kind: 'text', required: true, maxLen: 60 });
   v.field({ el: el('amount'), kind: 'money', required: true, minExclusive: 0, max: MAX_MONEY });
-  v.field({ el: el('interest_rate'), kind: 'percent', required: true, min: 0, max: 100 });
   v.field({ el: el('monthly_payment'), kind: 'money', min: 0, max: 1e8 });
   v.field({ el: el('start_date'), kind: 'date' });
+  v.field({ el: el('maturity_years'), kind: 'number', minExclusive: 0, max: 60, unit: ' let' });
+  v.field({ el: el('maturity_date'), kind: 'date' });
+  v.field({ el: el('interest_rate'), kind: 'percent', min: 0, max: 100 }); // prázdné = sazba hypotéky z Nastavení
   v.field({ el: el('fixation_years'), kind: 'number', min: 0, max: 50, unit: ' let' });
   v.field({ el: el('fixation_end'), kind: 'date' });
-  v.field({ el: el('rate_after_fixation'), kind: 'percent', min: 0, max: 100 });
-  v.field({ el: el('payment_after_fixation'), kind: 'money', min: 0, max: 1e8 });
-  v.field({ el: el('maturity_date'), kind: 'date' });
   v.field({ el: el('ltv_percent'), kind: 'percent', min: 0, max: 200 });
   v.field({ el: el('note'), kind: 'text', maxLen: 200 });
 
@@ -2043,9 +2039,7 @@ function validateLoan(f) {
   const maturity = el('maturity_date').value;
   if (fixationEnd && fixationEnd < start) v.fail(el('fixation_end'), 'Konec fixace nemůže být před zřízením úvěru.');
   if (maturity && maturity <= start) v.fail(el('maturity_date'), 'Splatnost musí být po zřízení úvěru.');
-  const afterFixationGiven = el('rate_after_fixation').value.trim() !== '' || el('payment_after_fixation').value.trim() !== '';
-  const fixationKnown = el('fixation_years').value.trim() !== '' || !!fixationEnd;
-  if (afterFixationGiven && !fixationKnown) v.fail(el('fixation_years'), 'Zadej dobu fixace nebo její konec, ať je jasné, odkdy platí nová sazba.');
+  if (fixationEnd && maturity && fixationEnd > maturity) v.fail(el('fixation_end'), 'Fixace nemůže skončit po splatnosti.');
   return v.done();
 }
 
@@ -2556,14 +2550,21 @@ function updateLoanBadges() {
   const sum = draft ? Array.from(draft.values()).reduce((s, v) => s + v, 0) : 0;
   document.getElementById('loan-pledge-badge').textContent = draft && draft.size ? `${draft.size}× · ${fmtMoney(sum)}` : 'Bez zástavy';
 
-  const start = f.elements['start_date'].value;
+  const maturity = f.elements['maturity_date'].value;
+  const termYears = f.elements['maturity_years'].value;
+  document.getElementById('loan-maturity-badge').textContent = [
+    termYears !== '' ? `${fmtNumber(Number(termYears), 1)} let` : '',
+    maturity ? `do ${fmtDate(maturity)}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  const rateRaw = f.elements['interest_rate'].value.trim();
   const end = f.elements['fixation_end'].value;
   const years = f.elements['fixation_years'].value;
-  const maturity = f.elements['maturity_date'].value;
   document.getElementById('loan-fixation-badge').textContent = [
-    start && end ? `${fmtDate(start)} → ${fmtDate(end)}` : end ? `do ${fmtDate(end)}` : years !== '' ? `${years} let` : '',
-    f.elements['rate_after_fixation'].value.trim() ? `po fixaci ${fmtNumber(parseFormNumber(f.elements['rate_after_fixation'].value))} %` : '',
-    maturity ? `splatnost ${fmtDate(maturity)}` : '',
+    rateRaw ? `${fmtNumber(parseFormNumber(rateRaw))} %` : '',
+    end ? `do ${fmtDate(end)}` : years !== '' ? `${fmtNumber(Number(years), 1)} let` : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -2581,42 +2582,62 @@ function updateLoanBadges() {
 const toInputDate = (date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
-/** Fixace od / doba / do: změna kteréhokoli pole dopočítá ostatní. */
-function wireFixationFields() {
+/** Roky mezi dvěma daty (na desetinu roku); prázdné, když to nejde spočítat. */
+function yearsBetweenDates(fromIso, toIso) {
+  const a = calc.toDate(fromIso);
+  const b = calc.toDate(toIso);
+  if (isNaN(a) || isNaN(b) || b < a) return '';
+  const diff = calc.calendarDiff(a, b);
+  return +(diff.years + diff.months / 12).toFixed(1);
+}
+
+/**
+ * Splatnost i fixace mají stejný začátek, zřízení úvěru. U obou jde zadat dobu v letech, nebo datum konce, a změna
+ * jednoho pole dopočítá druhé. Vrací funkci, která před odesláním dopočítá datum z roků, když zůstalo prázdné.
+ */
+function wireLoanDateFields() {
   const f = loanForm();
   const start = f.elements['start_date'];
-  const years = f.elements['fixation_years'];
-  const end = f.elements['fixation_end'];
-
-  const endFromYears = () => {
-    if (years.value === '') return;
+  const pairs = [
+    { years: f.elements['maturity_years'], end: f.elements['maturity_date'] },
+    { years: f.elements['fixation_years'], end: f.elements['fixation_end'] },
+  ];
+  const ensureStart = () => {
     if (!start.value) start.value = toInputDate(new Date()); // bez data zřízení se počítá od dneška
+  };
+  const endFromYears = ({ years, end }) => {
+    if (years.value === '') return;
+    ensureStart();
     const d = calc.toDate(start.value);
     if (isNaN(d)) return;
     end.value = toInputDate(calc.addMonths(d, Math.round((Number(years.value) || 0) * 12)));
   };
-  const yearsFromEnd = () => {
+  const yearsFromEnd = ({ years, end }) => {
     if (!end.value) return;
-    if (!start.value) start.value = toInputDate(new Date()); // bez data zřízení se počítá od dneška
-    const a = calc.toDate(start.value);
-    const b = calc.toDate(end.value);
-    if (isNaN(a) || isNaN(b) || b < a) return;
-    const diff = calc.calendarDiff(a, b);
-    years.value = +(diff.years + diff.months / 12).toFixed(1);
+    ensureStart();
+    const value = yearsBetweenDates(start.value, end.value);
+    if (value !== '') years.value = value;
   };
-
-  years.addEventListener('change', endFromYears);
+  for (const pair of pairs) {
+    pair.years.addEventListener('change', () => endFromYears(pair));
+    pair.end.addEventListener('change', () => yearsFromEnd(pair));
+  }
   start.addEventListener('change', () => {
-    if (years.value !== '') endFromYears();
-    else yearsFromEnd();
+    for (const pair of pairs) {
+      if (pair.years.value !== '') endFromYears(pair);
+      else yearsFromEnd(pair);
+    }
   });
-  end.addEventListener('change', yearsFromEnd);
+  return () => {
+    for (const pair of pairs) if (pair.years.value !== '' && !pair.end.value) endFromYears(pair);
+  };
 }
+
+let syncLoanDates = () => {};
 
 function wireLoanFormUi() {
   const f = loanForm();
-  f.elements['fixation_years'].step = 'any';
-  wireFixationFields();
+  syncLoanDates = wireLoanDateFields();
   wirePledgeChecklist();
   f.addEventListener('input', updateLoanBadges);
   f.addEventListener('change', updateLoanBadges);
@@ -2641,15 +2662,14 @@ function fillLoanForm(id) {
   f.elements['bank'].value = l.bank;
   if (f.elements['bank']._comboRefresh) f.elements['bank']._comboRefresh();
   setFormattedValue(f.elements['amount'], l.amount);
-  setFormattedValue(f.elements['interest_rate'], +(l.interest_rate * 100).toFixed(4));
+  setFormattedValue(f.elements['interest_rate'], calc.hasTypedRate(l) ? +(l.interest_rate * 100).toFixed(4) : '');
   setFormattedValue(f.elements['monthly_payment'], l.monthly_payment || '');
   f.elements['start_date'].value = l.start_date || '';
   f.elements['fixation_years'].value = l.fixation_years != null && l.fixation_years !== '' ? l.fixation_years : '';
   const end = calc.fixationEndDate(l);
   f.elements['fixation_end'].value = end ? toInputDate(end) : '';
-  setFormattedValue(f.elements['rate_after_fixation'], l.rate_after_fixation != null ? l.rate_after_fixation : '');
-  setFormattedValue(f.elements['payment_after_fixation'], l.payment_after_fixation || '');
   f.elements['maturity_date'].value = l.maturity_date || '';
+  f.elements['maturity_years'].value = l.maturity_date ? yearsBetweenDates(l.start_date || toInputDate(new Date()), l.maturity_date) : '';
   f.elements['note'].value = l.note || '';
   // LTV a vlastní zdroje: ruční hodnoty, u staršího záznamu se předvyplní z hodnoty nemovitosti při sjednání
   const ltv = ltvInfo(l);
@@ -2659,8 +2679,9 @@ function fillLoanForm(id) {
   renderLoanCollateralChecklist(null);
   document.getElementById('loan-acc-pledge').open = calc.loanCollateral(l).length > 0;
   const accordions = Array.from(f.querySelectorAll('details.acc:not(.acc-pledge)'));
-  const [fixationAcc, detailsAcc] = accordions;
-  fixationAcc.open = !!(l.start_date || end || l.fixation_years != null || l.rate_after_fixation != null || l.maturity_date || l.payment_after_fixation);
+  const [maturityAcc, fixationAcc, detailsAcc] = accordions;
+  maturityAcc.open = !!l.maturity_date;
+  fixationAcc.open = !!(calc.hasTypedRate(l) || end || l.fixation_years != null);
   detailsAcc.open = !!(l.ltv_percent != null || l.property_value_at_origination || l.property_id || l.note);
   document.getElementById('loan-form-title').textContent = 'Upravit úvěr';
   document.getElementById('loan-submit-label').textContent = 'Uložit změny';
@@ -2705,6 +2726,7 @@ function submitLoanForm(e) {
   e.preventDefault();
   const f = e.target;
   const id = f.elements['id'].value;
+  syncLoanDates();
   if (!validateLoan(f)) return;
 
   // zástavy: částka u každé zaškrtnuté nemovitosti nesmí přesáhnout její volnou hodnotu
@@ -2729,19 +2751,18 @@ function submitLoanForm(e) {
     return raw ? parseFormNumber(raw) : null;
   };
   const yearsRaw = f.elements['fixation_years'].value.trim();
+  const rateRaw = f.elements['interest_rate'].value.trim();
   const existing = id ? state.loans.find((l) => l.id === id) : null;
   const payload = {
     ...(existing || {}),
     id: id || uid(),
     bank: cleanText(f.elements['bank'].value),
     amount: parseFormNumber(f.elements['amount'].value),
-    interest_rate: parseFormNumber(f.elements['interest_rate'].value) / 100,
+    interest_rate: rateRaw ? parseFormNumber(rateRaw) / 100 : null, // prázdné = sazba hypotéky z Nastavení
     monthly_payment: parseFormNumber(f.elements['monthly_payment'].value),
     fixation_years: yearsRaw === '' ? null : Math.max(0, Number(yearsRaw) || 0),
     start_date: f.elements['start_date'].value || toInputDate(new Date()),
     fixation_end: f.elements['fixation_end'].value || null,
-    rate_after_fixation: num('rate_after_fixation'),
-    payment_after_fixation: num('payment_after_fixation'),
     maturity_date: f.elements['maturity_date'].value || null,
     note: cleanText(f.elements['note'].value) || null,
     ltv_percent: num('ltv_percent'),
@@ -2749,7 +2770,7 @@ function submitLoanForm(e) {
     collateral,
   };
   delete payload.additional_collateral_ids;
-  delete payload.keep_payment_after_fixation; // starší volba "ponechat splátku" už neexistuje
+  for (const key of REMOVED_LOAN_KEYS) delete payload[key];
   if (id) {
     const idx = state.loans.findIndex((l) => l.id === id);
     if (idx !== -1) state.loans[idx] = payload;
@@ -2876,10 +2897,10 @@ function renderRefinancingTable() {
       label: 'Nově',
       right: true,
       cell: ({ ev }) => {
-        const parts = [];
-        if (ev.rate != null && ev.rate !== '') parts.push(`${fmtNumber(ev.rate)} %`);
-        if (Number(ev.years) > 0) parts.push(`${fmtNumber(ev.years, 1)} let`);
-        return parts.length ? parts.map((p) => `<span class="num">${p}</span>`).join(' · ') : dash;
+        const typed = ev.rate != null && ev.rate !== '';
+        const rate = `<span class="num${typed ? '' : ' t-muted'}"${typed ? '' : ' title="Sazba hypotéky z Nastavení"'}>${fmtNumber(typed ? ev.rate : calc.mortgageRate(state.settings) * 100)} %</span>`;
+        const years = Number(ev.years) > 0 ? `<span class="num">${fmtNumber(ev.years, 1)} let</span>` : '';
+        return [rate, years].filter(Boolean).join(' · ');
       },
     },
     {
@@ -3003,6 +3024,7 @@ function renderSettings() {
   const s = state.settings;
   setFormattedValue(document.getElementById('inflation-input'), +(s.inflation_rate * 100).toFixed(4));
   setFormattedValue(document.getElementById('rent-growth-input'), s.default_rent_growth != null ? +(s.default_rent_growth * 100).toFixed(4) : '');
+  setFormattedValue(document.getElementById('mortgage-rate-input'), +(calc.mortgageRate(s) * 100).toFixed(4));
   setFormattedValue(document.getElementById('capgains-tax-input'), s.capital_gains_tax_rate);
   setFormattedValue(document.getElementById('po-tax-input'), s.po_tax_rate);
   document.getElementById('auto-sell-enabled-input').checked = s.auto_sell_enabled !== false;
@@ -3011,6 +3033,7 @@ function renderSettings() {
   setFormattedValue(document.getElementById('min-portfolio-input'), s.min_portfolio_value || '');
   syncSettingsVisibility();
   updateRentGrowthPlaceholders();
+  updateMortgageRatePlaceholders();
   renderNeverSellChips();
   clearFieldErrors(document.getElementById('tab-settings'));
 }
@@ -3021,6 +3044,12 @@ function updateRentGrowthPlaceholders() {
   const text = fmtNumber(effective * 100);
   document.getElementById('property-rent-growth').placeholder = text;
   document.getElementById('rent-growth-input').placeholder = fmtNumber(state.settings.inflation_rate * 100);
+}
+
+/** Prázdná sazba u úvěru i u refinancování = sazba hypotéky z Nastavení - její hodnota je vidět jako nápověda. */
+function updateMortgageRatePlaceholders() {
+  const text = fmtNumber(calc.mortgageRate(state.settings) * 100);
+  for (const input of [loanForm().elements['interest_rate'], refiForm().elements['rate']]) if (input) input.placeholder = text;
 }
 
 function syncSettingsVisibility() {
@@ -3034,6 +3063,7 @@ function wireSettingsInputs() {
   const fields = [
     { id: 'inflation-input', rule: { kind: 'percent', required: true, min: -20, max: 100 }, apply: (n) => (state.settings.inflation_rate = n / 100) },
     { id: 'rent-growth-input', rule: { kind: 'percent', min: -50, max: 100 }, apply: (n) => (state.settings.default_rent_growth = n == null ? null : n / 100) },
+    { id: 'mortgage-rate-input', rule: { kind: 'percent', required: true, min: 0, max: 100 }, apply: (n) => (state.settings.default_mortgage_rate = n / 100) },
     { id: 'capgains-tax-input', rule: { kind: 'percent', required: true, min: 0, max: 100 }, apply: (n) => (state.settings.capital_gains_tax_rate = n) },
     { id: 'po-tax-input', rule: { kind: 'percent', required: true, min: 0, max: 100 }, apply: (n) => (state.settings.po_tax_rate = n) },
     { id: 'sale-trigger-input', rule: { kind: 'money', min: 0, max: MAX_MONEY }, apply: (n) => (state.settings.sale_trigger_amount = n || 0) },
@@ -3051,11 +3081,15 @@ function wireSettingsInputs() {
     saveState();
     syncSettingsVisibility();
     updateRentGrowthPlaceholders();
+    updateMortgageRatePlaceholders();
+    guarded('úvěry', renderLoansTable);
+    guarded('refinancování', renderRefinancingTable);
     renderCalculations();
   };
   [
     'inflation-input',
     'rent-growth-input',
+    'mortgage-rate-input',
     'capgains-tax-input',
     'po-tax-input',
     'auto-sell-enabled-input',
@@ -3080,7 +3114,6 @@ const EVENT_LABELS = {
   inflation: 'Inflace',
   one_time: 'Jednorázový příjem/výdaj',
   sale: 'Prodej co nejdřív',
-  rate_after_fixation: 'Sazba po fixaci',
   refinance: 'Refinancování',
 };
 
@@ -3202,13 +3235,9 @@ function derivedEvents() {
   }
   for (const l of state.loans) {
     const base = { derived: true, targets: l.bank, source: { kind: 'loan', id: l.id }, from: l.bank };
-    if (l.rate_after_fixation != null) {
-      const end = calc.fixationEndDate(l);
-      out.push({ ...base, type: 'rate_after_fixation', period: end ? `od ${end.getFullYear()}` : '—', value: `${fmtNumber(l.rate_after_fixation)} %` });
-    }
     for (const r of Array.isArray(l.refinancings) ? l.refinancings : []) {
       if (!r.date) continue;
-      const rate = r.rate != null && r.rate !== '' ? `${fmtNumber(r.rate)} %` : '';
+      const rate = `${fmtNumber(r.rate != null && r.rate !== '' ? r.rate : calc.mortgageRate(state.settings) * 100)} %`;
       const years = Number(r.years) > 0 ? `${fmtNumber(r.years, 1)} let` : '';
       out.push({ ...base, source: { kind: 'refi', id: r.id }, type: 'refinance', period: fmtDate(r.date), value: [rate, years].filter(Boolean).join(' · ') || '—' });
     }
