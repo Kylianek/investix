@@ -320,6 +320,8 @@ function revealForm(cardId) {
 
 const THEMES = ['light', 'dark', 'color'];
 const THEME_LABELS = { light: 'Světlý', dark: 'Tmavý', color: 'Barevný' };
+// barva lišty prohlížeče / systému kolem appky (meta theme-color), ať ladí s hlavičkou zvoleného motivu
+const THEME_COLORS = { light: '#ffffff', dark: '#0f1829', color: '#4f46e5' };
 const THEME_ICONS = {
   light:
     '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
@@ -336,6 +338,8 @@ function currentTheme() {
 function applyTheme(theme) {
   if (!THEMES.includes(theme)) theme = 'light';
   document.documentElement.setAttribute('data-theme', theme);
+  const themeMeta = document.querySelector('meta[name="theme-color"]');
+  if (themeMeta) themeMeta.setAttribute('content', THEME_COLORS[theme]);
   try {
     localStorage.setItem(THEME_KEY, theme);
   } catch (e) {

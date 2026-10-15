@@ -2815,3 +2815,31 @@ button.event-chip.is-open {
   color: var(--neg-text);
   font-weight: 600;
 }
+
+/* ---------- Appka na ploše telefonu: žádné webové zvyky (zvýraznění dotyku, nabídka při dlouhém stisku, vybírání ovládacích prvků) ---------- */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+button,
+a,
+summary,
+.tab-btn,
+.seg label {
+  -webkit-touch-callout: none;
+}
+@media (display-mode: standalone) {
+  .tab-btn,
+  .btn-primary,
+  .btn-secondary,
+  .btn-icon,
+  summary,
+  .seg label {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  body {
+    overscroll-behavior-y: none;
+  }
+}

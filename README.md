@@ -141,6 +141,20 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
 Světlý, tmavý a barevný motiv (ikona v hlavičce nebo Nastavení). Volba motivu je jen vzhled, drží se
 v prohlížeči (`localStorage`), nejsou to data účtu.
 
+## Appka na ploše telefonu (iPhone)
+
+Investix jde přidat na plochu jako appku: celá obrazovka bez lišty Safari a ikona s logem. V Safari otevři
+https://kylianek.github.io/investix/ a dej Sdílet → Přidat na plochu (nech zapnuté "Otevřít jako webovou aplikaci").
+
+- Nastavení je v [index.html](index.html) (meta tagy pro iOS, `apple-touch-icon`, odkaz na manifest), v
+  [manifest.webmanifest](manifest.webmanifest) (`display: standalone`) a v ikonách v `assets/icons/`. Stavový řádek je v režimu
+  `default` jako v CRM; barva lišty (`theme-color`) se přepíná podle zvoleného motivu.
+- iPhone si manifest a ikonu načte jen při přidání na plochu: po změně ikonu na ploše smaž a přidej znovu.
+- Appka má vlastní úložiště oddělené od Safari, takže se v ní jednou přihlásíš znovu (motiv se nastaví zvlášť).
+- Ikony se vyrábí z `assets/logo.png` skriptem [tools/make-icons.ps1](tools/make-icons.ps1)
+  (`powershell -ExecutionPolicy Bypass -File tools/make-icons.ps1`): čtvercová plná ikona 180 / 192 / 512 px, dům na 66 % šířky,
+  malé logo do hlavičky a ikona záložky. Offline režim (service worker) appka nemá, data jsou v cloudu.
+
 ## Lokální vyzkoušení
 
 Stačí otevřít `index.html` přímo v prohlížeči (dvojklikem), nebo spustit jednoduchý

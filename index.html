@@ -13,13 +13,24 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Investix</title>
-<link rel="icon" type="image/png" href="assets/logo.png?v=1791894527" />
+<!-- Appka na ploše telefonu (iPhone: Sdílet > Přidat na plochu): celá obrazovka bez lišty prohlížeče a ikona z loga. -->
+<meta name="theme-color" content="#ffffff" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Investix" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="format-detection" content="telephone=no, date=no, email=no, address=no" />
+<link rel="manifest" href="manifest.webmanifest?v=1792077752" />
+<link rel="icon" type="image/png" sizes="64x64" href="assets/icons/favicon-64.png?v=1792077752" />
+<link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png?v=1792077752" />
 <script>
   /* Motiv se nastaví ještě před vykreslením, ať stránka neprobliká (volba motivu je jen vzhled, ne data). */
   try {
     var savedTheme = localStorage.getItem('investix-theme');
     if (savedTheme === 'dark' || savedTheme === 'color' || savedTheme === 'light') {
       document.documentElement.setAttribute('data-theme', savedTheme);
+      var themeColors = { light: '#ffffff', dark: '#0f1829', color: '#4f46e5' };
+      document.querySelector('meta[name="theme-color"]').setAttribute('content', themeColors[savedTheme]);
     }
   } catch (e) {}
 </script>
@@ -27,7 +38,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="css/style.css?v=1791894527" />
+<link rel="stylesheet" href="css/style.css?v=1792077752" />
 </head>
 <body class="min-h-screen">
 
@@ -35,7 +46,7 @@
     <header class="app-header">
       <div class="app-wrap mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
         <h1 class="flex items-center gap-2">
-          <img src="assets/logo.png?v=1791894527" alt="" width="32" height="32" class="shrink-0" />
+          <img src="assets/icons/logo-96.png?v=1792077752" alt="" width="32" height="32" class="shrink-0" />
           <span class="brand-name">Investix</span>
         </h1>
         <div class="flex items-center gap-2 ml-auto" id="header-controls">
@@ -732,9 +743,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/calc.js?v=1791894527"></script>
-  <script src="js/app.js?v=1791894527"></script>
-  <script src="js/cloud.js?v=1791894527"></script>
-  <script src="js/auth.js?v=1791894527"></script>
+  <script src="js/calc.js?v=1792077752"></script>
+  <script src="js/app.js?v=1792077752"></script>
+  <script src="js/cloud.js?v=1792077752"></script>
+  <script src="js/auth.js?v=1792077752"></script>
 </body>
 </html>
