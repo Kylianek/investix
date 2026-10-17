@@ -2829,7 +2829,10 @@ summary,
 .seg label {
   -webkit-touch-callout: none;
 }
-@media (display-mode: standalone) {
+/* Jen v appce na dotykovém zařízení: ovládací prvky nejdou označovat jako text na webu. Na počítači (appka z Windows) zůstává běžné chování.
+   POZOR: na html ani body nikdy nenastavuj overscroll-behavior. Obě mají overflow-x: hidden, takže body je kontejner s posouváním
+   a "overscroll-behavior: none" by zablokovalo posouvání stránky kolečkem i prstem (v nainstalované appce se pak stránka nehne). */
+@media (display-mode: standalone) and (pointer: coarse) {
   .tab-btn,
   .btn-primary,
   .btn-secondary,
@@ -2838,8 +2841,5 @@ summary,
   .seg label {
     -webkit-user-select: none;
     user-select: none;
-  }
-  body {
-    overscroll-behavior-y: none;
   }
 }
