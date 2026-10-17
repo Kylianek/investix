@@ -96,14 +96,19 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
 - Řádky Scénářů a Přehled jsou **kalendářní roky** (leden až prosinec). Letošní řádek začíná dneškem, takže obsahuje jen zbývající
   měsíce roku (od října 3 měsíce, označeno "říj–pro"); zhodnocení v něm se počítá poměrně. Nájem a náklady se indexují 1. ledna.
   Konec fixace, refinancování i splatnost připadnou přímo na svůj měsíc. Měsíční zobrazení dělí počtem měsíců řádku, pruhy nad
-  tabulkami ukazují běžnou roční hodnotu.
+  tabulkami ukazují běžnou roční hodnotu. Pruh nad seznamem nemovitostí a úvěrů má jen nájem, náklady (když nějaké jsou) a splátky,
+  cashflow v něm není (je v Přehledu).
 - **Refinancování** je samostatná událost, podobně jako scénářové události: na záložce Úvěry nad seznamem úvěrů se přidá
   (úvěr, datum v budoucnosti, nová sazba, nová doba, případně sloučení) a je v seznamu naplánovaných refinancování. U jednoho
   úvěru jich může být víc. Ze zbývající jistiny se k datu spočítá nová anuita - "kolo od začátku", takže se zase platí hlavně
   úrok, i když úvěr předtím už běžel. Nová smlouva nahrazuje původní: po refinancování už konec fixace staré smlouvy sazbu
-  nemění, a refinancování bez zadané sazby počítá se sazbou hypotéky z Nastavení. Prázdné datum se předvyplní koncem fixace vybraného úvěru. Ve Scénářích je refinancování
-  i mezi událostmi s odkazem zpět.
-- **Sloučení úvěrů**: u refinancování jde zvolit "Sloučit s úvěry". Zůstatky vybraných úvěrů se k datu refinancování splatí
+  nemění, a refinancování bez zadané sazby počítá se sazbou hypotéky z Nastavení. Prázdné datum se předvyplní nejbližším koncem
+  fixace z vybraných úvěrů (dokud nezadáš vlastní). Ve Scénářích je refinancování i mezi událostmi s odkazem zpět.
+- **Balíček refinancování**: úvěry se ve formuláři vybírají štítky (**Všechny** nebo víc úvěrů). Datum, nová sazba a nová doba se
+  pak uplatní u každého vybraného úvěru zvlášť (každý si spočítá novou anuitu z vlastního zůstatku), ale v seznamu a ve Scénářích je to
+  jeden řádek / jedna událost. Úprava balíčku mění všechny jeho úvěry najednou, smazání odstraní refinancování u všech; když se
+  výběr zúží na jediný úvěr, z balíčku je zase samostatné refinancování. Smazání úvěru ho z balíčku jen vyřadí.
+- **Sloučení úvěrů**: u refinancování jednoho úvěru jde zvolit "Sloučit s úvěry" (u balíčku víc úvěrů ne). Zůstatky vybraných úvěrů se k datu refinancování splatí
   a přičtou k refinancovanému úvěru, který pak splácí jedna nová anuita z celé částky (nová doba je povinná, datum musí být
   v budoucnosti). Sloučené úvěry se od toho měsíce neplatí, v tabulce a v kalendáři je vidět, kdy a kolik se převzalo.
 - Scénářová událost **změna úrokové sazby** přepíše sazbu vybraných (nebo všech) úvěrů na zadanou hodnotu (nahoru i dolů)
@@ -133,15 +138,23 @@ Stejná metodika jako bankovní kalkulačka (ověřeno na tabulce od bankéře: 
   úzké). Když se všechny sloupce na šířku nevejdou, samy se vypustí ty nejméně důležité (u nemovitostí nejdřív Volné k zastavení
   a Zástava, u úvěrů Nemovitost a Poměr LTV, ve Scénářích Nashromážděné zhodnocení a Náklady); tlačítko "Více sloupců" ukáže
   všechny (pak jde posouvat), "Méně sloupců" jen hlavní. Dlouhé texty (jméno, poznámka, cíle události) se zkrátí a celé jsou
-  v tooltipu, poznámka a sloučení u úvěru v bublině "i". Na telefonu jsou seznamy ve výchozím stavu kompaktní, poznámka je
-  v kalendáři po rozbalení úvěru.
+  v tooltipu, poznámka a sloučení u úvěru v bublině "i". Na telefonu jsou seznamy ve výchozím stavu kompaktní, tlačítko "Více sloupců" je přes celou šířku (na počítači zůstává malé vpravo)
+  a poznámka je v kalendáři po rozbalení úvěru.
 
 ## Vzhled
 
 Světlý, tmavý a barevný motiv (ikona v hlavičce nebo Nastavení). Volba motivu je jen vzhled, drží se
 v prohlížeči (`localStorage`), nejsou to data účtu.
 
-## Appka na ploše telefonu (iPhone)
+Přepínač **Informace** (Nastavení, karta Vzhled, ikona i) je ve výchozím stavu zapnutý. Když ho vypneš, nejsou nikde vidět
+nápovědy "Jak to počítám?", rozkliknutelné vzorce u karet v Přehledu ani Scénářích a malé "i" u neúplného roku, karty
+přestanou vypadat jako klikací. Poznámky u úvěrů a bubliny u prodeje (to jsou data, ne nápověda) zůstávají. Volba se drží
+v prohlížeči (`investix-info`), takže je zvlášť na každém zařízení, a nastaví se ještě před vykreslením stránky.
+
+Částky, procenta a data se píšou s nedělitelnou mezerou (`\u00a0` v `js/app.js`), takže se "Kč" ani "%" nikdy nezalomí na
+další řádek; u karet v Přehledu se navíc písmo u velmi dlouhého čísla mírně zmenší, aby se vešlo na jeden řádek.
+
+## Appka na ploše (iPhone a Windows)
 
 Investix jde přidat na plochu jako appku: celá obrazovka bez lišty Safari a ikona s logem. V Safari otevři
 https://kylianek.github.io/investix/ a dej Sdílet → Přidat na plochu (nech zapnuté "Otevřít jako webovou aplikaci").
@@ -154,6 +167,19 @@ https://kylianek.github.io/investix/ a dej Sdílet → Přidat na plochu (nech z
 - Ikony se vyrábí z `assets/logo.png` skriptem [tools/make-icons.ps1](tools/make-icons.ps1)
   (`powershell -ExecutionPolicy Bypass -File tools/make-icons.ps1`): čtvercová plná ikona 180 / 192 / 512 px, dům na 66 % šířky,
   malé logo do hlavičky a ikona záložky. Offline režim (service worker) appka nemá, data jsou v cloudu.
+
+**Windows (Edge nebo Chrome)**: na https://kylianek.github.io/investix/ dej v adresním řádku Nainstalovat (v Edge také nabídka
+Aplikace → Nainstalovat tento web jako aplikaci). Appka se otevře v samostatném okně bez adresního řádku, s ikonou v nabídce Start
+a na hlavním panelu.
+
+- `launch_handler` v manifestu (`focus-existing`) zajistí, že další spuštění použije už otevřené okno, ne druhé.
+- Výběr textu a označování (`user-select: none` u tlačítek) je zakázané jen na dotykových zařízeních (`pointer: coarse`), na
+  Windows s myší jde text normálně označit.
+- **Posouvání**: `html` i `body` mají `overflow-x: hidden`, takže je kontejnerem s posouváním `body`. Proto se na `html` ani
+  `body` nikdy nenastavuje `overscroll-behavior` - v nainstalované appce takové pravidlo zablokovalo kolečko myši i dotyk a stránka
+  se nehnula (v css je u toho komentář).
+- Po nasazení nové verze se appka aktualizuje sama při dalším spuštění; manifest (ikony, `launch_handler`) si Chrome a Edge
+  načtou znovu do dne, případně appku odinstaluj a nainstaluj znovu.
 
 ## Lokální vyzkoušení
 

@@ -83,18 +83,18 @@ const tableExpandedState = {};
 let printingNow = false;
 const expandedLoans = new Set();
 
-// Nedělitelná mezera mezi skupinami číslic i před jednotkou - číslo se
-// svojí příponou (Kč/%) se tak nikdy nezalomí na dva řádky uprostřed buňky.
-const fmtMoney = (n) =>
-  (Number(n) || 0).toLocaleString('cs-CZ', { maximumFractionDigits: 0 }).replace(/\s/g, ' ') + ' Kč';
+// Nedělitelná mezera (U+00A0) mezi skupinami číslic i před jednotkou - číslo se svojí příponou (Kč/%) se tak nikdy nezalomí
+// na dva řádky uprostřed buňky. V kódu je zapsaná jako \u00a0, ať ji editor ani nástroj nepřevede na obyčejnou mezeru.
+const NBSP = '\u00a0';
+const fmtMoney = (n) => (Number(n) || 0).toLocaleString('cs-CZ', { maximumFractionDigits: 0 }).replace(/\s/g, NBSP) + NBSP + 'Kč';
 const fmtPercent = (n) =>
-  ((Number(n) || 0) * 100).toLocaleString('cs-CZ', { maximumFractionDigits: 2 }).replace(/\s/g, ' ') + ' %';
+  ((Number(n) || 0) * 100).toLocaleString('cs-CZ', { maximumFractionDigits: 2 }).replace(/\s/g, NBSP) + NBSP + '%';
 const fmtNumber = (n, digits = 2) =>
-  (Number(n) || 0).toLocaleString('cs-CZ', { maximumFractionDigits: digits }).replace(/\s/g, ' ');
+  (Number(n) || 0).toLocaleString('cs-CZ', { maximumFractionDigits: digits }).replace(/\s/g, NBSP);
 const fmtDate = (str) => {
   if (!str) return '';
   const d = calc.toDate(str);
-  return isNaN(d) ? '' : d.toLocaleDateString('cs-CZ').replace(/\s/g, ' ');
+  return isNaN(d) ? '' : d.toLocaleDateString('cs-CZ').replace(/\s/g, NBSP);
 };
 
 function uid() {
@@ -365,6 +365,36 @@ function wireTheme() {
   document.querySelectorAll('input[name="theme"]').forEach((radio) => {
     radio.addEventListener('change', () => radio.checked && applyTheme(radio.value));
   });
+}
+
+/* ---------- Informace: nápovědy "Jak to počítám?" a vysvětlivky "i" jdou vypnout v Nastavení (jen vzhled, drží se v prohlížeči) ---------- */
+
+const INFO_KEY = 'investix-info';
+
+function infoEnabled() {
+  return document.documentElement.getAttribute('data-info') !== 'off';
+}
+
+function applyInfo(on) {
+  if (on) document.documentElement.removeAttribute('data-info');
+  else document.documentElement.setAttribute('data-info', 'off');
+  try {
+    localStorage.setItem(INFO_KEY, on ? '1' : '0');
+  } catch (e) {
+    /* soukromé okno / zablokované úložiště - volba se jen nezapamatuje */
+  }
+  const input = document.getElementById('info-input');
+  if (input) input.checked = on;
+  if (!on) {
+    closePopover();
+    document.querySelectorAll('.kpi-formula').forEach((f) => f.classList.add('hidden')); // otevřené vzorce se zavřou
+  }
+}
+
+function wireInfoToggle() {
+  const input = document.getElementById('info-input');
+  input.checked = infoEnabled();
+  input.addEventListener('change', () => applyInfo(input.checked));
 }
 
 /** Vlna po kliknutí na tlačítka - drobnost, díky které appka působí živěji. */
@@ -751,9 +781,9 @@ function fmtShort(n) {
   const v = Number(n) || 0;
   const abs = Math.abs(v);
   const sign = v < 0 ? '-' : '';
-  const nbsp = (s) => s.replace(/\s/g, ' ');
-  if (abs >= 1e6) return sign + nbsp((abs / 1e6).toLocaleString('cs-CZ', { maximumFractionDigits: 1 })) + ' mil.';
-  if (abs >= 1e3) return sign + nbsp(Math.round(abs / 1e3).toLocaleString('cs-CZ')) + ' tis.';
+  const nbsp = (s) => s.replace(/\s/g, NBSP);
+  if (abs >= 1e6) return sign + nbsp((abs / 1e6).toLocaleString('cs-CZ', { maximumFractionDigits: 1 })) + NBSP + 'mil.';
+  if (abs >= 1e3) return sign + nbsp(Math.round(abs / 1e3).toLocaleString('cs-CZ')) + NBSP + 'tis.';
   return sign + Math.round(abs);
 }
 
@@ -1016,6 +1046,7 @@ function wireTableToggles() {
       if (window.innerWidth === lastWidth) return;
       lastWidth = window.innerWidth;
       renderAllTables();
+      fitKpiValues();
     }, 150);
   });
   // PDF/tisk vždy se všemi sloupci
@@ -1457,11 +1488,11 @@ function periodInfoButton(months) {
     `period:${months}`,
     `<div class="popover-title">Neúplný rok</div><p>Letos zbývá ${months} ${word} (${range}). Nájem, splátky a cashflow jsou jen za tyto měsíce, majetek a dluh jsou dnešní. Další roky jsou celé, od ledna do prosince.</p>`
   );
-  return `<button type="button" class="info-btn" data-pop="${id}" aria-haspopup="dialog" aria-expanded="false" aria-label="Za jaké období je tento rok" title="Za jaké období je tento rok">i</button>`;
+  return `<button type="button" class="info-btn info-hint" data-pop="${id}" aria-haspopup="dialog" aria-expanded="false" aria-label="Za jaké období je tento rok" title="Za jaké období je tento rok">i</button>`;
 }
 
 /** Částka v Kč na 1 mil. hodnoty ročně (nájem po nákladech), např. "30 000 Kč". */
-const fmtPerMillion = (n) => `${fmtNumber(n, 0)} Kč`;
+const fmtPerMillion = (n) => `${fmtNumber(n, 0)}${NBSP}Kč`;
 
 /**
  * Vysvětlení v bublině prodeje: proč se prodala právě tahle nemovitost a jak dopadla proti ostatním. Rozhoduje celkové
@@ -1696,6 +1727,7 @@ function renderLoansTable() {
 function init() {
   loadState();
   wireTheme();
+  wireInfoToggle();
   wireRipples();
   wireLeaveGuard();
   wireTabs();
@@ -1790,6 +1822,7 @@ function showTab(tabId) {
   if (gear) gear.setAttribute('aria-pressed', String(tabId === 'tab-settings'));
   // tabulky ve skryté záložce nešlo změřit: až teď se vejdou na šířku
   document.querySelectorAll(`#${tabId} [data-table-card]`).forEach((card) => rerenderTable(card.dataset.tableCard));
+  fitKpiValues();
   window.scrollTo({ top: 0 });
 }
 
@@ -1832,7 +1865,7 @@ function cleanText(raw) {
 /** Číslo z textu pole: null = prázdné pole, NaN = není to číslo. */
 function readNumber(raw) {
   const t = String(raw == null ? '' : raw)
-    .replace(/[\s ]/g, '')
+    .replace(/[\s\u00a0]/g, '')
     .replace(/[−–]/g, '-')
     .replace(',', '.');
   if (t === '') return null;
@@ -1840,7 +1873,7 @@ function readNumber(raw) {
   return Number(t);
 }
 
-const RULE_UNIT = { money: ' Kč', percent: ' %' };
+const RULE_UNIT = { money: NBSP + 'Kč', percent: NBSP + '%' };
 
 /** Zkontroluje hodnotu podle pravidla. Vrací text chyby, nebo prázdný text, když je všechno v pořádku. */
 function checkValue(rule, raw) {
@@ -1996,12 +2029,12 @@ function validateLoan(f) {
   return v.done();
 }
 
-/** Refinancování: úvěr, datum v budoucnosti, nová sazba / doba / sloučení (aspoň něco z toho; sloučení potřebuje novou dobu). */
+/** Refinancování: úvěry (aspoň jeden), datum v budoucnosti, nová sazba / doba / sloučení (aspoň něco z toho; sloučení potřebuje novou dobu). */
 function validateRefinancing(f) {
   clearFieldErrors(f);
   const v = makeValidator();
   const el = (name) => f.elements[name];
-  if (!el('loan_id').value) v.fail(el('loan_id'), 'Vyber úvěr.');
+  if (!readRefiLoanDraft().size) v.fail(document.getElementById('refi-loan-checklist'), 'Vyber aspoň jeden úvěr.');
   v.field({ el: el('date'), kind: 'date', required: true });
   v.field({ el: el('rate'), kind: 'percent', min: 0, max: 100 });
   v.field({ el: el('years'), kind: 'number', minExclusive: 0, max: 50, unit: ' let' });
@@ -2670,16 +2703,35 @@ function refinancingRows() {
   return rows.sort((a, b) => String(a.ev.date).localeCompare(String(b.ev.date)));
 }
 
-function findRefinancing(id) {
-  return refinancingRows().find((r) => r.ev.id === id) || null;
+/**
+ * Refinancování zadané najednou pro víc úvěrů je "balíček": u každého úvěru je vlastní záznam (stejné datum, sazba a doba)
+ * a všechny sdílejí `package`. Záznam bez `package` je samostatný. Klíč určuje balíček v seznamu a ve formuláři.
+ */
+const refiKey = (ev) => ev.package || ev.id;
+
+/** Refinancování po balíčcích podle data: [{ key, ev (první záznam), entries: [{ loan, ev }], loans }]. */
+function refinancingPackages() {
+  const map = new Map();
+  for (const row of refinancingRows()) {
+    const key = refiKey(row.ev);
+    if (!map.has(key)) map.set(key, { key, ev: row.ev, entries: [], loans: [] });
+    const pack = map.get(key);
+    pack.entries.push(row);
+    pack.loans.push(row.loan);
+  }
+  return Array.from(map.values());
 }
 
-/** Které úvěry se už slučují (a do kterého) a které úvěry něco slučují; `exceptEventId` = právě upravované refinancování. */
-function mergeUsage(exceptEventId) {
+function findRefinancing(key) {
+  return refinancingPackages().find((p) => p.key === key) || null;
+}
+
+/** Které úvěry se už slučují (a do kterého) a které úvěry něco slučují; `exceptKey` = právě upravované refinancování. */
+function mergeUsage(exceptKey) {
   const takenBy = new Map();
   const mergers = new Set();
   for (const { loan, ev } of refinancingRows()) {
-    if (ev.id === exceptEventId) continue;
+    if (exceptKey && refiKey(ev) === exceptKey) continue;
     const ids = Array.isArray(ev.merge_ids) ? ev.merge_ids : [];
     if (ids.length) mergers.add(loan.id);
     for (const id of ids) takenBy.set(id, loan);
@@ -2687,44 +2739,69 @@ function mergeUsage(exceptEventId) {
   return { takenBy, mergers };
 }
 
-function renderRefiLoanSelect() {
-  const select = document.getElementById('refi-loan-select');
-  if (!select) return;
-  const previous = select.value;
-  select.innerHTML =
-    (state.loans.length > 1 ? '<option value="">Vyber úvěr</option>' : '') +
-    state.loans.map((l) => `<option value="${l.id}">${escapeHtml(l.bank)} · ${fmtMoney(l.amount)}</option>`).join('');
-  select.value = state.loans.some((l) => l.id === previous) ? previous : state.loans.length === 1 ? state.loans[0].id : '';
+/** Úvěry vybrané ve formuláři (null = seznam ještě nebyl vykreslen). */
+function refiLoanDraft() {
+  const boxes = document.querySelectorAll('#refi-loan-checklist .refi-loan-box');
+  if (!boxes.length) return null;
+  return new Set(Array.from(boxes).filter((b) => b.checked).map((b) => b.value));
+}
+
+const readRefiLoanDraft = () => refiLoanDraft() || new Set();
+
+/**
+ * Úvěry, na které se refinancování uplatní: jeden, nebo víc najednou (balíček). `selected` = Set vybraných úvěrů,
+ * bez něj se předvybere jediný úvěr, je-li jen jeden.
+ */
+function renderRefiLoanChecklist(selected) {
+  const container = document.getElementById('refi-loan-checklist');
+  if (!container) return;
+  const wanted = selected || (state.loans.length === 1 ? [state.loans[0].id] : []);
+  const chosen = new Set(Array.from(wanted).filter((id) => state.loans.some((l) => l.id === id)));
+  const all =
+    state.loans.length > 1
+      ? `<label class="chip"><input type="checkbox" class="refi-all-box" ${state.loans.every((l) => chosen.has(l.id)) ? 'checked' : ''} /><span>Všechny</span></label>`
+      : '';
+  container.innerHTML =
+    all +
+    state.loans
+      .map(
+        (l) =>
+          `<label class="chip"><input type="checkbox" class="refi-loan-box" value="${l.id}" ${chosen.has(l.id) ? 'checked' : ''} /><span class="chip-with-logo">${bankLogoHtml(l.bank)}${escapeHtml(l.bank)} · ${fmtMoney(l.amount)}</span></label>`
+      )
+      .join('');
 }
 
 /**
  * Úvěry, které jde při refinancování sloučit s vybraným úvěrem: jejich zůstatky se k datu refinancování splatí a přičtou
- * k němu. Nejde vybrat úvěr, který už se slučuje jinam nebo sám něco slučuje (bez řetězení).
+ * k němu. Sloučení jde jen u jednoho úvěru (víc úvěrů najednou se refinancuje každý zvlášť). Nejde vybrat úvěr, který už se
+ * slučuje jinam nebo sám něco slučuje (bez řetězení).
  */
 function renderRefiMergeChecklist(selected) {
   const container = document.getElementById('refi-merge-checklist');
   const wrap = document.getElementById('refi-merge-wrap');
   if (!container) return;
   const f = refiForm();
-  const loanId = f.elements['loan_id'].value;
-  const editId = f.elements['id'].value;
-  const others = state.loans.filter((l) => l.id !== loanId);
-  wrap.classList.toggle('hidden', state.loans.length < 2); // jediný úvěr: není co slučovat
-  if (state.loans.length < 2) {
+  const loanIds = readRefiLoanDraft();
+  const editKey = f.elements['id'].value;
+  const hide = state.loans.length < 2 || loanIds.size > 1; // jediný úvěr nebo balíček úvěrů: není co slučovat
+  wrap.classList.toggle('hidden', hide);
+  if (hide) {
     container.innerHTML = '';
     return;
   }
-  if (!loanId) {
+  if (!loanIds.size) {
     container.innerHTML = '<span class="text-sm t-faint">Nejdřív vyber úvěr</span>';
     return;
   }
-  const { takenBy, mergers } = mergeUsage(editId);
+  const loanId = Array.from(loanIds)[0];
+  const others = state.loans.filter((l) => l.id !== loanId);
+  const { takenBy, mergers } = mergeUsage(editKey);
   if (takenBy.has(loanId)) {
     container.innerHTML = `<span class="text-sm t-faint">Tento úvěr se slučuje do úvěru ${escapeHtml(takenBy.get(loanId).bank)}, sám nic slučovat nemůže.</span>`;
     return;
   }
-  const editing = editId ? findRefinancing(editId) : null;
-  const chosen = selected || new Set(editing && editing.loan.id === loanId ? editing.ev.merge_ids || [] : []);
+  const editing = editKey ? findRefinancing(editKey) : null;
+  const chosen = selected || new Set(editing && editing.loans.length === 1 && editing.loans[0].id === loanId ? editing.ev.merge_ids || [] : []);
   container.innerHTML = others
     .map((l) => {
       let blocked = '';
@@ -2746,7 +2823,7 @@ function renderRefinancingTable() {
   const card = document.getElementById('refi-card');
   if (!card) return;
   const key = 'refi';
-  const rows = refinancingRows();
+  const rows = refinancingPackages();
   card.classList.toggle('hidden', !rows.length);
   applyTableMode(key);
   const dash = '<span class="t-faint">—</span>';
@@ -2756,11 +2833,14 @@ function renderRefinancingTable() {
   const columns = [
     {
       label: 'Úvěr',
-      cell: ({ loan, ev }) => {
-        return `<span class="refi-loan">${bankLogoHtml(loan.bank)}<span class="font-medium loan-name" title="${escapeHtml(loan.bank)}">${escapeHtml(loan.bank)}</span></span>`;
+      cell: (p) => {
+        const names = p.loans.map((l) => l.bank);
+        const logos = [...new Set(names)].slice(0, 3).map((b) => bankLogoHtml(b)).join('');
+        const full = p.loans.map((l) => `${l.bank} ${fmtMoney(l.amount)}`).join(', ');
+        return `<span class="refi-loan"><span class="refi-logos">${logos}</span><span class="font-medium loan-name" title="${escapeHtml(full)}">${escapeHtml(names.join(', '))}</span></span>`;
       },
     },
-    { label: 'Výše úvěru', right: true, x: true, drop: 1, cell: ({ loan }) => `<span class="num">${moneyHtml(loan.amount)}</span>` },
+    { label: 'Výše úvěru', right: true, x: true, drop: 1, cell: (p) => `<span class="num">${moneyHtml(p.loans.reduce((s, l) => s + (Number(l.amount) || 0), 0))}</span>` },
     {
       label: 'Datum',
       cell: ({ ev }) => {
@@ -2774,8 +2854,8 @@ function renderRefinancingTable() {
       right: true,
       cell: ({ ev }) => {
         const typed = ev.rate != null && ev.rate !== '';
-        const rate = `<span class="num${typed ? '' : ' t-muted'}"${typed ? '' : ' title="Sazba hypotéky z Nastavení"'}>${fmtNumber(typed ? ev.rate : calc.mortgageRate(state.settings) * 100)} %</span>`;
-        const years = Number(ev.years) > 0 ? `<span class="num">${fmtNumber(ev.years, 1)} let</span>` : '';
+        const rate = `<span class="num${typed ? '' : ' t-muted'}"${typed ? '' : ' title="Sazba hypotéky z Nastavení"'}>${fmtNumber(typed ? ev.rate : calc.mortgageRate(state.settings) * 100)}${NBSP}%</span>`;
+        const years = Number(ev.years) > 0 ? `<span class="num">${fmtNumber(ev.years, 1)}${NBSP}let</span>` : '';
         return [rate, years].filter(Boolean).join(' · ');
       },
     },
@@ -2788,7 +2868,7 @@ function renderRefinancingTable() {
         return names ? `<span class="ellipsis" title="${escapeHtml(names)}">${escapeHtml(names)}</span>` : dash;
       },
     },
-    { label: '', right: true, actions: true, cell: ({ ev }) => actionButtons('data-edit-refi', 'data-delete-refi', ev.id) },
+    { label: '', right: true, actions: true, cell: (p) => actionButtons('data-edit-refi', 'data-delete-refi', p.key) },
   ];
   const cols = visibleColumns(columns, key);
   document.getElementById('refi-thead').innerHTML = headHtml(cols);
@@ -2806,45 +2886,58 @@ function renderRefinancings() {
   if (!formCard) return;
   formCard.classList.toggle('hidden', !state.loans.length); // bez úvěru není co refinancovat
   // upravované refinancování (nebo jeho úvěr) mezitím zmizelo: formulář se vrátí do stavu "Přidat"
-  const editId = refiForm().elements['id'].value;
-  if (editId && !findRefinancing(editId)) resetRefiForm();
-  renderRefiLoanSelect();
+  const editKey = refiForm().elements['id'].value;
+  if (editKey && !findRefinancing(editKey)) resetRefiForm();
+  renderRefiLoanChecklist(refiLoanDraft());
   renderRefiMergeChecklist(readRefiMergeDraft());
   renderRefinancingTable();
 }
 
-/** Refinancuje se nejčastěji po konci fixace: prázdné datum se předvyplní koncem fixace vybraného úvěru (je-li v budoucnu). */
+/**
+ * Refinancuje se nejčastěji po konci fixace: datum se předvyplní nejbližším koncem fixace z vybraných úvěrů (je-li v budoucnu)
+ * a při změně výběru se přepočítá, dokud ho uživatel nepřepíše vlastním (poznamená se v data-auto-date).
+ */
 function prefillRefiDate() {
   const f = refiForm();
-  if (f.elements['date'].value) return;
-  const loan = state.loans.find((l) => l.id === f.elements['loan_id'].value);
-  const end = loan ? calc.fixationEndDate(loan) : null;
-  if (end && end > new Date()) f.elements['date'].value = toInputDate(end);
+  const current = f.elements['date'].value;
+  if (current && current !== f.dataset.autoDate) return; // datum zadal uživatel
+  const ends = Array.from(readRefiLoanDraft())
+    .map((id) => state.loans.find((l) => l.id === id))
+    .map((l) => (l ? calc.fixationEndDate(l) : null))
+    .filter((d) => d && d > new Date());
+  const iso = ends.length ? toInputDate(new Date(Math.min(...ends.map((d) => d.getTime())))) : '';
+  f.elements['date'].value = iso;
+  if (iso) f.dataset.autoDate = iso;
+  else delete f.dataset.autoDate;
 }
 
 function wireRefiFormUi() {
-  const f = refiForm();
-  f.elements['loan_id'].addEventListener('change', () => {
+  const box = document.getElementById('refi-loan-checklist');
+  box.addEventListener('change', (e) => {
+    if (e.target.classList.contains('refi-all-box')) box.querySelectorAll('.refi-loan-box').forEach((b) => (b.checked = e.target.checked));
+    const all = box.querySelector('.refi-all-box');
+    if (all) all.checked = Array.from(box.querySelectorAll('.refi-loan-box')).every((b) => b.checked);
+    setFieldError(box, '');
     renderRefiMergeChecklist(new Set());
     prefillRefiDate();
   });
 }
 
-function fillRefiForm(id) {
-  const found = findRefinancing(id);
-  if (!found) return;
-  const { loan, ev } = found;
+function fillRefiForm(key) {
+  const pack = findRefinancing(key);
+  if (!pack) return;
+  const ev = pack.ev;
   const f = refiForm();
   f.reset();
   clearFieldErrors(f);
   showFormError('refi-form-error', '');
-  f.elements['id'].value = ev.id;
-  renderRefiLoanSelect();
-  f.elements['loan_id'].value = loan.id;
+  delete f.dataset.autoDate;
+  f.elements['id'].value = pack.key;
+  renderRefiLoanChecklist(new Set(pack.loans.map((l) => l.id)));
   f.elements['date'].value = ev.date || '';
   setFormattedValue(f.elements['rate'], ev.rate != null && ev.rate !== '' ? ev.rate : '');
   f.elements['years'].value = ev.years != null && ev.years !== '' ? ev.years : '';
-  renderRefiMergeChecklist(new Set(Array.isArray(ev.merge_ids) ? ev.merge_ids : []));
+  renderRefiMergeChecklist(new Set(pack.loans.length === 1 && Array.isArray(ev.merge_ids) ? ev.merge_ids : []));
   document.getElementById('refi-form-title').textContent = 'Upravit refinancování';
   document.getElementById('refi-submit-label').textContent = 'Uložit změny';
   document.getElementById('refi-form-card').classList.add('is-editing');
@@ -2857,16 +2950,19 @@ function resetRefiForm() {
   clearFieldErrors(f);
   f.elements['id'].value = '';
   showFormError('refi-form-error', '');
-  renderRefiLoanSelect();
+  delete f.dataset.autoDate;
+  renderRefiLoanChecklist(null);
   renderRefiMergeChecklist(new Set());
   document.getElementById('refi-form-title').textContent = 'Přidat refinancování';
   document.getElementById('refi-submit-label').textContent = 'Přidat refinancování';
   document.getElementById('refi-form-card').classList.remove('is-editing');
 }
 
-async function deleteRefinancing(id) {
-  if (!(await customConfirm('Smazat toto refinancování?', 'Smazat'))) return;
-  for (const l of state.loans) if (Array.isArray(l.refinancings)) l.refinancings = l.refinancings.filter((x) => x.id !== id);
+async function deleteRefinancing(key) {
+  const pack = findRefinancing(key);
+  const text = pack && pack.loans.length > 1 ? `Smazat refinancování u ${pack.loans.length} úvěrů?` : 'Smazat toto refinancování?';
+  if (!(await customConfirm(text, 'Smazat'))) return;
+  for (const l of state.loans) if (Array.isArray(l.refinancings)) l.refinancings = l.refinancings.filter((x) => refiKey(x) !== key);
   saveState();
   renderAll();
 }
@@ -2875,25 +2971,32 @@ function submitRefiForm(e) {
   e.preventDefault();
   const f = e.target;
   if (!validateRefinancing(f)) return;
-  const id = f.elements['id'].value;
-  const loan = state.loans.find((l) => l.id === f.elements['loan_id'].value);
-  if (!loan) return;
+  const editKey = f.elements['id'].value;
+  const loanIds = Array.from(readRefiLoanDraft()).filter((id) => state.loans.some((l) => l.id === id));
+  if (!loanIds.length) return;
   const rateRaw = f.elements['rate'].value.trim();
   const yearsRaw = f.elements['years'].value.trim();
-  const ev = {
-    id: id || uid(),
+  const base = {
     date: f.elements['date'].value,
     rate: rateRaw ? parseFormNumber(rateRaw) : null,
     years: yearsRaw ? Number(yearsRaw) : null,
-    merge_ids: Array.from(readRefiMergeDraft() || []),
   };
-  // upravené refinancování může přejít na jiný úvěr: ze starého se odebere
-  for (const l of state.loans) if (Array.isArray(l.refinancings)) l.refinancings = l.refinancings.filter((x) => x.id !== ev.id);
-  loan.refinancings = [...(Array.isArray(loan.refinancings) ? loan.refinancings : []), ev];
+  const mergeIds = loanIds.length === 1 ? Array.from(readRefiMergeDraft() || []) : [];
+  // upravované refinancování (nebo celý balíček) se nahradí; u úvěrů, které v něm zůstaly, se zachová id záznamu
+  const old = editKey ? findRefinancing(editKey) : null;
+  const oldIds = new Map((old ? old.entries : []).map(({ loan, ev }) => [loan.id, ev.id]));
+  const packageId = loanIds.length > 1 ? (old && old.ev.package) || uid() : null;
+  if (editKey) for (const l of state.loans) if (Array.isArray(l.refinancings)) l.refinancings = l.refinancings.filter((x) => refiKey(x) !== editKey);
+  for (const loanId of loanIds) {
+    const loan = state.loans.find((l) => l.id === loanId);
+    const ev = { id: oldIds.get(loanId) || uid(), ...base, merge_ids: mergeIds.slice() };
+    if (packageId) ev.package = packageId;
+    loan.refinancings = [...(Array.isArray(loan.refinancings) ? loan.refinancings : []), ev];
+  }
   saveState();
   resetRefiForm();
   renderAll();
-  showSuccessToast(id ? 'Refinancování upraveno' : 'Refinancování přidáno');
+  showSuccessToast(editKey ? 'Refinancování upraveno' : loanIds.length > 1 ? `Refinancování přidáno k ${loanIds.length} úvěrům` : 'Refinancování přidáno');
 }
 
 /* ---------- NASTAVENÍ ---------- */
@@ -3111,14 +3214,13 @@ function derivedEvents() {
     if (p.rent_growth_rate != null) out.push({ ...base, type: 'rent_growth', period: 'trvale', value: `${fmtNumber(p.rent_growth_rate * 100)} %` });
     if (calc.isPO(p) && autoSell && !p.never_sell) out.push({ ...base, type: 'sale', period: `${CURRENT_YEAR}`, value: '—' });
   }
-  for (const l of state.loans) {
-    const base = { derived: true, targets: l.bank, source: { kind: 'loan', id: l.id }, from: l.bank };
-    for (const r of Array.isArray(l.refinancings) ? l.refinancings : []) {
-      if (!r.date) continue;
-      const rate = `${fmtNumber(r.rate != null && r.rate !== '' ? r.rate : calc.mortgageRate(state.settings) * 100)} %`;
-      const years = Number(r.years) > 0 ? `${fmtNumber(r.years, 1)} let` : '';
-      out.push({ ...base, source: { kind: 'refi', id: r.id }, type: 'refinance', period: fmtDate(r.date), value: [rate, years].filter(Boolean).join(' · ') || '—' });
-    }
+  for (const p of refinancingPackages()) {
+    const r = p.ev;
+    if (!r.date) continue;
+    const names = p.loans.map((l) => l.bank).join(', ');
+    const rate = `${fmtNumber(r.rate != null && r.rate !== '' ? r.rate : calc.mortgageRate(state.settings) * 100)}${NBSP}%`;
+    const years = Number(r.years) > 0 ? `${fmtNumber(r.years, 1)}${NBSP}let` : '';
+    out.push({ derived: true, targets: names, from: names, source: { kind: 'refi', id: p.key }, type: 'refinance', period: fmtDate(r.date), value: [rate, years].filter(Boolean).join(' · ') || '—' });
   }
   return out;
 }
@@ -3308,9 +3410,10 @@ function renderScenario() {
 
   renderScenarioTable();
   renderCashflowStrips();
+  fitKpiValues();
 }
 
-/** Pruh s cashflow za letošní rok nad tabulkami nemovitostí a úvěrů (stejná čísla jako v Přehledu). */
+/** Pruh s nájmem, náklady a splátkami za rok nad tabulkami nemovitostí a úvěrů (stejná čísla jako v Přehledu). */
 function renderCashflowStrips() {
   let row = runProjection(1).rows[0];
   // letošní řádek pokrývá jen zbytek roku, pruh ukazuje běžnou roční hodnotu (stejná čísla jako dřív)
@@ -3320,14 +3423,12 @@ function renderCashflowStrips() {
     totalCosts: row.totalCosts * scale,
     totalInterest: row.totalInterest * scale,
     totalPrincipal: row.totalPrincipal * scale,
-    cashflow: (row.totalRent - row.totalCosts - row.totalInterest - row.totalPrincipal) * scale,
   };
   const chip = (label, value, cls) => `<span class="cf-pill ${cls || ''}"><span class="cf-label">${label}</span> <strong class="num">${fmtMoney(value)}</strong></span>`;
   const html =
     chip('Nájem', row.totalRent, 'cf-pos') +
     (row.totalCosts > 0 ? chip('Náklady', -row.totalCosts, 'cf-neg') : '') +
-    chip('Splátky', -(row.totalInterest + row.totalPrincipal), 'cf-neg') +
-    chip('Cashflow /rok', row.cashflow, row.cashflow < 0 ? 'cf-neg cf-total' : 'cf-pos cf-total');
+    chip('Splátky', -(row.totalInterest + row.totalPrincipal), 'cf-neg');
   document.querySelectorAll('[data-cf-strip]').forEach((el) => {
     el.innerHTML = html;
   });
@@ -3472,6 +3573,20 @@ function setOverviewPeriod(period) {
   renderOverview();
 }
 
+/** Číslo na kartě se nikdy nezalomí: když se na šířku karty nevejde, zmenší se písmo (nejvýš na 60 %). */
+function fitKpiValues() {
+  document.querySelectorAll('.kpi-value').forEach((el) => {
+    el.style.fontSize = '';
+    if (!el.clientWidth) return; // skrytá záložka: změří se, až se zobrazí
+    const base = parseFloat(getComputedStyle(el).fontSize);
+    let size = base;
+    while (el.scrollWidth > el.clientWidth + 0.5 && size > base * 0.6) {
+      size -= 0.5;
+      el.style.fontSize = size + 'px';
+    }
+  });
+}
+
 function renderOverview() {
   const overviewState = state.overview;
   document.getElementById('overview-period-year').classList.toggle('period-toggle-active', overviewState.period !== 'month');
@@ -3563,7 +3678,7 @@ function renderOverview() {
   const realAppEl = document.getElementById('kpi-real-appreciation');
   realAppEl.classList.toggle('t-neg', (row.realAppreciation || 0) < 0);
   realAppEl.classList.toggle('t-pos', (row.realAppreciation || 0) >= 0);
-
+  fitKpiValues();
 }
 
 /* ---------- Záloha (export / import / smazání) ---------- */
@@ -3640,6 +3755,7 @@ function setFormula(id, text) {
 function wireKpiFormulaToggles() {
   document.querySelectorAll('.kpi-clickable').forEach((card) => {
     card.addEventListener('click', () => {
+      if (!infoEnabled()) return; // informace vypnuté v Nastavení: karta se nerozklikává
       const formulaEl = card.querySelector('.kpi-formula');
       if (formulaEl) formulaEl.classList.toggle('hidden');
     });

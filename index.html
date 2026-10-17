@@ -20,9 +20,9 @@
 <meta name="apple-mobile-web-app-title" content="Investix" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <meta name="format-detection" content="telephone=no, date=no, email=no, address=no" />
-<link rel="manifest" href="manifest.webmanifest?v=1792250554" />
-<link rel="icon" type="image/png" sizes="64x64" href="assets/icons/favicon-64.png?v=1792250554" />
-<link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png?v=1792250554" />
+<link rel="manifest" href="manifest.webmanifest?v=1792265882" />
+<link rel="icon" type="image/png" sizes="64x64" href="assets/icons/favicon-64.png?v=1792265882" />
+<link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png?v=1792265882" />
 <script>
   /* Motiv se nastaví ještě před vykreslením, ať stránka neprobliká (volba motivu je jen vzhled, ne data). */
   try {
@@ -32,13 +32,14 @@
       var themeColors = { light: '#ffffff', dark: '#0f1829', color: '#4f46e5' };
       document.querySelector('meta[name="theme-color"]').setAttribute('content', themeColors[savedTheme]);
     }
+    if (localStorage.getItem('investix-info') === '0') document.documentElement.setAttribute('data-info', 'off');
   } catch (e) {}
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="css/style.css?v=1792250554" />
+<link rel="stylesheet" href="css/style.css?v=1792265882" />
 </head>
 <body class="min-h-screen">
 
@@ -46,7 +47,7 @@
     <header class="app-header">
       <div class="app-wrap mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
         <h1 class="flex items-center gap-2">
-          <img src="assets/icons/logo-96.png?v=1792250554" alt="" width="32" height="32" class="shrink-0" />
+          <img src="assets/icons/logo-96.png?v=1792265882" alt="" width="32" height="32" class="shrink-0" />
           <span class="brand-name">Investix</span>
         </h1>
         <div class="flex items-center gap-2 ml-auto" id="header-controls">
@@ -434,11 +435,11 @@
           </div>
           <form id="refi-form" class="grid gap-4 text-sm">
             <input type="hidden" name="id" />
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <label class="flex flex-col gap-1 col-span-2 md:col-span-1">
-                <span class="label">Úvěr</span>
-                <select name="loan_id" id="refi-loan-select" class="input"></select>
-              </label>
+            <div id="refi-loans-wrap" class="flex flex-col gap-1">
+              <span class="label">Úvěry</span>
+              <div id="refi-loan-checklist" class="chips"></div>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
               <label class="flex flex-col gap-1">
                 <span class="label">Datum</span>
                 <input name="date" type="date" class="input" />
@@ -447,7 +448,7 @@
                 <span class="label">Nová sazba</span>
                 <input name="rate" data-unit="percent" class="input" />
               </label>
-              <label class="flex flex-col gap-1">
+              <label class="flex flex-col gap-1 col-span-2 md:col-span-1">
                 <span class="label">Nová doba (roky)</span>
                 <input name="years" type="number" step="any" min="0" class="input" />
               </label>
@@ -628,10 +629,17 @@
               <span class="setting-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 22a10 10 0 1 1 10-10c0 2.8-2.2 3-4 3h-2a2 2 0 0 0-1.4 3.4c.6.7.4 3.6-2.6 3.6z"/></svg></span>
               <h3 class="setting-title">Vzhled</h3>
             </div>
-            <div class="seg" role="radiogroup" aria-label="Vzhled">
-              <label><input type="radio" name="theme" value="light" /><span>Světlý</span></label>
-              <label><input type="radio" name="theme" value="dark" /><span>Tmavý</span></label>
-              <label><input type="radio" name="theme" value="color" /><span>Barevný</span></label>
+            <div class="setting-body">
+              <div class="seg" role="radiogroup" aria-label="Vzhled">
+                <label><input type="radio" name="theme" value="light" /><span>Světlý</span></label>
+                <label><input type="radio" name="theme" value="dark" /><span>Tmavý</span></label>
+                <label><input type="radio" name="theme" value="color" /><span>Barevný</span></label>
+              </div>
+              <label class="switch">
+                <input id="info-input" type="checkbox" />
+                <span class="switch-ui"></span>
+                <span class="info-switch-label"><span class="info-glyph" aria-hidden="true">i</span>Informace</span>
+              </label>
             </div>
           </div>
 
@@ -743,9 +751,9 @@
     <span id="success-toast-text">Uloženo</span>
   </div>
 
-  <script src="js/calc.js?v=1792250554"></script>
-  <script src="js/app.js?v=1792250554"></script>
-  <script src="js/cloud.js?v=1792250554"></script>
-  <script src="js/auth.js?v=1792250554"></script>
+  <script src="js/calc.js?v=1792265882"></script>
+  <script src="js/app.js?v=1792265882"></script>
+  <script src="js/cloud.js?v=1792265882"></script>
+  <script src="js/auth.js?v=1792265882"></script>
 </body>
 </html>
