@@ -2890,3 +2890,116 @@ summary,
     justify-content: center;
   }
 }
+
+/* ---------- Tisk / PDF: čitelný kontrast ----------
+   Prohlížeč při tisku zahazuje barvy pozadí (políčko "Grafika na pozadí" je ve výchozím stavu vypnuté). Z karet Dluh a Vlastní
+   kapitál tak zůstalo jen bledé ohraničení, z hlavičky tabulky, štítků kvality a barevných bodů v legendě grafu nic a bílý text
+   na modrém tlačítku Rok / Měsíc zmizel. print-color-adjust: exact vynutí výplně tak, jak jsou na obrazovce; barvy a čáry se v tisku
+   navíc ztmaví, ať je všechno čitelné i na černobílé tiskárně. Tisk je vždy ve světlém motivu (tmavý a barevný jsou jen @media screen). */
+@media print {
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  :root {
+    --border: #7a889d;
+    --border-strong: #475569;
+    --text: #0f172a;
+    --text-strong: #020617;
+    --muted: #1e293b;
+    --faint: #334155;
+    --surface-2: #f1f5f9;
+    --surface-3: #e2e8f0;
+    --primary-soft: #dbeafe;
+    --primary-text: #1e3a8a;
+    --pos-text: #166534;
+    --neg-text: #991b1b;
+    --warn-text: #78350f;
+    --warn-soft: #fef3c7;
+    --warn-border: #b45309;
+    --rank-low: #b91c1c;
+    --rank-mid: #c2410c;
+    --rank-high: #15803d;
+    --chart-assets: #1d4ed8;
+    --chart-debt: #b91c1c;
+    --chart-equity: #15803d;
+    --chart-grid: #cbd5e1;
+    --chart-axis: #1e293b;
+  }
+
+  /* Karty jako buňky: šedá výplň a tmavé ohraničení, Dluh a Vlastní kapitál celé barevně (červená, zelená) */
+  .card,
+  .setting-card {
+    border-color: #64748b;
+  }
+  .kpi-card {
+    background: #f1f5f9;
+    border: 1px solid #64748b;
+  }
+  .kpi-card-debt {
+    background: #fecaca;
+    border: 1.5px solid #b91c1c;
+  }
+  .kpi-card-debt .kpi-label,
+  .kpi-card-debt .kpi-value {
+    color: #7f1d1d;
+  }
+  .kpi-card-equity {
+    background: #bbf7d0;
+    border: 1.5px solid #15803d;
+  }
+  .kpi-card-equity .kpi-label,
+  .kpi-card-equity .kpi-value {
+    color: #14532d;
+  }
+  .kpi-value {
+    font-size: 1.2rem !important;
+  }
+  .kpi-label {
+    font-weight: 600;
+  }
+
+  /* Sloupec Událost ve Scénářích: štítky se v tisku zalomí, nic se neořízne na kraji stránky */
+  .tbl td.ev-cell {
+    min-width: 0;
+  }
+  .event-chip,
+  button.event-chip {
+    white-space: normal;
+    text-align: left;
+    border-radius: 0.7rem;
+  }
+
+  /* Tabulky: výrazná hlavička s tmavou čarou, viditelné čáry mezi řádky, řádek Celkem vyplněný */
+  .tbl thead th,
+  .subtbl th {
+    background: #e2e8f0;
+    color: #020617;
+    font-weight: 700;
+    border-top: 1px solid #475569;
+    border-bottom: 2px solid #475569;
+  }
+  .tbl tfoot td {
+    background: #dbeafe;
+    color: #020617;
+    border-top: 2px solid #475569;
+  }
+  [data-table-card='scenario'] .tbl tbody tr:nth-child(even) td,
+  [data-table-card='properties'] .tbl tbody tr:nth-child(even) td,
+  [data-table-card='events'] .tbl tbody tr:nth-child(even) td {
+    background: #f1f5f9;
+  }
+
+  /* Štítek kvality: výplň podle hodnocení a plná barva ohraničení */
+  .rank-badge {
+    background: color-mix(in srgb, var(--rank) 22%, #fff);
+    border-color: var(--rank);
+    color: #020617;
+  }
+
+  .chart-line {
+    stroke-width: 3;
+  }
+}

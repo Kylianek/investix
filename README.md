@@ -154,6 +154,18 @@ v prohlížeči (`investix-info`), takže je zvlášť na každém zařízení, 
 Částky, procenta a data se píšou s nedělitelnou mezerou (`\u00a0` v `js/app.js`), takže se "Kč" ani "%" nikdy nezalomí na
 další řádek; u karet v Přehledu se navíc písmo u velmi dlouhého čísla mírně zmenší, aby se vešlo na jeden řádek.
 
+## Tisk a PDF
+
+Tlačítko **Stáhnout PDF** (jen na počítači, na Přehledu, Nemovitostech, Úvěrech a Scénářích) je nativní tisk prohlížeče
+(Uložit jako PDF) na šířku. Tisk je vždy ve světlém motivu, bez formulářů, navigace a tlačítek.
+
+Prohlížeč při tisku zahazuje barvy pozadí (výchozí stav políčka "Grafika na pozadí"), takže z karet zůstalo jen bledé ohraničení
+a bílý text na barevném pozadí zmizel. Blok `@media print` na konci [css/style.css](css/style.css) proto vynucuje barvy
+(`print-color-adjust: exact`): karty Dluh a Vlastní kapitál jsou celé červené a zelené, ostatní karty šedé, hlavička a řádek Celkem
+tabulek jsou vyplněné, štítky kvality a body v legendě grafu mají barvu a v dlouhých tabulkách se střídají pruhy. Proměnné barev
+se v tisku ztmaví (text kolem 15:1, červená a zelená na výplni nad 6,5:1, čáry mezi řádky nad 3,5:1), aby šlo vše přečíst i na
+černobílé tiskárně. Štítky událostí ve Scénářích se v tisku zalamují, takže se nic neořízne na kraji stránky.
+
 ## Appka na ploše (iPhone a Windows)
 
 Investix jde přidat na plochu jako appku: celá obrazovka bez lišty Safari a ikona s logem. V Safari otevři
