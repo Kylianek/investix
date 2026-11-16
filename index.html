@@ -277,6 +277,26 @@
                 </div>
               </details>
 
+              <details class="acc" id="property-acc-sale">
+                <summary>
+                  <span class="acc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
+                  <span class="acc-title">Prodej</span>
+                  <span class="acc-badge" id="property-sale-badge"></span>
+                  <span class="acc-chevron"></span>
+                </summary>
+                <div class="acc-body grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label class="flex flex-col gap-1">
+                    <span class="label">Datum prodeje</span>
+                    <input name="sale_date" type="date" class="input" />
+                  </label>
+                  <label class="flex flex-col gap-1">
+                    <span class="label">Prodejní cena</span>
+                    <input name="sale_price" data-unit="money" class="input" placeholder="odhadem" />
+                  </label>
+                  <p class="text-xs t-muted col-span-full">Nemovitost od tohoto data zmizí z aktuálního přehledu i budoucích predikcí, ale zůstane v historii pro minulé roky. Nemusíš ji mazat - najdeš ji dole v „Prodané nemovitosti“.</p>
+                </div>
+              </details>
+
             </div>
 
             <p id="property-form-error" class="form-error hidden" role="alert"></p>
@@ -304,6 +324,14 @@
             <thead id="properties-thead"></thead>
             <tbody id="properties-tbody"></tbody>
             <tfoot id="properties-tfoot"></tfoot>
+          </table></div>
+        </div>
+
+        <div id="property-history-card" class="card tbl-card mt-6 hidden" data-table-card="property-history">
+          <h3 class="card-title">Prodané nemovitosti</h3>
+          <div class="tbl-scroll"><table class="tbl">
+            <thead id="property-history-thead"></thead>
+            <tbody id="property-history-tbody"></tbody>
           </table></div>
         </div>
       </section>
@@ -475,6 +503,46 @@
           </table></div>
         </div>
 
+        <div id="extra-form-card" class="form-card add-form-card mb-6">
+          <div class="form-card-head">
+            <span class="form-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
+            <h2 id="extra-form-title" class="form-card-title">Přidat mimořádnou splátku</h2>
+          </div>
+          <form id="extra-form" class="grid gap-4 text-sm">
+            <input type="hidden" name="id" />
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <label class="flex flex-col gap-1 col-span-2 md:col-span-1">
+                <span class="label">Úvěr</span>
+                <select name="loan_id" id="extra-loan-select" class="input"></select>
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="label">Datum</span>
+                <input name="date" type="date" class="input" />
+              </label>
+              <label class="flex flex-col gap-1">
+                <span class="label">Částka</span>
+                <input name="amount" data-unit="money" class="input" placeholder="celý zůstatek" />
+              </label>
+            </div>
+            <p class="text-xs t-muted">Nech částku prázdnou, pokud tím úvěr celý předčasně splácíš - doba splácení zůstane, u částečné splátky banka jen sníží splátku. Úvěr nemusíš mazat, zůstane v historii do data splátky.</p>
+            <p id="extra-form-error" class="form-error hidden" role="alert"></p>
+            <div class="flex flex-wrap gap-2">
+              <button type="submit" class="btn-primary">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>
+                <span id="extra-submit-label">Přidat splátku</span>
+              </button>
+              <button type="button" id="extra-form-reset" class="btn-secondary">Zrušit</button>
+            </div>
+          </form>
+        </div>
+
+        <div id="extra-card" class="card tbl-card mb-6 hidden" data-table-card="extra">
+          <div class="tbl-scroll"><table class="tbl">
+            <thead id="extra-thead"></thead>
+            <tbody id="extra-tbody"></tbody>
+          </table></div>
+        </div>
+
         <div class="card tbl-card" data-table-card="loans">
           <div class="cf-strip" data-cf-strip></div>
           <div class="flex flex-wrap justify-end gap-2 mb-3">
@@ -488,6 +556,14 @@
             <thead id="loans-thead"></thead>
             <tbody id="loans-tbody"></tbody>
             <tfoot id="loans-tfoot"></tfoot>
+          </table></div>
+        </div>
+
+        <div id="loan-history-card" class="card tbl-card mt-6 hidden" data-table-card="loan-history">
+          <h3 class="card-title">Předčasně splacené úvěry</h3>
+          <div class="tbl-scroll"><table class="tbl">
+            <thead id="loan-history-thead"></thead>
+            <tbody id="loan-history-tbody"></tbody>
           </table></div>
         </div>
       </section>
