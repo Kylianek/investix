@@ -210,6 +210,26 @@ function rentGrowthBase(property, settings) {
   return Number(settings.inflation_rate) || 0;
 }
 
+/* =========================================================================
+ * PRODEJ NEMOVITOSTI K ZADANÉMU DATU - alternativa k automatickému prodeji (viz projectPortfolio):
+ * uživatel nemovitost neprodává přes algoritmus, ale sám ví, že k danému datu (minulému i budoucímu) se prodala
+ * nebo prodá, a chce ji dál mít v historii, aniž by ji musel mazat. property.sale_date (+ volitelně sale_price,
+ * jinak se použije dopočítaná hodnota) ji od toho data vyřadí z aktuálního i budoucího stavu portfolia.
+ * ========================================================================= */
+
+/** Měsíc (absolutně), od kterého se nemovitost považuje za prodanou, nebo null, když prodej není zadaný/platný. */
+function propertySaleAbs(property) {
+  if (!property || !property.sale_date) return null;
+  const d = toDate(property.sale_date);
+  return isNaN(d) ? null : monthAfter(d);
+}
+
+/** Je nemovitost k danému dni už prodaná (viz property.sale_date)? */
+function isPropertySold(property, today = new Date()) {
+  const abs = propertySaleAbs(property);
+  return abs != null && abs <= today.getFullYear() * 12 + today.getMonth();
+}
+
 /**
  * Zrekonstruuje, jak by (se stejným růstem/splátkami jako dnes) vypadaly
  * nemovitosti a úvěry v nějakém MINULÉM roce - obrácením zhodnocení (dělením
@@ -218,19 +238,30 @@ function rentGrowthBase(property, settings) {
  * Používá se v Přehledu, když uživatel zvolí rok před dneškem - jinak appka
  * umí jen predikci DOPŘEDU od dneška (viz projectPortfolio).
  * Nemovitosti/úvěry, které v cílovém roce ještě neexistovaly (podle data
- * pořízení/sjednání), se vynechají.
+ * pořízení/sjednání), nebo už byly prodané/splacené před cílovým rokem (viz
+ * property.sale_date, loanClosure), se vynechají. Nemovitost/úvěr, co byla
+ * prodaná/splacená dřív letos nebo v minulosti, se naopak rekonstruuje od
+ * toho data (tržní hodnota/zůstatek v datech jsou k němu), ne ode dneška.
  */
 function rebaseToYear(properties, loans, settings, events, targetYear, currentYear, startMonth) {
+  const nowAbs = currentYear * 12 + (startMonth == null ? defaultStartMonth(currentYear) : startMonth);
   const rebasedProperties = [];
   for (const p of properties) {
     if (yearOf(p.acquisition_date, currentYear) > targetYear) continue;
-    let value = Number(p.market_value) || 0;
+    const saleAbs = propertySaleAbs(p);
+    const sold = saleAbs != null && saleAbs <= nowAbs;
+    const refAbs = sold ? saleAbs : nowAbs;
+    const refYear = Math.floor(refAbs / 12);
+    if (sold && refYear < targetYear) continue; // prodáno před cílovým rokem
+    const refMonthIdx = refAbs % 12;
+
+    const hasSalePrice = sold && p.sale_price != null && p.sale_price !== '';
+    let value = hasSalePrice ? Number(p.sale_price) || 0 : Number(p.market_value) || 0;
     let rent = Number(p.rent) || 0;
     const rentBase = rentGrowthBase(p, settings);
-    // dnešek je uprostřed letošního roku: nejdřív zpět na 1. 1. letošního roku (poměrná část zhodnocení)
-    const monthsDone = startMonth == null ? defaultStartMonth(currentYear) : startMonth;
-    value /= Math.pow(1 + resolvePortfolioRate(events, 'growth', currentYear, Number(p.growth_rate) || 0, p.id), monthsDone / 12);
-    for (let y = currentYear; y > targetYear; y--) {
+    // referenční bod je uprostřed roku (dnešek, nebo datum prodeje): nejdřív zpět na 1. 1. toho roku (poměrná část zhodnocení)
+    value /= Math.pow(1 + resolvePortfolioRate(events, 'growth', refYear, Number(p.growth_rate) || 0, p.id), refMonthIdx / 12);
+    for (let y = refYear; y > targetYear; y--) {
       // hodnota na začátku roku y vznikla zhodnocením během roku y-1, nájem roku y je navýšený v roce y
       value /= 1 + resolvePortfolioRate(events, 'growth', y - 1, Number(p.growth_rate) || 0, p.id);
       rent /= 1 + resolvePortfolioRate(events, 'rent_growth', y, rentBase, p.id);
@@ -251,30 +282,43 @@ function rebaseToYear(properties, loans, settings, events, targetYear, currentYe
 /**
  * Zbývající jistina úvěru k 1. 1. libovolného roku (minulého i budoucího) - pro
  * budoucnost amortizuje dopředu (stejně jako projectPortfolio), pro minulost
- * obrácením stejným způsobem jako rebaseToYear. Vrací null, pokud úvěr v tom
- * roce ještě nebyl sjednaný.
+ * obrácením stejným způsobem jako rebaseToYear (včetně reverzního započtení
+ * mimořádných splátek, viz extraPaymentList). Vrací null, pokud úvěr v tom
+ * roce ještě nebyl sjednaný, nebo byl mimořádně celý splacen už dřív (viz loanClosure).
+ * Úvěr, co byl mimořádně celý splacen dřív letos nebo v minulosti, se rekonstruuje
+ * od data splacení (zůstatek v datech je k němu), ne ode dneška.
  */
 function projectLoanAmount(loan, targetYear, currentYear, events, startMonth, settings) {
   events = events || [];
   loan = resolveLoan(loan, settings);
-  const monthsDone = startMonth == null ? defaultStartMonth(currentYear) : startMonth;
   const loanStartYear = yearOf(loan.start_date, currentYear);
   if (loanStartYear > targetYear) return null;
+  const nowAbs = currentYear * 12 + (startMonth == null ? defaultStartMonth(currentYear) : startMonth);
+  const closure = loanClosure(loan);
+  const closed = closure && closure.abs <= nowAbs;
+  const refAbs = closed ? closure.abs : nowAbs;
+  const refYear = Math.floor(refAbs / 12);
+  if (closed && refYear < targetYear) return null; // předčasně splaceno před cílovým rokem
+  const refMonthIdx = refAbs % 12;
   let principal = Number(loan.amount) || 0;
-  if (targetYear > currentYear) {
-    const ls = { remainingPrincipal: principal, startYear: loanStartYear, projYear: currentYear, startMonth: monthsDone };
-    for (let y = currentYear; y < targetYear; y++) {
+  if (targetYear > refYear) {
+    const ls = { remainingPrincipal: principal, startYear: loanStartYear, projYear: currentYear, startMonth: refMonthIdx };
+    for (let y = refYear; y < targetYear; y++) {
       amortizeLoanForYear(loan, ls, y, currentYear, loanRateDelta(events, loan.id, y), loanRateOverride(events, loan.id, y));
     }
     return ls.remainingPrincipal;
   }
-  // zpětně: nejdřív letošní měsíce do dneška, pak celé roky až po 1. 1. cílového roku
+  // zpětně: od referenčního bodu (dnešek, nebo datum mimořádného splacení) po 1. 1. cílového roku, měsíc po měsíci;
+  // mimořádná splátka v mezidobí se taky obrátí (zůstatek byl před ní o tolik vyšší)
+  const extras = extraPaymentList(loan).filter((e) => e.amount != null);
   const payment = Number(loan.monthly_payment) || 0;
-  for (let y = currentYear; y >= targetYear; y--) {
+  const targetAbs = targetYear * 12;
+  for (let abs = refAbs - 1; abs >= targetAbs; abs--) {
+    const y = Math.floor(abs / 12);
     const override = loanRateOverride(events, loan.id, y);
     const monthlyRate = (override != null ? override : Math.max(0, loanRateForYear(loan, loanStartYear, y) + loanRateDelta(events, loan.id, y))) / 12;
-    const months = y === currentYear ? monthsDone : 12;
-    for (let m = 0; m < months; m++) principal = (principal + payment) / (1 + monthlyRate);
+    const extraThisMonth = extras.filter((e) => e.abs === abs).reduce((s, e) => s + e.amount, 0);
+    principal = (principal + payment + extraThisMonth) / (1 + monthlyRate);
   }
   return Math.max(0, principal);
 }
@@ -428,11 +472,43 @@ function refinancingList(loan) {
   return list.sort((a, b) => a.abs - b.abs);
 }
 
+/**
+ * Mimořádné splátky úvěru jako seznam událostí: loan.extra_payments = [{ id, date, amount }]. Prázdná/nulová částka =
+ * doplacení celého zbývajícího zůstatku (předčasné splacení úvěru, bez mazání záznamu - viz loanClosure). Vrací
+ * [{ id, date, abs, amount (Kč, null = doplatit vše) }] seřazené podle měsíce.
+ */
+function extraPaymentList(loan) {
+  const raw = Array.isArray(loan.extra_payments) ? loan.extra_payments : [];
+  const list = [];
+  for (const e of raw) {
+    if (!e || !e.date) continue;
+    const date = toDate(e.date);
+    if (isNaN(date)) continue;
+    const amount = e.amount != null && e.amount !== '' && Number(e.amount) > 0 ? Number(e.amount) : null;
+    list.push({ id: e.id, date, abs: monthAfter(date), amount });
+  }
+  return list.sort((a, b) => a.abs - b.abs);
+}
+
+/** První mimořádná splátka, která doplácí celý zbývající zůstatek (úvěr jí končí). null = úvěr se předčasně celý nesplácí. */
+function loanClosure(loan) {
+  return extraPaymentList(loan).find((e) => e.amount == null) || null;
+}
+
+/** Je úvěr k danému dni už předčasně celý splacený (viz loanClosure)? */
+function isLoanClosed(loan, today = new Date()) {
+  const closure = loanClosure(loan);
+  return !!closure && closure.abs <= today.getFullYear() * 12 + today.getMonth();
+}
+
 /** Počáteční stav úvěru v prvním simulovaném roce (splátka, zbývající doba, plánované změny). */
 function initLoanState(loan, ls, firstYear) {
   // v prvním simulovaném roce (letošek) se začíná od dnešního měsíce, jinak od ledna
   const firstMonth = firstYear === ls.projYear ? ls.startMonth || 0 : 0;
   const firstAbs = firstYear * 12 + firstMonth;
+  // mimořádné splacení celého úvěru naplánované (nebo už proběhlé) před tímto měsícem: úvěr už neexistuje
+  const closure = loanClosure(loan);
+  if (closure && closure.abs <= firstAbs) ls.remainingPrincipal = 0;
   const balance = ls.remainingPrincipal;
   const hasNumber = (v) => v != null && v !== '' && !isNaN(Number(v));
   ls.afterRate = hasNumber(loan.defaultRate) ? Number(loan.defaultRate) : null;
@@ -450,6 +526,8 @@ function initLoanState(loan, ls, firstYear) {
   }
   // refinancování, které už proběhlo, je ve vstupních údajích úvěru (částka, sazba, splátka) zahrnuté
   ls.refQueue = ls.refQueue.filter((r) => r.abs >= firstAbs);
+  // mimořádné splátky, které už proběhly, jsou v balance zahrnuté; po splacení celého úvěru dál nic neplatí
+  ls.extraQueue = extraPaymentList(loan).filter((e) => e.abs >= firstAbs && (!closure || e.abs <= closure.abs));
 
   // Zadaná splátka má přednost: splatnost se bere jen tehdy, když splátka není zadaná (jinak by si zadaná splátka a splatnost
   // odporovaly a po konci fixace by splátka klesla, i když sazba roste).
@@ -598,6 +676,26 @@ function amortizeLoanForYear(loan, ls, stateYear, startYear, rateDelta = 0, rate
     principal += principalM;
     lastPaidAbs = abs;
     if (Number.isFinite(ls.term)) ls.term = Math.max(0, ls.term - 1);
+
+    // mimořádná splátka tento měsíc: další snížení zůstatku nad rámec běžné splátky (prázdná částka = doplatit vše)
+    if (ls.extraQueue && ls.extraQueue.length && ls.extraQueue[0].abs === abs) {
+      while (ls.extraQueue.length && ls.extraQueue[0].abs === abs) {
+        const ev = ls.extraQueue.shift();
+        const extraAmt = ev.amount != null ? Math.min(ev.amount, ls.remainingPrincipal) : ls.remainingPrincipal;
+        if (extraAmt > 0) {
+          ls.remainingPrincipal -= extraAmt;
+          principal += extraAmt;
+        }
+      }
+      if (ls.remainingPrincipal < 0.01) ls.remainingPrincipal = 0;
+      if (ls.remainingPrincipal > 0) {
+        // doba splácení zůstává, banka sníží splátku (stejně jako mimořádné splacení z prodeje nemovitosti)
+        const payBefore2 = ls.pay;
+        if (Number.isFinite(ls.term) && ls.term > 0) ls.pay = annuityPayment(ls.remainingPrincipal, effectiveRate(ls), ls.term);
+        else ls.term = remainingTermMonths(ls.remainingPrincipal, ls.pay, effectiveRate(ls));
+        if (Math.abs(ls.pay - payBefore2) > 0.5) payChange = payChange || { month: m + 1, from: payBefore2, to: ls.pay };
+      }
+    }
   }
   ls.remainingPrincipal = Math.max(ls.remainingPrincipal, 0);
   return {
@@ -767,10 +865,14 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
   const curCost = {};
   const started = new Set();
   const soldProperties = new Set();
+  const nowAbs = startYear * 12 + timelineMonth;
   for (const p of properties) {
     curValue[p.id] = Number(p.market_value) || 0;
     curRent[p.id] = Number(p.rent) || 0;
     curCost[p.id] = (Number(p.monthly_costs) || 0) * 12;
+    // nemovitost prodaná k zadanému datu (viz property.sale_date) už dřív nebo letos: od teď v portfoliu není
+    const saleAbs = propertySaleAbs(p);
+    if (saleAbs != null && saleAbs <= nowAbs) soldProperties.add(p.id);
   }
 
   let cashReserve = 0;
@@ -976,6 +1078,18 @@ function projectPortfolio({ properties, loans, settings, events, horizonYears, s
         growth: pp ? pp.growth : Number(p.growth_rate) || 0,
       };
     };
+
+    // --- Prodej nemovitosti k zadanému datu (property.sale_date) - nezávisí na automatickém prodeji ani jeho
+    // podmínkách (časový test, minimální hodnota portfolia, "neprodávat"): je to vědomé rozhodnutí uživatele, ne
+    // volba algoritmu. Reálná prodejní cena (sale_price), je-li zadaná, nahradí dopočítanou tržní hodnotu.
+    for (const p of activeProps) {
+      if (soldProperties.has(p.id)) continue;
+      const saleAbs = propertySaleAbs(p);
+      if (saleAbs == null || Math.floor(saleAbs / 12) !== stateYear) continue;
+      const hasSalePrice = p.sale_price != null && p.sale_price !== '';
+      const marketValue = hasSalePrice ? Number(p.sale_price) || 0 : curValue[p.id];
+      sell(scoreSaleCandidate(p, marketValue, capGainsTaxRate, saleDate, poTaxRate, performanceOf(p)), 'manual');
+    }
 
     if (autoSellEnabled) {
       // 1) PO: prodat co nejdřív
@@ -1333,6 +1447,11 @@ window.calc = {
   loanSchedule,
   mergePlan,
   refinancingList,
+  extraPaymentList,
+  loanClosure,
+  isLoanClosed,
+  propertySaleAbs,
+  isPropertySold,
   fixationChangeMonth,
   defaultStartMonth,
   annuityPayment,

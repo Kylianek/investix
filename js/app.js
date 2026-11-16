@@ -991,7 +991,16 @@ function updateToggleLabel(key) {
 }
 
 function rerenderTable(key) {
-  const renderers = { properties: renderPropertiesTable, loans: renderLoansTable, refi: renderRefinancingTable, scenario: renderScenarioTable, events: renderEvents };
+  const renderers = {
+    properties: renderPropertiesTable,
+    'property-history': renderPropertyHistoryTable,
+    loans: renderLoansTable,
+    'loan-history': renderLoanHistoryTable,
+    extra: renderExtraPaymentsTable,
+    refi: renderRefinancingTable,
+    scenario: renderScenarioTable,
+    events: renderEvents,
+  };
   if (renderers[key]) renderers[key]();
 }
 
@@ -1181,7 +1190,8 @@ function renderPropertiesTable() {
   applyTableMode(key);
   const totals = { rent: 0, value: 0, lien: 0, freed: 0, appreciated: 0, growthWeighted: 0, yield: 0, quality: 0 };
 
-  const rows = state.properties.map((p) => {
+  // prodané nemovitosti (viz property.sale_date) jsou v samostatné historii, ne v aktuálním přehledu/součtech
+  const rows = state.properties.filter((p) => !calc.isPropertySold(p)).map((p) => {
     const marketValue = Number(p.market_value) || 0;
     const cross = [];
     for (const l of state.loans) {
@@ -1267,6 +1277,57 @@ function renderPropertiesTable() {
   }
   tbody.querySelectorAll('[data-edit-property]').forEach((btn) => btn.addEventListener('click', () => fillPropertyForm(btn.dataset.editProperty)));
   tbody.querySelectorAll('[data-delete-property]').forEach((btn) => btn.addEventListener('click', () => deleteProperty(btn.dataset.deleteProperty)));
+  fitTable(key);
+}
+
+/** Prodané nemovitosti (viz property.sale_date): mimo aktuální přehled a předpovědi, ale dál v historii - neztratí se, dokud je uživatel nesmaže. */
+function renderPropertyHistoryTable() {
+  const key = 'property-history';
+  applyTableMode(key);
+  const card = document.getElementById('property-history-card');
+  const rows = state.properties.filter((p) => calc.isPropertySold(p));
+  card.classList.toggle('hidden', !rows.length);
+  const dash = '<span class="t-faint">—</span>';
+  const columns = [
+    { label: 'Nemovitost', cell: (p) => `<span class="font-medium" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span> ${ownerBadge(p)}` },
+    { label: 'Datum prodeje', cell: (p) => (p.sale_date ? fmtDate(p.sale_date) : dash) },
+    { label: 'Prodejní cena', right: true, cell: (p) => (p.sale_price != null && p.sale_price !== '' ? moneyHtml(Number(p.sale_price)) : `<span class="t-faint">odhadem ${moneyHtml(calc.appreciatedValue(Number(p.market_value) || 0, Number(p.growth_rate)))}</span>`) },
+    { label: '', right: true, actions: true, cell: (p) => actionButtons('data-edit-property', 'data-delete-property', p.id) },
+  ];
+  const cols = visibleColumns(columns, key);
+  document.getElementById('property-history-thead').innerHTML = headHtml(cols);
+  const tbody = document.getElementById('property-history-tbody');
+  tbody.innerHTML = rows
+    .map((p) => `<tr>${cols.map((c) => `<td class="${c.right ? 'text-right' : ''} ${c.actions ? 'whitespace-nowrap' : ''}">${c.cell(p)}</td>`).join('')}</tr>`)
+    .join('');
+  tbody.querySelectorAll('[data-edit-property]').forEach((btn) => btn.addEventListener('click', () => fillPropertyForm(btn.dataset.editProperty)));
+  tbody.querySelectorAll('[data-delete-property]').forEach((btn) => btn.addEventListener('click', () => deleteProperty(btn.dataset.deleteProperty)));
+  fitTable(key);
+}
+
+/** Předčasně celé splacené úvěry (viz loan.extra_payments): mimo aktuální přehled a předpovědi, ale dál v historii. */
+function renderLoanHistoryTable() {
+  const key = 'loan-history';
+  applyTableMode(key);
+  const card = document.getElementById('loan-history-card');
+  const rows = state.loans.filter((l) => calc.isLoanClosed(l)).map((l) => ({ l, closure: calc.loanClosure(l) }));
+  card.classList.toggle('hidden', !rows.length);
+  const dash = '<span class="t-faint">—</span>';
+  const columns = [
+    { label: 'Banka', cell: (r) => `<span class="font-medium" title="${escapeHtml(r.l.bank)}">${bankLogoHtml(r.l.bank)}${escapeHtml(r.l.bank)}</span>` },
+    { label: 'Splaceno k', cell: (r) => (r.closure ? fmtDate(toInputDate(r.closure.date)) : dash) },
+    { label: 'Splacený zůstatek', right: true, cell: (r) => moneyHtml(r.l.amount) },
+    { label: 'Nemovitost', x: true, cell: (r) => (r.l.property_id && propertyName(r.l.property_id)) || dash },
+    { label: '', right: true, actions: true, cell: (r) => actionButtons('data-edit-loan', 'data-delete-loan', r.l.id) },
+  ];
+  const cols = visibleColumns(columns, key);
+  document.getElementById('loan-history-thead').innerHTML = headHtml(cols);
+  const tbody = document.getElementById('loan-history-tbody');
+  tbody.innerHTML = rows
+    .map((r) => `<tr>${cols.map((c) => `<td class="${c.right ? 'text-right' : ''} ${c.actions ? 'whitespace-nowrap' : ''}">${c.cell(r)}</td>`).join('')}</tr>`)
+    .join('');
+  tbody.querySelectorAll('[data-edit-loan]').forEach((btn) => btn.addEventListener('click', () => fillLoanForm(btn.dataset.editLoan)));
+  tbody.querySelectorAll('[data-delete-loan]').forEach((btn) => btn.addEventListener('click', () => deleteLoan(btn.dataset.deleteLoan)));
   fitTable(key);
 }
 
@@ -1502,6 +1563,9 @@ function saleWhyHtml(sale) {
   if (sale.reason === 'po') {
     return '<div class="popover-sub">Proč se prodala</div><p>PO se prodává co nejdřív: nemá časový test a daň z prodeje se platí vždy, další zhodnocení by jen zvětšovalo daň.</p>';
   }
+  if (sale.reason === 'manual') {
+    return '<div class="popover-sub">Proč se prodala</div><p>Prodej zadaný u nemovitosti (datum prodeje) - nezávisí na automatickém prodeji ani jeho podmínkách.</p>';
+  }
   const cmp = sale.comparison;
   const trigger =
     sale.threshold > 0
@@ -1622,7 +1686,8 @@ function renderLoansTable() {
   const dash = '<span class="t-faint">—</span>';
 
   const monthYear = (abs) => `${String((abs % 12) + 1).padStart(2, '0')}/${Math.floor(abs / 12)}`;
-  const rows = state.loans.map((l) => {
+  // předčasně celé splacené úvěry (viz loan.extra_payments) jsou v samostatné historii, ne v aktuálním přehledu/součtech
+  const rows = state.loans.filter((l) => !calc.isLoanClosed(l)).map((l) => {
     const end = calc.fixationEndDate(l);
     const terms = calc.loanTerms(l, CURRENT_YEAR, undefined, state.settings);
     const sch = calc.loanSchedule(l, { events: state.events, startYear: CURRENT_YEAR, maxYears: 1, settings: state.settings });
@@ -1765,6 +1830,7 @@ function init() {
   resetPropertyForm();
   resetLoanForm();
   resetRefiForm();
+  resetExtraForm();
   resetEventForm();
   renderAll();
 }
@@ -2000,6 +2066,11 @@ function validateProperty(f) {
   v.field({ el: el('occupancy'), kind: 'percent', min: 0, max: 100 });
   v.field({ el: el('monthly_costs'), kind: 'money', min: 0, max: 1e8 });
   v.field({ el: el('rent_growth_rate'), kind: 'percent', min: -50, max: 100 });
+  v.field({ el: el('sale_date'), kind: 'date' });
+  v.field({ el: el('sale_price'), kind: 'money', min: 0, max: MAX_MONEY });
+  const acquisition = el('acquisition_date').value || toInputDate(new Date());
+  const saleDate = el('sale_date').value;
+  if (saleDate && saleDate < acquisition) v.fail(el('sale_date'), 'Datum prodeje nemůže být před pořízením.');
   return v.done();
 }
 
@@ -2127,8 +2198,9 @@ function lockIconHtml() {
 function renderNeverSellChips() {
   const box = document.getElementById('never-sell-chips');
   if (!box) return;
-  box.innerHTML = state.properties.length
-    ? state.properties
+  const active = state.properties.filter((p) => !calc.isPropertySold(p));
+  box.innerHTML = active.length
+    ? active
         .map((p) => `<label class="chip"><input type="checkbox" value="${p.id}" ${p.never_sell ? 'checked' : ''} /><span>${escapeHtml(p.name)}</span></label>`)
         .join('')
     : '<span class="text-sm t-faint">Zatím žádné nemovitosti</span>';
@@ -2236,6 +2308,7 @@ function updateQualityBadge() {
 
 function renderProperties() {
   renderPropertiesTable();
+  renderPropertyHistoryTable();
   renderLoanPropertySelect();
   renderEventTargets();
 }
@@ -2262,6 +2335,8 @@ function updatePropertyBadges() {
   ]
     .filter(Boolean)
     .join(' · ');
+  const saleDate = f.elements['sale_date'].value;
+  document.getElementById('property-sale-badge').textContent = saleDate ? `Prodáno ${fmtDate(saleDate)}` : '';
 }
 
 function wirePropertyFormUi() {
@@ -2303,6 +2378,9 @@ function fillPropertyForm(id) {
   document.getElementById('property-acc-quality').open = ['condition', 'renovation', 'location', 'energy'].some((key) => qualityOptionLabel(key, p[key]));
   const opAcc = document.getElementById('property-rent-growth').closest('details');
   opAcc.open = vacancy > 0 || !!p.monthly_costs || p.rent_growth_rate != null;
+  f.elements['sale_date'].value = p.sale_date || '';
+  setFormattedValue(f.elements['sale_price'], p.sale_price != null ? p.sale_price : '');
+  document.getElementById('property-acc-sale').open = !!p.sale_date;
   document.getElementById('property-form-title').textContent = 'Upravit nemovitost';
   document.getElementById('property-submit-label').textContent = 'Uložit změny';
   document.getElementById('property-form-card').classList.add('is-editing');
@@ -2371,6 +2449,8 @@ function submitPropertyForm(e) {
     renovation: f.elements['renovation'].value || null,
     location: f.elements['location'].value || null,
     energy: f.elements['energy'].value || null,
+    sale_date: f.elements['sale_date'].value || null,
+    sale_price: f.elements['sale_price'].value.trim() ? parseFormNumber(f.elements['sale_price'].value) : null,
   };
   if (id) {
     const idx = state.properties.findIndex((p) => p.id === id);
@@ -2417,12 +2497,14 @@ function renderLoanCollateralChecklist(draft) {
   const editId = loanForm().elements['id'].value;
   const editing = editId ? state.loans.find((l) => l.id === editId) : null;
   const selected = draft || new Map((editing ? calc.loanCollateral(editing) : []).filter((c) => Number.isFinite(c.amount)).map((c) => [c.property_id, c.amount]));
-  if (!state.properties.length) {
+  // prodaná nemovitost se nově nenabízí k zastavení, ale zůstává vidět, pokud u úvěru už zastavená je
+  const offered = state.properties.filter((p) => !calc.isPropertySold(p) || selected.has(p.id));
+  if (!offered.length) {
     container.innerHTML = '<p class="text-sm t-faint">Zatím žádné nemovitosti</p>';
     updateLoanBadges();
     return;
   }
-  container.innerHTML = state.properties
+  container.innerHTML = offered
     .map((p) => {
       const free = calc.freePledgeValue(p, state.loans, editId);
       const on = selected.has(p.id);
@@ -2449,8 +2531,10 @@ function renderLoanPropertySelect() {
   const select = document.getElementById('loan-property-select');
   if (!select) return;
   const previous = select.value;
-  select.innerHTML = '<option value="">—</option>' + state.properties.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
-  select.value = state.properties.some((p) => p.id === previous) ? previous : '';
+  // prodaná nemovitost se nově nenabízí jako financovaná, ale zůstává vidět, pokud u úvěru už vybraná je
+  const offered = state.properties.filter((p) => !calc.isPropertySold(p) || p.id === previous);
+  select.innerHTML = '<option value="">—</option>' + offered.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  select.value = offered.some((p) => p.id === previous) ? previous : '';
 }
 
 function updateLoanBadges() {
@@ -2554,7 +2638,9 @@ function wireLoanFormUi() {
 
 function renderLoans() {
   renderLoansTable();
+  renderLoanHistoryTable();
   renderRefinancings();
+  renderExtraPayments();
   renderLoanCollateralChecklist(readPledgeDraft());
   renderLoanPropertySelect();
   renderEventTargets();
@@ -2757,13 +2843,15 @@ function renderRefiLoanChecklist(selected) {
   if (!container) return;
   const wanted = selected || (state.loans.length === 1 ? [state.loans[0].id] : []);
   const chosen = new Set(Array.from(wanted).filter((id) => state.loans.some((l) => l.id === id)));
+  // předčasně splacený úvěr se nově nenabízí k refinancování
+  const offered = state.loans.filter((l) => !calc.isLoanClosed(l) || chosen.has(l.id));
   const all =
-    state.loans.length > 1
-      ? `<label class="chip"><input type="checkbox" class="refi-all-box" ${state.loans.every((l) => chosen.has(l.id)) ? 'checked' : ''} /><span>Všechny</span></label>`
+    offered.length > 1
+      ? `<label class="chip"><input type="checkbox" class="refi-all-box" ${offered.every((l) => chosen.has(l.id)) ? 'checked' : ''} /><span>Všechny</span></label>`
       : '';
   container.innerHTML =
     all +
-    state.loans
+    offered
       .map(
         (l) =>
           `<label class="chip"><input type="checkbox" class="refi-loan-box" value="${l.id}" ${chosen.has(l.id) ? 'checked' : ''} /><span class="chip-with-logo">${bankLogoHtml(l.bank)}${escapeHtml(l.bank)} · ${fmtMoney(l.amount)}</span></label>`
@@ -2999,6 +3087,149 @@ function submitRefiForm(e) {
   showSuccessToast(editKey ? 'Refinancování upraveno' : loanIds.length > 1 ? `Refinancování přidáno k ${loanIds.length} úvěrům` : 'Refinancování přidáno');
 }
 
+/* ---------- MIMOŘÁDNÉ SPLÁTKY: samostatné události nad úvěrem (u úvěru jich může být víc), prázdná částka = doplacení
+   celého zbývajícího zůstatku (předčasné splacení úvěru, viz calc.loanClosure) ---------- */
+
+const extraForm = () => document.getElementById('extra-form');
+
+/** Všechny mimořádné splátky ze všech úvěrů: [{ loan, ev }] podle data. */
+function extraPaymentRows() {
+  const rows = [];
+  for (const loan of state.loans) for (const ev of Array.isArray(loan.extra_payments) ? loan.extra_payments : []) rows.push({ loan, ev });
+  return rows.sort((a, b) => String(a.ev.date).localeCompare(String(b.ev.date)));
+}
+
+function findExtraPayment(id) {
+  return extraPaymentRows().find((r) => r.ev.id === id) || null;
+}
+
+/** Úvěry nabízené k mimořádné splátce: předčasně už celý splacený úvěr se nenabízí, kromě úvěru právě upravované splátky. */
+function renderExtraLoanSelect() {
+  const select = document.getElementById('extra-loan-select');
+  if (!select) return;
+  const previous = select.value;
+  const editId = extraForm().elements['id'].value;
+  const editing = editId ? findExtraPayment(editId) : null;
+  const offered = state.loans.filter((l) => !calc.isLoanClosed(l) || (editing && editing.loan.id === l.id));
+  select.innerHTML = offered.length
+    ? offered.map((l) => `<option value="${l.id}">${escapeHtml(l.bank)} · ${fmtMoney(l.amount)}</option>`).join('')
+    : '<option value="">—</option>';
+  select.value = offered.some((l) => l.id === previous) ? previous : offered.length ? offered[0].id : '';
+}
+
+function renderExtraPaymentsTable() {
+  const key = 'extra';
+  applyTableMode(key);
+  const card = document.getElementById('extra-card');
+  const rows = extraPaymentRows();
+  card.classList.toggle('hidden', !rows.length);
+  const now = new Date();
+  const todayAbs = now.getFullYear() * 12 + now.getMonth();
+  const columns = [
+    { label: 'Úvěr', cell: ({ loan }) => `<span class="chip-with-logo">${bankLogoHtml(loan.bank)}${escapeHtml(loan.bank)}</span>` },
+    {
+      label: 'Datum',
+      cell: ({ ev }) => {
+        const d = calc.toDate(ev.date);
+        const past = !isNaN(d) && d.getFullYear() * 12 + d.getMonth() + (d.getDate() > 15 ? 1 : 0) < todayAbs;
+        return `<span class="num">${fmtDate(ev.date)}</span>${past ? ' <span class="text-xs t-muted">· proběhlo</span>' : ''}`;
+      },
+    },
+    { label: 'Částka', right: true, cell: ({ ev }) => (ev.amount != null && ev.amount !== '' ? moneyHtml(Number(ev.amount)) : '<span class="t-muted">celý zůstatek</span>') },
+    { label: '', right: true, actions: true, cell: ({ ev }) => actionButtons('data-edit-extra', 'data-delete-extra', ev.id) },
+  ];
+  const cols = visibleColumns(columns, key);
+  document.getElementById('extra-thead').innerHTML = headHtml(cols);
+  const tbody = document.getElementById('extra-tbody');
+  tbody.innerHTML = rows
+    .map((r) => `<tr>${cols.map((c) => `<td class="${c.right ? 'text-right' : ''} ${c.actions ? 'whitespace-nowrap' : ''}">${c.cell(r)}</td>`).join('')}</tr>`)
+    .join('');
+  tbody.querySelectorAll('[data-edit-extra]').forEach((btn) => btn.addEventListener('click', () => fillExtraForm(btn.dataset.editExtra)));
+  tbody.querySelectorAll('[data-delete-extra]').forEach((btn) => btn.addEventListener('click', () => deleteExtraPayment(btn.dataset.deleteExtra)));
+  fitTable(key);
+}
+
+function renderExtraPayments() {
+  const formCard = document.getElementById('extra-form-card');
+  if (!formCard) return;
+  formCard.classList.toggle('hidden', !state.loans.length); // bez úvěru není co splácet mimořádně
+  // upravovaná splátka (nebo její úvěr) mezitím zmizela: formulář se vrátí do stavu "Přidat"
+  const editId = extraForm().elements['id'].value;
+  if (editId && !findExtraPayment(editId)) resetExtraForm();
+  renderExtraLoanSelect();
+  renderExtraPaymentsTable();
+}
+
+function fillExtraForm(id) {
+  const row = findExtraPayment(id);
+  if (!row) return;
+  const { loan, ev } = row;
+  const f = extraForm();
+  f.reset();
+  clearFieldErrors(f);
+  showFormError('extra-form-error', '');
+  f.elements['id'].value = ev.id;
+  renderExtraLoanSelect();
+  f.elements['loan_id'].value = loan.id;
+  f.elements['date'].value = ev.date || '';
+  setFormattedValue(f.elements['amount'], ev.amount != null && ev.amount !== '' ? ev.amount : '');
+  document.getElementById('extra-form-title').textContent = 'Upravit mimořádnou splátku';
+  document.getElementById('extra-submit-label').textContent = 'Uložit změny';
+  document.getElementById('extra-form-card').classList.add('is-editing');
+  revealForm('extra-form-card');
+}
+
+function resetExtraForm() {
+  const f = extraForm();
+  f.reset();
+  clearFieldErrors(f);
+  f.elements['id'].value = '';
+  showFormError('extra-form-error', '');
+  renderExtraLoanSelect();
+  document.getElementById('extra-form-title').textContent = 'Přidat mimořádnou splátku';
+  document.getElementById('extra-submit-label').textContent = 'Přidat splátku';
+  document.getElementById('extra-form-card').classList.remove('is-editing');
+}
+
+/** Mimořádná splátka: úvěr, datum v rozsahu úvěru (od zřízení), nepovinná částka (prázdná = doplatit celý zůstatek). */
+function validateExtraPayment(f) {
+  clearFieldErrors(f);
+  const v = makeValidator();
+  const el = (name) => f.elements[name];
+  if (!el('loan_id').value) v.fail(el('loan_id'), 'Vyber úvěr.');
+  v.field({ el: el('date'), kind: 'date', required: true });
+  v.field({ el: el('amount'), kind: 'money', minExclusive: 0, max: MAX_MONEY });
+  const loan = state.loans.find((l) => l.id === el('loan_id').value);
+  const date = el('date').value;
+  if (loan && date && loan.start_date && date < loan.start_date) v.fail(el('date'), 'Datum nemůže být před zřízením úvěru.');
+  return v.done();
+}
+
+function submitExtraForm(e) {
+  e.preventDefault();
+  const f = e.target;
+  if (!validateExtraPayment(f)) return;
+  const id = f.elements['id'].value;
+  const loan = state.loans.find((l) => l.id === f.elements['loan_id'].value);
+  if (!loan) return;
+  const amountRaw = f.elements['amount'].value.trim();
+  const ev = { id: id || uid(), date: f.elements['date'].value, amount: amountRaw ? parseFormNumber(amountRaw) : null };
+  // splátka se mohla přesunout na jiný úvěr: smaž ji ze všech úvěrů, pak přidej na vybraný
+  if (id) for (const l of state.loans) if (Array.isArray(l.extra_payments)) l.extra_payments = l.extra_payments.filter((x) => x.id !== id);
+  loan.extra_payments = [...(Array.isArray(loan.extra_payments) ? loan.extra_payments : []), ev];
+  saveState();
+  resetExtraForm();
+  renderAll();
+  showSuccessToast(id ? 'Mimořádná splátka upravena' : 'Mimořádná splátka přidána');
+}
+
+async function deleteExtraPayment(id) {
+  if (!(await customConfirm('Smazat tuto mimořádnou splátku?', 'Smazat'))) return;
+  for (const l of state.loans) if (Array.isArray(l.extra_payments)) l.extra_payments = l.extra_payments.filter((x) => x.id !== id);
+  saveState();
+  renderAll();
+}
+
 /* ---------- NASTAVENÍ ---------- */
 
 function renderSettings() {
@@ -3096,6 +3327,8 @@ const EVENT_LABELS = {
   one_time: 'Jednorázový příjem/výdaj',
   sale: 'Prodej co nejdřív',
   refinance: 'Refinancování',
+  manual_sale: 'Prodej k datu',
+  extra_payment: 'Mimořádná splátka',
 };
 
 const EVENT_UNITS = { growth: 'percent', rent_growth: 'percent', vacancy: 'percent', inflation: 'percent', interest: 'percent', one_time: 'money' };
@@ -3145,10 +3378,11 @@ function renderEventTargets() {
   const kind = eventTargetKind(currentEventType());
   document.getElementById('event-targets-wrap').classList.toggle('hidden', !kind);
   if (!kind) return;
+  // prodaná nemovitost / předčasně splacený úvěr se nově nenabízí jako cíl scénářové události, kromě už vybraného cíle
   const items =
     kind === 'loan'
-      ? state.loans.map((l) => ({ id: l.id, label: l.bank || 'Úvěr' }))
-      : state.properties.map((p) => ({ id: p.id, label: p.name }));
+      ? state.loans.filter((l) => !calc.isLoanClosed(l) || eventTargets.includes(l.id)).map((l) => ({ id: l.id, label: l.bank || 'Úvěr' }))
+      : state.properties.filter((p) => !calc.isPropertySold(p) || eventTargets.includes(p.id)).map((p) => ({ id: p.id, label: p.name }));
   eventTargets = eventTargets.filter((id) => items.some((i) => i.id === id));
   container.innerHTML =
     `<label class="chip"><input type="checkbox" data-all ${eventTargets.length ? '' : 'checked'} /><span>Všechny</span></label>` +
@@ -3213,6 +3447,20 @@ function derivedEvents() {
     if (vacancy > 0) out.push({ ...base, type: 'vacancy', period: 'trvale', value: `${fmtNumber((1 - vacancy) * 100)} %` });
     if (p.rent_growth_rate != null) out.push({ ...base, type: 'rent_growth', period: 'trvale', value: `${fmtNumber(p.rent_growth_rate * 100)} %` });
     if (calc.isPO(p) && autoSell && !p.never_sell) out.push({ ...base, type: 'sale', period: `${CURRENT_YEAR}`, value: '—' });
+    if (p.sale_date) out.push({ ...base, type: 'manual_sale', period: fmtDate(p.sale_date), value: p.sale_price != null && p.sale_price !== '' ? fmtMoney(Number(p.sale_price)) : '—' });
+  }
+  for (const l of state.loans) {
+    for (const ev of Array.isArray(l.extra_payments) ? l.extra_payments : []) {
+      if (!ev.date) continue;
+      out.push({
+        derived: true,
+        targets: l.bank,
+        source: { kind: 'extra', id: ev.id },
+        type: 'extra_payment',
+        period: fmtDate(ev.date),
+        value: ev.amount != null && ev.amount !== '' ? fmtMoney(Number(ev.amount)) : 'celý zůstatek',
+      });
+    }
   }
   for (const p of refinancingPackages()) {
     const r = p.ev;
@@ -3273,6 +3521,9 @@ function renderEvents() {
       } else if (kind === 'refi') {
         showTab('tab-loans');
         fillRefiForm(id);
+      } else if (kind === 'extra') {
+        showTab('tab-loans');
+        fillExtraForm(id);
       } else {
         showTab('tab-loans');
         fillLoanForm(id);
@@ -3715,6 +3966,7 @@ function importBackup(e) {
       resetPropertyForm();
       resetLoanForm();
       resetRefiForm();
+      resetExtraForm();
       resetEventForm();
       renderAll();
       showSuccessToast('Záloha nahrána');
@@ -3741,6 +3993,7 @@ async function clearAllData() {
   resetPropertyForm();
   resetLoanForm();
   resetRefiForm();
+  resetExtraForm();
   resetEventForm();
   renderAll();
 }
@@ -3798,6 +4051,7 @@ function wireForms() {
     ['property-form', submitPropertyForm],
     ['loan-form', submitLoanForm],
     ['refi-form', submitRefiForm],
+    ['extra-form', submitExtraForm],
     ['event-form', submitEventForm],
   ];
   for (const [id, handler] of forms) {
@@ -3815,6 +4069,7 @@ function wireForms() {
   document.getElementById('property-form-reset').addEventListener('click', resetPropertyForm);
   document.getElementById('loan-form-reset').addEventListener('click', resetLoanForm);
   document.getElementById('refi-form-reset').addEventListener('click', resetRefiForm);
+  document.getElementById('extra-form-reset').addEventListener('click', resetExtraForm);
   document.getElementById('event-form-reset').addEventListener('click', resetEventForm);
 }
 
